@@ -51,7 +51,9 @@ class Chua(DynamicalSystem):
 
     @staticmethod
     def _h(x: float, m0: float, m1: float) -> float:
-        return m1 * x + 0.5 * (m0 - m1) * (abs(x + 1.0) - abs(x - 1.0))
+        # ``np.abs`` works for both scalars and vectors; ``abs()`` would
+        # silently break if a vectorized RHS evaluation ever reaches here.
+        return m1 * x + 0.5 * (m0 - m1) * (np.abs(x + 1.0) - np.abs(x - 1.0))
 
     def _rhs(
         self, t: float, y: FloatArray, params: Mapping[str, float]

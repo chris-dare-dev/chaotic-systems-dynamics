@@ -78,7 +78,9 @@ class DoublePendulum(DynamicalSystem):
         "l2": Parameter("l2", 1.0, 0.01, 10.0, "lower-rod length", "m"),
         "g": Parameter("g", 9.81, 0.0, 25.0, "gravitational acceleration", "m/s^2"),
     }
-    # Mildly off vertical so it actually swings.
+    # Canonical chaotic IC: both arms well past horizontal (2.0 rad ~= 115°,
+    # 2.5 rad ~= 143°). Past energies where the upper arm could flip over.
+    # See Stachowiak-Okada 2006 §3 for the chaos threshold in this regime.
     default_initial_state = np.array(
         [2.0, 2.5, 0.0, 0.0], dtype=np.float64
     )

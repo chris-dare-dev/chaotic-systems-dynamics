@@ -82,7 +82,10 @@ class LagrangianSystem:
 
         L = self.lagrangian
         # Euler-Lagrange: d/dt(dL/dqdot_i) - dL/dq_i = 0
-        EL = [sp.diff(sp.diff(L, qd), t) - sp.diff(L, q) for q, qd in zip(qs, qdots)]
+        EL = [
+            sp.diff(sp.diff(L, qd), t) - sp.diff(L, q)
+            for q, qd in zip(qs, qdots, strict=True)
+        ]
         self._euler_lagrange = tuple(EL)
 
         # Solve EL = 0 for \ddot q. The system is linear in qddots since

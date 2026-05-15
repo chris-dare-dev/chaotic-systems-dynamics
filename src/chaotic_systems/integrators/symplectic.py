@@ -112,6 +112,12 @@ def _yoshida4_step(
 
 
 def _grad_fns_from_kwargs(kwargs: dict[str, Any]) -> tuple[GradFn, GradFn]:
+    """Pop ``grad_t_fn`` / ``grad_v_fn`` from ``kwargs`` (in place).
+
+    Mutates the supplied mapping so the caller can detect unconsumed
+    leftover kwargs. Raises ``ValueError`` if either gradient is missing.
+    """
+
     try:
         grad_T = kwargs.pop("grad_t_fn")
         grad_V = kwargs.pop("grad_v_fn")
@@ -136,18 +142,32 @@ class _Symplectic:
         *,
         dt: float | None = None,
         n_points: int | None = None,
-        rtol: float = 1e-8,  # unused
-        atol: float = 1e-10,  # unused
+        rtol: float = 1e-8,
+        atol: float = 1e-10,
         **kwargs: Any,
     ) -> Trajectory:
         del rhs  # Symplectic integrators consume grad_T / grad_V, not a flat rhs.
+        del rtol, atol  # Fixed-step methods don't use tolerances; document and drop.
         if dt is None:
             raise ValueError(
                 f"{self.name} requires a fixed step `dt` (got dt=None). "
                 "If you supplied n_points only, derive dt = (t1 - t0) / (n_points - 1)."
             )
-        grad_T, grad_V = _grad_fns_from_kwargs(dict(kwargs))
+        if float(dt) <= 0.0:
+            raise ValueError(f"dt must be positive (got dt={dt!r})")
         t0, t1 = float(t_span[0]), float(t_span[1])
+        if t1 <= t0:
+            raise ValueError(
+                f"t_span must be strictly increasing (got t0={t0!r}, t1={t1!r})"
+            )
+        # Drain the real kwargs so a stray extra keyword raises rather than
+        # silently passing through.
+        grad_T, grad_V = _grad_fns_from_kwargs(kwargs)
+        if kwargs:
+            raise TypeError(
+                f"{self.name}.integrate got unexpected keyword argument(s): "
+                f"{sorted(kwargs)}"
+            )
         h = float(dt)
         n_steps = max(1, int(np.floor((t1 - t0) / h)))
 
@@ -179,7 +199,11 @@ class _Symplectic:
 
 
 velocity_verlet = _Symplectic(name="velocity_verlet", stepper=_velocity_verlet_step)
-leapfrog = _Symplectic(name="leapfrog", stepper=_leapfrog_step)
+# `leapfrog` is algebraically identical to velocity Verlet for the
+# synchronized form we use; expose it as a distinct instance with its own
+# name so trajectories advertise which alias the user chose. (Sharing the
+# stepper closure means there's no math drift between them.)
+leapfrog = _Symplectic(name="leapfrog", stepper=_velocity_verlet_step)
 yoshida4 = _Symplectic(name="yoshida4", stepper=_yoshida4_step)
 
 

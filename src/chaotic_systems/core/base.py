@@ -23,12 +23,18 @@ from __future__ import annotations
 import abc
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
 FloatArray = NDArray[np.float64]
+
+# Module-level empty defaults shared by every ``DynamicalSystem`` subclass.
+# Kept as read-only / size-zero so an accidental write surfaces immediately.
+_EMPTY_PARAMS: Mapping[str, Parameter] = MappingProxyType({})
+_EMPTY_INITIAL_STATE: NDArray[np.float64] = np.empty(0, dtype=np.float64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,13 +140,14 @@ class DynamicalSystem(abc.ABC):
     4. Set :attr:`default_initial_state` — a ``(state_dim,)`` array.
     """
 
-    # Class-level metadata (override in subclasses).
+    # Class-level metadata (override in subclasses). The defaults are
+    # deliberately frozen / zero-sized so an accidental write would be loud.
     name: str = "unnamed"
     latex: str = ""
     lagrangian_latex: str | None = None
     state_dim: int = 0
-    parameters: Mapping[str, Parameter] = {}
-    default_initial_state: FloatArray = np.array([], dtype=np.float64)
+    parameters: Mapping[str, Parameter] = _EMPTY_PARAMS
+    default_initial_state: FloatArray = _EMPTY_INITIAL_STATE
 
     # ----- public API --------------------------------------------------
 
@@ -237,6 +244,20 @@ class DynamicalSystem(abc.ABC):
         """
         # Local imports to avoid circular import at module load time.
         from chaotic_systems.integrators import get_integrator
+        from chaotic_systems.integrators.symplectic import (
+            _Symplectic,
+            from_hamiltonian,
+        )
+
+        t0, t1 = float(t_span[0]), float(t_span[1])
+        if t1 <= t0:
+            raise ValueError(
+                f"t_span must be strictly increasing (got t0={t0!r}, t1={t1!r})"
+            )
+        if dt is not None and float(dt) <= 0.0:
+            raise ValueError(f"dt must be positive (got dt={dt!r})")
+        if n_points is not None and int(n_points) < 2:
+            raise ValueError(f"n_points must be >= 2 (got n_points={n_points!r})")
 
         y0_arr = (
             self.initial_state
@@ -247,6 +268,9 @@ class DynamicalSystem(abc.ABC):
             raise ValueError(
                 f"y0 has shape {y0_arr.shape}, expected ({self.state_dim},)"
             )
+        if not np.isfinite(y0_arr).all():
+            raise ValueError("y0 contains non-finite entries")
+
         merged_params = self.merged_params(params)
 
         # Bind params into a closure-style rhs the integrators can call.
@@ -254,9 +278,20 @@ class DynamicalSystem(abc.ABC):
             return self._rhs(t, y, merged_params)
 
         integ = get_integrator(integrator)
+
+        # Symplectic integrators need (grad_T, grad_V) split. If `self`
+        # exposes a separable `.hamiltonian`, build them automatically so
+        # callers don't have to.
+        if isinstance(integ, _Symplectic) and "grad_t_fn" not in integrator_kwargs:
+            ham = getattr(self, "hamiltonian", None)
+            if ham is not None and getattr(ham, "separable", False):
+                grad_T, grad_V = from_hamiltonian(integ, ham)
+                integrator_kwargs.setdefault("grad_t_fn", grad_T)
+                integrator_kwargs.setdefault("grad_v_fn", grad_V)
+
         traj = integ.integrate(
             bound_rhs,
-            t_span,
+            (t0, t1),
             y0_arr,
             dt=dt,
             n_points=n_points,

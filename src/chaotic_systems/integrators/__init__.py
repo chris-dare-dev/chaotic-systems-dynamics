@@ -19,7 +19,7 @@ from chaotic_systems.integrators.adaptive import (
     RK45,
     Radau,
 )
-from chaotic_systems.integrators.fixed_step import Euler, RK4
+from chaotic_systems.integrators.fixed_step import RK4, Euler
 from chaotic_systems.integrators.symplectic import (
     from_hamiltonian,
     leapfrog,

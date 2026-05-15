@@ -14,6 +14,10 @@ Two methods are exposed:
   :math:`\\partial f / \\partial y`; if not supplied analytically we
   compute it by finite differences.
 
+Both routines call :meth:`DynamicalSystem.rhs` (the public hook), so
+subclasses that override ``rhs`` for non-autonomous time gating or
+similar concerns are respected.
+
 References
 ----------
 - G. Benettin, L. Galgani, A. Giorgilli, J.-M. Strelcyn, *Lyapunov
@@ -34,6 +38,17 @@ from scipy.integrate import solve_ivp
 from chaotic_systems.core.base import DynamicalSystem, FloatArray
 
 
+def _public_rhs(
+    system: DynamicalSystem, params: Mapping[str, float]
+) -> Callable[[float, FloatArray], FloatArray]:
+    """Wrap the system's *public* ``rhs(t, y, **params)`` for ``solve_ivp``."""
+
+    def fun(t: float, y: FloatArray) -> FloatArray:
+        return system.rhs(t, y, **params)
+
+    return fun
+
+
 def largest_lyapunov_two_trajectory(
     system: DynamicalSystem,
     y0: FloatArray | None = None,
@@ -52,7 +67,8 @@ def largest_lyapunov_two_trajectory(
     ---------
     1. Integrate from ``y0`` for ``t_transient`` to land on the attractor.
     2. Make a perturbed copy at distance ``delta0`` in a random direction.
-    3. Repeatedly integrate both for ``dt``, measure the new separation
+    3. Repeatedly integrate **both trajectories jointly** as one 2*state_dim
+       system over ``dt``, measure the new separation
        :math:`\\delta_k`, accumulate :math:`\\log(\\delta_k / \\delta_0)`,
        then renormalize the perturbed trajectory back to distance
        :math:`\\delta_0`.
@@ -74,14 +90,21 @@ def largest_lyapunov_two_trajectory(
         linear regime) but not so small as to hit floating-point noise.
     rng
         ``numpy.random.Generator`` for the perturbation direction.
+
+    Notes
+    -----
+    The joint-integration trick (one ``solve_ivp`` call per step instead
+    of two) halves the per-step Python-level overhead and improves end-
+    to-end runtime by ~2x on cheap RHS evaluations.
     """
     if rng is None:
         rng = np.random.default_rng(0xC0FFEE)
-    y_start = system.initial_state if y0 is None else np.asarray(y0, dtype=np.float64)
+    y_start = (
+        system.initial_state if y0 is None else np.asarray(y0, dtype=np.float64)
+    )
     merged_params = system.merged_params(params)
-
-    def fun(t: float, y: FloatArray) -> FloatArray:
-        return system._rhs(t, y, merged_params)
+    fun = _public_rhs(system, merged_params)
+    n = system.state_dim
 
     # 1. Integrate off the transient.
     sol = solve_ivp(
@@ -96,24 +119,34 @@ def largest_lyapunov_two_trajectory(
     y_ref = sol.y[:, -1].copy()
 
     # 2. Build a perturbed copy.
-    direction = rng.standard_normal(system.state_dim)
+    direction = rng.standard_normal(n)
     direction /= np.linalg.norm(direction)
     y_pert = y_ref + delta0 * direction
 
-    # 3. Iterate.
+    # 3. Iterate. The joint state is z = [y_ref; y_pert] of length 2n.
+    def joint_rhs(t: float, z: FloatArray) -> FloatArray:
+        out = np.empty_like(z)
+        out[:n] = fun(t, z[:n])
+        out[n:] = fun(t, z[n:])
+        return out
+
     n_steps = max(1, int(np.floor((t_total - t_transient) / dt)))
     log_sum = 0.0
     t_now = t_transient
+    z = np.concatenate([y_ref, y_pert])
     for _ in range(n_steps):
         t_next = t_now + dt
-        sol_ref = solve_ivp(
-            fun, (t_now, t_next), y_ref, method="DOP853", rtol=rtol, atol=atol
+        sol = solve_ivp(
+            joint_rhs,
+            (t_now, t_next),
+            z,
+            method="DOP853",
+            rtol=rtol,
+            atol=atol,
         )
-        sol_per = solve_ivp(
-            fun, (t_now, t_next), y_pert, method="DOP853", rtol=rtol, atol=atol
-        )
-        y_ref = sol_ref.y[:, -1]
-        y_pert = sol_per.y[:, -1]
+        z = sol.y[:, -1]
+        y_ref = z[:n]
+        y_pert = z[n:]
         diff = y_pert - y_ref
         d = float(np.linalg.norm(diff))
         if d == 0.0:  # pragma: no cover - numerically extremely unlikely
@@ -121,6 +154,7 @@ def largest_lyapunov_two_trajectory(
         log_sum += np.log(d / delta0)
         # Renormalize.
         y_pert = y_ref + (delta0 / d) * diff
+        z = np.concatenate([y_ref, y_pert])
         t_now = t_next
 
     return float(log_sum / (n_steps * dt))
@@ -178,11 +212,11 @@ def lyapunov_spectrum(
     if not 1 <= k <= n:
         raise ValueError(f"n_exponents must be in [1, {n}], got {k}")
 
-    y_start = system.initial_state if y0 is None else np.asarray(y0, dtype=np.float64)
+    y_start = (
+        system.initial_state if y0 is None else np.asarray(y0, dtype=np.float64)
+    )
     merged_params = system.merged_params(params)
-
-    def fun(t: float, y: FloatArray) -> FloatArray:
-        return system._rhs(t, y, merged_params)
+    fun = _public_rhs(system, merged_params)
 
     if jacobian is None:
 

@@ -24,7 +24,6 @@ References
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 
 import numpy as np
@@ -62,7 +61,7 @@ class Duffing(DynamicalSystem):
         return np.array(
             [
                 v,
-                -delta * v - alpha * x - beta * x * x * x + gamma * math.cos(omega * t),
+                -delta * v - alpha * x - beta * x * x * x + gamma * np.cos(omega * t),
             ],
             dtype=np.float64,
         )

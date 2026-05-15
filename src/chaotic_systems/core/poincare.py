@@ -21,6 +21,24 @@ from scipy.integrate import solve_ivp
 from chaotic_systems.core.base import DynamicalSystem, FloatArray, Trajectory
 
 
+def _make_event(
+    normal: FloatArray, offset: float, direction: float
+):
+    """Build a scipy-compatible event callable with terminal / direction set.
+
+    scipy.integrate.solve_ivp consumes ``event(t, y) -> float`` callables
+    and looks at ``event.terminal`` and ``event.direction`` attributes. We
+    set them on the closure object itself.
+    """
+
+    def event(t: float, y: FloatArray) -> float:
+        return float(np.dot(normal, y) - offset)
+
+    event.terminal = False  # type: ignore[attr-defined]
+    event.direction = direction  # type: ignore[attr-defined]
+    return event
+
+
 def poincare_section(
     system: DynamicalSystem,
     normal: FloatArray,
@@ -68,13 +86,9 @@ def poincare_section(
     merged_params = system.merged_params(params)
 
     def fun(t: float, y: FloatArray) -> FloatArray:
-        return system._rhs(t, y, merged_params)
+        return system.rhs(t, y, **merged_params)
 
-    def event(t: float, y: FloatArray) -> float:
-        return float(np.dot(n_vec, y) - offset)
-
-    event.terminal = False  # type: ignore[attr-defined]
-    event.direction = float(direction)  # type: ignore[attr-defined]
+    event = _make_event(n_vec, float(offset), float(direction))
 
     solve_kwargs: dict[str, object] = {
         "method": "DOP853",
