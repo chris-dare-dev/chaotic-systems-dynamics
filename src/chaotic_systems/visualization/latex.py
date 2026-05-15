@@ -11,7 +11,7 @@ PySide6 is available, a ``QImage`` ready to be drawn in the GUI panel.
 
 Public API
 ----------
-- :func:`latex_to_array` — render LaTeX to an RGBA ndarray.
+- :func:`latex_to_array` — render LaTeX to an RGBA ndarray (LRU-cached).
 - :func:`latex_to_qimage` — render LaTeX to a ``QImage`` (raises ``RuntimeError``
   if PySide6 is unavailable in the current environment).
 - :func:`sympy_to_latex` — wrap :func:`sympy.latex` with sane defaults.
@@ -20,6 +20,7 @@ Public API
 from __future__ import annotations
 
 import io
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -34,14 +35,15 @@ __all__ = [
 ]
 
 
+# Environments whose rows really ARE separately-renderable equations.
+# Matrix environments (`matrix`, `pmatrix`, `bmatrix`) are intentionally
+# excluded — their rows are columns of a single math object, not a stack
+# of equations, and per-row rendering produces visual garbage.
 _ALIGN_ENVS = (
     "aligned",
     "align",
     "align*",
     "cases",
-    "matrix",
-    "pmatrix",
-    "bmatrix",
 )
 
 
@@ -71,7 +73,6 @@ def _strip_alignment_env(latex: str) -> list[str]:
             break
     if body is None:
         return [latex]
-    # Split on \\ row separators (matplotlib's row break), drop empty trailing rows.
     rows = [row.strip() for row in body.split(r"\\")]
     rows = [r.replace("&", "") for r in rows if r]
     return rows
@@ -85,44 +86,38 @@ def _render_with_matplotlib(
     color: str,
     background: str | None,
 ) -> np.ndarray:
-    """Internal: render via matplotlib's mathtext to an RGBA buffer."""
+    """Internal: render via matplotlib's mathtext to an RGBA buffer.
+
+    Single draw pass: we configure the figure to size itself to its
+    content via ``bbox_inches="tight"`` on ``savefig`` rather than the
+    historical draw-then-resize-then-redraw sequence.
+    """
 
     import matplotlib
 
     # Use a non-interactive backend so this works headless.
     matplotlib.use("Agg", force=False)
-    import matplotlib.pyplot as plt
+    from matplotlib import image as mpimg
+    from matplotlib.figure import Figure
 
-    if background is None:
-        face = (0.0, 0.0, 0.0, 0.0)
-    else:
-        face = background  # type: ignore[assignment]
-
-    fig = plt.figure(figsize=(0.01, 0.01), dpi=dpi)
+    fig = Figure(figsize=(0.5, 0.5), dpi=dpi)
     try:
-        fig.patch.set_alpha(0.0 if background is None else 1.0)
-        if background is not None:
+        if background is None:
+            fig.patch.set_alpha(0.0)
+            face: Any = (0.0, 0.0, 0.0, 0.0)
+        else:
+            fig.patch.set_alpha(1.0)
             fig.patch.set_facecolor(background)
-        text = fig.text(
-            0.0,
-            0.0,
+            face = background
+        fig.text(
+            0.5,
+            0.5,
             f"${latex}$",
             fontsize=fontsize,
             color=color,
-            verticalalignment="bottom",
-            horizontalalignment="left",
+            verticalalignment="center",
+            horizontalalignment="center",
         )
-
-        # Measure the rendered text and resize the figure to fit it tightly.
-        fig.canvas.draw()
-        bbox = text.get_window_extent(renderer=fig.canvas.get_renderer())  # type: ignore[attr-defined]
-        # Add a small padding (in pixels).
-        pad = 4
-        width = int(np.ceil(bbox.width)) + 2 * pad
-        height = int(np.ceil(bbox.height)) + 2 * pad
-        fig.set_size_inches(width / dpi, height / dpi)
-        # Re-place the text so the padding is even.
-        text.set_position((pad / width, pad / height))
 
         buf = io.BytesIO()
         fig.savefig(
@@ -131,12 +126,11 @@ def _render_with_matplotlib(
             dpi=dpi,
             transparent=background is None,
             facecolor=face,
+            bbox_inches="tight",
+            pad_inches=0.05,
         )
         buf.seek(0)
-        from matplotlib import image as mpimg
-
         rgba = mpimg.imread(buf)
-        # mpimg returns float in [0, 1]; convert to uint8 RGBA.
         arr = (np.clip(rgba, 0.0, 1.0) * 255).astype(np.uint8)
         if arr.ndim == 2:
             arr = np.dstack([arr, arr, arr, np.full_like(arr, 255)])
@@ -144,7 +138,43 @@ def _render_with_matplotlib(
             arr = np.dstack([arr, np.full(arr.shape[:2], 255, dtype=np.uint8)])
         return arr
     finally:
-        plt.close(fig)
+        # ``Figure`` from ``matplotlib.figure`` doesn't need ``plt.close``;
+        # GC will reclaim it. But we explicitly clear the artists so the
+        # backend's text caches don't keep references alive.
+        try:
+            fig.clf()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
+def _cache_key(
+    latex: str,
+    fontsize: int,
+    dpi: int,
+    color: str,
+    background: str | None,
+) -> tuple[str, int, int, str, str | None]:
+    return (latex, fontsize, dpi, color, background)
+
+
+@lru_cache(maxsize=64)
+def _render_cached(
+    key: tuple[str, int, int, str, str | None],
+) -> tuple[bytes, tuple[int, int, int]]:
+    """LRU-cached render. Returns ``(bytes, shape)``.
+
+    We store bytes + shape rather than an ``ndarray`` directly because
+    ``lru_cache`` retains references to its values; ndarrays held by the
+    cache would prevent the renderer from releasing memory if a caller
+    mutated the returned buffer. Round-tripping through bytes is also a
+    convenient pickle-safe representation.
+    """
+
+    latex, fontsize, dpi, color, background = key
+    arr = _render_with_matplotlib(
+        latex, fontsize=fontsize, dpi=dpi, color=color, background=background
+    )
+    return arr.tobytes(), arr.shape  # type: ignore[return-value]
 
 
 def latex_to_array(
@@ -178,25 +208,24 @@ def latex_to_array(
     """
 
     if not latex:
-        # Return a 1x1 fully transparent pixel so callers always get a valid array.
         return np.zeros((1, 1, 4), dtype=np.uint8)
 
     rows = _strip_alignment_env(latex)
     if len(rows) == 1:
-        return _render_with_matplotlib(
-            rows[0], fontsize=fontsize, dpi=dpi, color=color, background=background
+        data, shape = _render_cached(
+            _cache_key(rows[0], fontsize, dpi, color, background)
         )
+        return np.frombuffer(data, dtype=np.uint8).reshape(shape).copy()
 
     images: list[np.ndarray] = []
     for row in rows:
         try:
-            img = _render_with_matplotlib(
-                row, fontsize=fontsize, dpi=dpi, color=color, background=background
+            data, shape = _render_cached(
+                _cache_key(row, fontsize, dpi, color, background)
             )
         except Exception:
-            # Skip rows mathtext can't parse rather than failing the whole panel.
             continue
-        images.append(img)
+        images.append(np.frombuffer(data, dtype=np.uint8).reshape(shape).copy())
     if not images:
         return np.zeros((1, 1, 4), dtype=np.uint8)
 
@@ -205,7 +234,6 @@ def latex_to_array(
     height = sum(img.shape[0] for img in images) + pad * (len(images) - 1)
     canvas = np.zeros((height, width, 4), dtype=np.uint8)
     if background is not None:
-        # Opaque background — fill before pasting.
         canvas[..., :3] = 255
         canvas[..., 3] = 255
     y = 0
@@ -223,7 +251,7 @@ def latex_to_qimage(
     dpi: int = 150,
     color: str = "black",
     background: str | None = None,
-) -> "QImage":
+) -> QImage:
     """Render a LaTeX (mathtext) string to a ``QImage`` for Qt widgets.
 
     Raises
@@ -241,11 +269,8 @@ def latex_to_qimage(
         latex, fontsize=fontsize, dpi=dpi, color=color, background=background
     )
     h, w, _ = arr.shape
-    # QImage.Format_RGBA8888 expects bytes ordered R, G, B, A — matplotlib gives us that.
     contiguous = np.ascontiguousarray(arr)
     image = QImage(contiguous.data, w, h, 4 * w, QImage.Format.Format_RGBA8888)
-    # QImage doesn't copy the buffer, so detach by ``.copy()`` to keep it valid
-    # after the ndarray goes out of scope.
     return image.copy()
 
 
