@@ -87,12 +87,48 @@ renderer.render_to_video("lorenz.mp4", fps=30, duration_seconds=10)
   GUI's `pyvistaqt.QtInteractor`.
 
 Animation is implemented by incrementally enlarging the visible polyline.
-`step(n_visible)` is non-blocking and is the right entry point for
-driving animation from a `QTimer`.
+The renderer maintains a single up-front allocated `pv.PolyData` with the
+full trajectory in its point buffer; advancing a frame is just an int-array
+swap on the `lines` connectivity. The non-blocking entry points are:
+
+- `step(n_visible)` — cumulative count of points to display. Pass
+  `current_frame + frames_per_tick` to advance the playhead.
+- `seek(index)` — zero-based; jumps the playhead to frame `index` and
+  moves the head marker to `points[index]`. The GUI's transport scrubber
+  uses this every drag tick.
+- `set_color_by_progress(enabled)` — toggle perceptually-uniform color
+  shading along the trajectory (default `viridis`). Disabled mode falls
+  back to a flat `line_color`.
+- `head_position` / `current_frame` / `n_frames` — read-only accessors
+  the GUI uses to render `t = ... / ...` labels and the scrubber range.
 
 `render_to_video()` builds an off-screen plotter (no display required),
 walks the camera around the attractor, and writes each frame to ffmpeg
 via `imageio.get_writer(...)`. Output is MP4 / H.264.
+
+## Transport controls
+
+Once a simulation finishes, the GUI shows a transport strip directly
+under the 3D viewport:
+
+```
+[Play] [Stop] [End]   Speed: [1× v]   [=====O==========]   t = 12.34 / 40.00
+```
+
+| Control | Behavior |
+|---|---|
+| Play / Pause | Toggle animation playback. Same widget — text flips to "Pause" while playing. Space activates it from the keyboard. |
+| Stop | Pause and rewind to frame 0. Bound to Ctrl-. (Ctrl-period). |
+| End | Pause and snap to the final frame, so the full attractor is visible. Bound to the End key. |
+| Speed | Discrete dropdown: 0.25×, 0.5×, 1×, 2×, 4×, 8×. The "1×" preset is calibrated so the full trajectory plays back over `MainWindow.target_playback_seconds` of wall-clock time (default 10 s). |
+| Scrubber | A `QSlider` over `[0, n_frames - 1]`. Pressing or dragging the slider pauses playback; releasing it resumes scrubbed-frame display. The renderer's `seek()` runs on every drag tick — no re-rasterization, no re-add_mesh. |
+| t = ... / ... | Live readout of the trajectory's current and final `t` values, sourced from `trajectory.t[frame_index]`. |
+
+The playback timer is a `QTimer` on the GUI thread. We keep the timer's
+period fixed at ~33 ms (about 30 Hz) and vary the per-tick *stride*
+(`frames_per_tick`) with the speed multiplier. Below ~10 ms timers
+become noisy on macOS / Linux; varying stride keeps high speeds smooth
+without that risk.
 
 ## LaTeX
 
@@ -105,6 +141,15 @@ matplotlib mathtext does not support `\begin{aligned}` / `\begin{align}`
 individually, then vstack them with a small padding. This covers the
 common chaotic-systems case (a 3-row ODE system) without pulling in a
 full TeX install.
+
+The GUI panel hosts a `_FlowingLatex` widget that turns each row into an
+independent `_LatexRow` (a `QLabel` subclass). On resize, every row
+*scales its cached high-DPI pixmap* with `Qt.SmoothTransformation` —
+matplotlib is never re-invoked. Rows that are already narrower than the
+panel are drawn at native size; wider rows are scaled down proportionally
+so the widget never overflows horizontally. If the panel shrinks below
+`_FlowingLatex.MIN_WIDTH_PX` (120 px by default), the enclosing
+`QScrollArea` allows *vertical* scrolling only.
 
 ## GUI layout
 

@@ -100,32 +100,50 @@ tests and only skips the GUI smoke tests.
 
 The scaffolding and the visualization MVP are done. Open follow-ups:
 
-1. **GUI play/pause/scrub.** The current GUI runs a simulation and shows
-   the full polyline; a `QTimer`-driven animation with play / pause /
-   scrub controls and a "current time" indicator is the next ergonomic
-   step. The renderer's `step(n_visible)` is ready for it.
-2. **2D phase-space panels.** Add a second tab (or a docked widget)
+1. **2D phase-space panels.** Add a second tab (or a docked widget)
    showing Poincare sections and arbitrary 2D projections via
    matplotlib or PyQtGraph.
-3. **Lyapunov display.** Surface the largest Lyapunov exponent
+2. **Lyapunov display.** Surface the largest Lyapunov exponent
    (already implemented in `core/lyapunov.py`) somewhere in the GUI —
    probably a status-bar widget that updates after each Run.
-4. **Persistent settings.** Remember the last-used system, parameters,
+3. **Persistent settings.** Remember the last-used system, parameters,
    and integrator across launches (`QSettings`).
-5. **Real-time parameter rebinding.** Today, changing a slider doesn't
+4. **Real-time parameter rebinding.** Today, changing a slider doesn't
    re-simulate until you press Run. A "live" mode that re-integrates
    a short window on every change would be nice for exploration.
-6. **CI for the GUI smoke tests.** Today the GUI tests are skipped
+5. **CI for the GUI smoke tests.** Today the GUI tests are skipped
    without a display. A `xvfb` job (Linux) or a macOS runner with a
    logged-in user could turn them back on.
-7. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
+6. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
    integrators don't JIT the outer loop because numba can't infer
    arbitrary Python `rhs` types. A future pass could expose a
    `compile_rhs(system)` helper that returns a numba-typed RHS and an
    inner loop matching, e.g., the `rk4_step` API.
-8. **Pre-rendered intros (manim).** Out-of-scope today but a nice
+7. **Pre-rendered intros (manim).** Out-of-scope today but a nice
    future direction for tutorial videos that explain each system before
    the live simulation runs.
+
+## Recently shipped (2026-05-15, after the param-form fix)
+
+- **Transport controls + scrubbing playback** in the GUI. The viewport
+  now has a play / pause / stop / jump-to-end / speed / scrubber strip;
+  pressing *Run* simulates, then plays the trajectory back at 1× from
+  frame 0 instead of dumping a static polyline. Renderer gained
+  `seek(index)`, `set_color_by_progress(bool)`, `head_position`,
+  `n_frames`, `current_frame`. A single `QTimer` on the GUI thread
+  ticks `Renderer3D.step()`; the per-tick stride scales with the speed
+  preset so high speeds stay smooth without sub-10 ms timer noise.
+  Shortcuts: Space (play/pause), Ctrl-. (stop), End (jump-to-end).
+- **Flowing LaTeX panel.** The `_FlowingLatex` widget replaces the
+  fixed-size `QLabel + QScrollArea` pattern; equations scale to the
+  panel's current width via `Qt.SmoothTransformation` on the cached
+  high-DPI pixmap (matplotlib is never re-invoked on resize). Multi-row
+  aligned environments stack one row per equation, each scaling
+  independently.
+- Tests: `tests/visualization/test_animation.py` (renderer step/seek
+  contract), `tests/gui/test_transport.py` (transport-control smoke
+  tests, gated behind `CHAOTIC_GUI_TESTS_USE_DISPLAY=1`),
+  `tests/gui/test_latex_wrap.py` (flowing LaTeX never overflows).
 
 ## Non-goals (for now)
 

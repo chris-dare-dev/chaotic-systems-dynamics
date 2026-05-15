@@ -45,7 +45,18 @@ Functional. The full pipeline — backend (systems, integrators, Lyapunov, Poinc
 - System picker, parameter sliders + spinboxes (with log scale for parameters spanning orders of magnitude).
 - Integrator selection from the full registry (including symplectic methods).
 - Simulation and export run on worker threads — the window stays responsive.
-- Keyboard shortcuts: Ctrl-R (Run), Ctrl-E (Export), R (Reset view), Esc (Cancel).
+- **Transport controls** under the viewport: Play / Pause / Stop / Jump-to-end / speed dropdown (0.25×–8×) / frame scrubber with live `t = current / total` readout. Press *Run* and the GUI now plays the trajectory back at 1× rather than dumping the static polyline.
+- **Flowing LaTeX panel** — equations scale to the panel width on resize (no horizontal scrolling); aligned environments stack one row per equation so each row scales independently.
+- Keyboard shortcuts:
+  | Key | Action |
+  |---|---|
+  | Ctrl-R | Run simulation |
+  | Ctrl-E | Export video |
+  | R | Reset 3D camera |
+  | Esc | Cancel running simulation / export |
+  | Space | Play / Pause playback |
+  | Ctrl-. | Stop and rewind to frame 0 |
+  | End | Jump to the last frame |
 
 ## Installation
 
