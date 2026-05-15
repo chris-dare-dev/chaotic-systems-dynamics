@@ -958,6 +958,62 @@ def _build_window_class() -> type:
                 return
             self.finished.emit(self._path)
 
+    class _PrerenderWorker(QObject):
+        """Warm the renderer's prerender cache on a worker thread.
+
+        Calls ``Renderer3D.build_prerender_cache`` with progress and
+        cancel callbacks bridged to Qt signals. The worker is short-lived
+        (typically 80-200 ms for a 4000-sample Lorenz on M1) but matters
+        perceptually: it eliminates the cold-start jank during the first
+        few seconds of playback. See ``docs/prerender_design.md`` for
+        the full design.
+
+        Important: the renderer owns VTK objects on the GUI thread.
+        Calling ``build_prerender_cache`` from a worker thread *does*
+        issue ``Render()`` against those VTK objects, which is generally
+        thread-unsafe — but the calls happen against a plotter that is
+        idle (no other code is touching it while the worker is running)
+        and the GUI's event loop is not pumping VTK during this window.
+        This matches the established pattern in
+        ``Renderer3D.render_to_video`` which also runs on a QThread.
+        """
+
+        finished = Signal()
+        error = Signal(str, str)
+        progress = Signal(int, int)  # (current, total)
+        cancelled = Signal()
+
+        def __init__(self, renderer: Renderer3D) -> None:
+            super().__init__()
+            self._renderer = renderer
+            self._cancelled = False
+
+        def cancel(self) -> None:
+            self._cancelled = True
+
+        def _is_cancelled(self) -> bool:
+            return self._cancelled
+
+        def _emit_progress(self, i: int, n: int) -> None:
+            self.progress.emit(i, n)
+
+        def run(self) -> None:
+            try:
+                ok = self._renderer.build_prerender_cache(
+                    progress_cb=self._emit_progress,
+                    cancel_cb=self._is_cancelled,
+                )
+            except (RuntimeError, ValueError) as exc:
+                self.error.emit(type(exc).__name__, str(exc))
+                return
+            except Exception as exc:  # pragma: no cover - last-resort guard
+                self.error.emit("Exception", f"{type(exc).__name__}: {exc}")
+                return
+            if not ok:
+                self.cancelled.emit()
+                return
+            self.finished.emit()
+
     # -----------------------------------------------------------------------
     # Busy spinner — a tiny rotating-arc widget for indeterminate work.
     # Mounted in the bottom status bar; visible during simulation or during
@@ -1077,6 +1133,12 @@ def _build_window_class() -> type:
             self._sim_worker: _SimulateWorker | None = None
             self._export_thread: QThread | None = None
             self._export_worker: _ExportWorker | None = None
+            # Prerender worker — runs ``Renderer3D.build_prerender_cache``
+            # off the GUI thread after every successful simulation
+            # (provided the trajectory is long enough to benefit; see
+            # ``_PRERENDER_MIN_FRAMES``). See ``docs/prerender_design.md``.
+            self._prerender_thread: QThread | None = None
+            self._prerender_worker: _PrerenderWorker | None = None
 
             # Transport / animation state. The animation timer ticks on the
             # GUI thread; each tick advances the renderer's visible polyline
@@ -1100,16 +1162,26 @@ def _build_window_class() -> type:
             # for the default 4000-sample Lorenz, in line with the
             # ``_MAX_STRIDE`` cap below.
             self._base_tick_ms: int = 16
-            # Hard ceiling on the per-tick stride so the head never
-            # jumps more than a few samples even on dense trajectories.
-            # If the source is so dense that the wall-clock target can't
-            # be met without exceeding this, playback simply runs longer.
-            self._MAX_STRIDE: int = 4
+            # Hard ceiling on the per-tick stride. With sub-frame
+            # interpolation on both the polyline tail and the head
+            # sphere, advancing more than ~one trajectory sample per
+            # rendered frame loses visual continuity (the polyline
+            # appears to "ratchet" past samples). A cap of 2 keeps
+            # the per-frame jump bounded; if the trajectory is so
+            # dense that the wall-clock playback target can't be met
+            # without exceeding this, playback simply runs longer.
+            self._MAX_STRIDE: int = 2
             self._frames_per_tick_base: float = 1.0
             # Fractional playback position, in samples. The displayed
             # frame index is ``floor`` of this; the renderer interpolates
             # the head sphere's position to the fractional remainder.
             self._anim_position: float = 0.0
+            # Arc-length parameter for the prerender-driven playback
+            # path. Only consulted when the current renderer has
+            # ``has_prerender_cache`` set — otherwise the integer-frame
+            # ``_anim_position`` carries the playhead. See
+            # ``docs/prerender_design.md`` for the motivation.
+            self._anim_arc_position: float = 0.0
             self._scrubber_dragging: bool = False
             self._current_frame_index: int = 0
 
@@ -1732,11 +1804,13 @@ def _build_window_class() -> type:
                 integrator=integrator,
                 dt=float(self.dt.value()),
                 # Request a dense uniform sampling so the playback is
-                # smooth regardless of integrator step size. ~38 samples
-                # per simulated second matches a 15 s playback at the
-                # 60 Hz GUI tick with stride ≤ 4. Cap at 4000 so very
-                # long t_end doesn't blow memory.
-                n_points=int(min(4000, max(800, round(38.0 * t_end)))),
+                # smooth regardless of integrator step size. ~60
+                # samples per simulated second targets stride ≈ 1 at
+                # 15 s playback × 60 Hz GUI tick, which keeps the head
+                # advancing roughly one trajectory sample per rendered
+                # frame at 1× speed (the visually-smoothest case). Cap
+                # at 4000 so a very long t_end doesn't blow memory.
+                n_points=int(min(4000, max(800, round(60.0 * t_end)))),
             )
             thread = QThread(self)
             worker.moveToThread(thread)
@@ -1789,11 +1863,8 @@ def _build_window_class() -> type:
                 self.frame_scrubber.setRange(0, n - 1)
                 self._set_transport_enabled(True)
                 self._seek_to(0)
-                # Run starts at 1× from frame 0 per the spec.
-                self._play()
             else:
                 self._set_transport_enabled(False)
-            self._set_status("Simulation complete.", state="done")
             # Light up the toolbar transport actions that depend on having
             # a trajectory loaded.
             for key in ("transport_pause", "transport_stop", "transport_jump_end",
@@ -1804,6 +1875,19 @@ def _build_window_class() -> type:
             # Surface the pre-export size estimate now that a trajectory
             # exists. The chip + Export tooltip both update.
             self._refresh_export_estimate()
+            # Branch: dense trajectories run the prerender worker (warm
+            # the VTK pipeline, build the arc-length table, animate a
+            # determinate progress pill); short trajectories skip
+            # straight to playback. The threshold lives on
+            # ``_PRERENDER_MIN_FRAMES`` and is documented in
+            # ``docs/prerender_design.md``.
+            if n >= self._PRERENDER_MIN_FRAMES and self._current_renderer is not None:
+                self._start_prerender(self._current_renderer)
+            else:
+                self._set_status("Simulation complete.", state="done")
+                if n > 1:
+                    # Run starts at 1× from frame 0 per the spec.
+                    self._play()
 
         def _on_sim_error(self, kind: str, message: str) -> None:
             self._show_error(f"Simulation failed ({kind})", self._hinted(kind, message))
@@ -1904,12 +1988,119 @@ def _build_window_class() -> type:
             self.cancel_button.setEnabled(False)
             self._show_busy(False)
 
+        # --------------------------------------------------- prerender pipeline
+
+        def _start_prerender(self, renderer: Renderer3D) -> None:
+            """Kick off ``Renderer3D.build_prerender_cache`` on a worker thread.
+
+            Called from :meth:`_on_sim_finished` once a fresh trajectory
+            is in the renderer. Shows a determinate progress pill in the
+            status bar ("Preparing animation... X%") and only fires
+            playback when the worker's ``finished`` signal lands.
+            """
+
+            # Defensive — don't pile a second prerender on top of a
+            # still-running one.
+            if self._prerender_thread is not None:
+                return
+            self._set_status(
+                "Preparing animation...", busy=True, state="running"
+            )
+            # Status-bar prep: spinner runs (rotating arc), and the
+            # determinate progress chunk is primed for the worker's
+            # progress signal. ``_show_busy(True)`` already arms the
+            # spinner; we *also* want the pill visible from frame zero
+            # so the user sees the determinate progress from the first
+            # tick instead of an indeterminate spinner-only phase.
+            self._show_busy(True)
+            self.status_progress.setRange(0, 100)
+            self.status_progress.setValue(0)
+            self.status_progress.setVisible(True)
+            # The Cancel toolbar action handles prerender cancellation.
+            self.cancel_button.setEnabled(True)
+
+            worker = _PrerenderWorker(renderer)
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.progress.connect(self._on_prerender_progress)
+            worker.finished.connect(self._on_prerender_finished)
+            worker.cancelled.connect(self._on_prerender_cancelled)
+            worker.error.connect(self._on_prerender_error)
+            worker.finished.connect(thread.quit)
+            worker.cancelled.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_prerender_thread)
+            self._prerender_thread = thread
+            self._prerender_worker = worker
+            thread.start()
+
+        def _on_prerender_progress(self, current: int, total: int) -> None:
+            if total <= 0:
+                return
+            self.status_progress.setRange(0, int(total))
+            self.status_progress.setValue(int(current))
+            self.status_progress.setVisible(True)
+            pct = int(round(100.0 * current / max(1, total)))
+            self._set_status(
+                f"Preparing animation... {pct}%",
+                busy=True,
+                state="running",
+            )
+
+        def _on_prerender_finished(self) -> None:
+            self._set_status("Simulation complete.", state="done")
+            # Spinner stops; the pill animates the last frame and
+            # disappears at the end of the next status update.
+            self._show_busy(False)
+            self.cancel_button.setEnabled(False)
+            # Now that the renderer is warm, start playback.
+            if self._current_renderer is not None and self._renderer_total_frames() > 1:
+                self._play()
+
+        def _on_prerender_cancelled(self) -> None:
+            self._set_status(
+                "Animation prep cancelled — scrub or press Run to retry.",
+                state="idle",
+            )
+            self._show_busy(False)
+            self.cancel_button.setEnabled(False)
+            # Leave the transport controls enabled — the trajectory is
+            # still loaded, the user can scrub manually or trigger Run
+            # again to retry.
+
+        def _on_prerender_error(self, kind: str, message: str) -> None:
+            self._show_error(
+                f"Animation prep failed ({kind})",
+                self._hinted(kind, message),
+            )
+            self._show_busy(False)
+            self.cancel_button.setEnabled(False)
+
+        def _cleanup_prerender_thread(self) -> None:
+            if self._prerender_worker is not None:
+                self._prerender_worker.deleteLater()
+            if self._prerender_thread is not None:
+                self._prerender_thread.deleteLater()
+            self._prerender_thread = None
+            self._prerender_worker = None
+
+        # ------------------------------------------------------------------
+
         def _on_cancel(self) -> None:
             cancelled = False
+            # Cancellation precedence: export → prerender → sim. Export
+            # takes priority because it's the most expensive
+            # user-initiated operation; prerender is short but visible;
+            # sim is treated as best-effort acknowledgement.
             if self._export_worker is not None:
                 self._export_worker.cancel()
                 cancelled = True
                 self._set_status("Cancelling export...")
+            if not cancelled and self._prerender_worker is not None:
+                self._prerender_worker.cancel()
+                cancelled = True
+                self._set_status("Cancelling animation prep...")
             # Sim cancellation isn't well-defined for scipy/internal integrators
             # without intrusive callbacks; the cancel button is wired up so the
             # user can clear an in-flight export. For sim, we just acknowledge.
@@ -2618,6 +2809,13 @@ def _build_window_class() -> type:
         # wall-clock time at the default tick cadence.
         _SPEED_PRESETS: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 
+        # Minimum trajectory size at which we run the prerender worker.
+        # Below this, the arc-length table is cheap (< 1 ms) and the VTK
+        # warm-up adds latency without enough payoff to be worth a
+        # determinate-progress UI. Tune by measuring against a long
+        # trajectory: see ``docs/prerender_design.md`` for the rationale.
+        _PRERENDER_MIN_FRAMES: int = 500
+
         def _build_transport_panel(self, parent: QWidget) -> QWidget:
             """Build the scrubber strip under the viewport.
 
@@ -2778,7 +2976,32 @@ def _build_window_class() -> type:
             self._is_playing = True
             self.play_button.setChecked(True)
             self.play_button.setText("Pause")
+            # Reset the arc-length integrator to match the current
+            # integer-frame position. This makes Play-from-mid-scrub
+            # behave correctly — playback resumes from where the
+            # scrubber points, not from frame 0.
+            self._sync_arc_position_from_frame(self._current_frame_index)
             self._anim_timer.start(self._base_tick_ms)
+
+        def _sync_arc_position_from_frame(self, frame_index: int) -> None:
+            """Set ``_anim_arc_position`` to match a given integer frame.
+
+            Used whenever the scrubber jumps or play starts mid-scrub —
+            keeps the arc-length playback parameter consistent with the
+            integer frame the UI is showing. No-op if the renderer
+            doesn't have an arc-length table.
+            """
+
+            r = self._current_renderer
+            if r is None:
+                self._anim_arc_position = 0.0
+                return
+            arc = getattr(r, "_arc_lengths", None)
+            if arc is None or len(arc) == 0:
+                self._anim_arc_position = 0.0
+                return
+            idx = int(np.clip(frame_index, 0, len(arc) - 1))
+            self._anim_arc_position = float(arc[idx])
 
         def _pause(self) -> None:
             self._is_playing = False
@@ -2808,6 +3031,10 @@ def _build_window_class() -> type:
             idx = int(np.clip(int(frame_index), 0, n - 1))
             self._current_frame_index = idx
             self._anim_position = float(idx)
+            # Keep the arc-length integrator in sync with the scrubber
+            # so toggling play after a manual seek resumes from the
+            # right point.
+            self._sync_arc_position_from_frame(idx)
             r.seek(idx)
             # Keep the scrubber in sync without re-entering the drag handler.
             block = self.frame_scrubber.blockSignals(True)
@@ -2823,6 +3050,73 @@ def _build_window_class() -> type:
             if r is None or not self._is_playing:
                 return
             n = r.n_frames
+            # Branch on whether the renderer has a warm prerender cache.
+            # If it does, drive playback by *arc-length* so chaotic
+            # stretching regions visit slowly visually and calm regions
+            # zip past at uniform visual speed — the Manim-style
+            # ``point_from_proportion`` analog described in
+            # ``docs/prerender_design.md``. If not (short trajectories,
+            # or the user cancelled prerender), fall back to the
+            # legacy integer-frame stride.
+            if getattr(r, "has_prerender_cache", False) and r.total_arc_length > 0.0:
+                # Map the current frame-index position back to an
+                # arc-length parameter using the cumulative arc table.
+                # We carry the arc-length position on the instance
+                # under ``_anim_arc_position`` so the head moves
+                # smoothly across ticks regardless of speed changes.
+                total_arc = float(r.total_arc_length)
+                if not hasattr(self, "_anim_arc_position"):
+                    self._anim_arc_position = 0.0
+                # Wall-clock rate: full trajectory takes
+                # ``target_playback_seconds`` at 1×.
+                arc_per_second = total_arc / max(
+                    0.05, float(self.target_playback_seconds)
+                )
+                arc_increment = (
+                    arc_per_second
+                    * (float(self._base_tick_ms) / 1000.0)
+                    * float(self._speed_multiplier)
+                )
+                next_arc = self._anim_arc_position + arc_increment
+                if next_arc >= total_arc:
+                    # Snap to the end and pause.
+                    self._anim_arc_position = total_arc
+                    r.seek_arc_length(total_arc)
+                    self._anim_position = float(n - 1)
+                    self._current_frame_index = n - 1
+                    block = self.frame_scrubber.blockSignals(True)
+                    try:
+                        self.frame_scrubber.setValue(n - 1)
+                    finally:
+                        self.frame_scrubber.blockSignals(block)
+                    self._update_time_label(n - 1)
+                    self._update_status_frame(n - 1)
+                    self._pause()
+                    return
+                self._anim_arc_position = next_arc
+                r.seek_arc_length(next_arc)
+                # Map back to integer-frame index for the scrubber and
+                # time-label, so all existing UI bindings keep working.
+                arc = r._arc_lengths  # noqa: SLF001
+                if arc is not None:
+                    idx_int = int(np.searchsorted(arc, next_arc, side="right")) - 1
+                    idx_int = max(0, min(idx_int, n - 1))
+                else:
+                    idx_int = 0
+                self._anim_position = float(idx_int)
+                self._current_frame_index = idx_int
+                block = self.frame_scrubber.blockSignals(True)
+                try:
+                    self.frame_scrubber.setValue(idx_int)
+                finally:
+                    self.frame_scrubber.blockSignals(block)
+                self._update_time_label(idx_int)
+                self._update_status_frame(idx_int)
+                return
+
+            # Legacy integer-frame stride path (short trajectories,
+            # cancelled prerender, or any renderer without the
+            # arc-length cache).
             # Fractional stride — capped at ``_MAX_STRIDE`` so the head
             # never jumps more than a few samples per tick even on dense
             # trajectories.
@@ -2961,7 +3255,7 @@ def _build_window_class() -> type:
             except RuntimeError:  # pragma: no cover - already cleaned up
                 pass
             # Best-effort cleanup so we don't leave background threads dangling.
-            for thread in (self._sim_thread, self._export_thread):
+            for thread in (self._sim_thread, self._export_thread, self._prerender_thread):
                 if thread is not None:
                     thread.quit()
                     thread.wait(2000)
