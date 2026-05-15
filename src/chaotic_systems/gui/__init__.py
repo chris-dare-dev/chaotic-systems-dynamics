@@ -10,7 +10,8 @@ Public surface
   starting the event loop (useful for tests).
 - :class:`MainWindow` — the top-level window (lazy attribute; resolves on
   attribute access so importing :mod:`chaotic_systems.gui` does not force
-  PySide6 to load).
+  PySide6 to load). Backed by a module-level cache so ``isinstance``
+  checks across import paths match.
 """
 
 from __future__ import annotations
@@ -24,7 +25,9 @@ __all__ = ["MainWindow", "build_application", "run"]
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - trivial
     if name == "MainWindow":
-        from .main_window import _build_window_class  # type: ignore[attr-defined]
+        # _build_window_class caches the class so this returns the same
+        # object as `chaotic_systems.gui.main_window.MainWindow`.
+        from .main_window import _build_window_class
 
         return _build_window_class()
     raise AttributeError(name)
