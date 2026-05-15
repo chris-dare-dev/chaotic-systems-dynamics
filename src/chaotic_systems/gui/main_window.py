@@ -1367,6 +1367,9 @@ def _build_window_class() -> type:
             QShortcut(QKeySequence("End"), self, activated=self._on_jump_to_end)
 
             self._set_transport_enabled(False)
+            # Initialize export tooltip to the "Run a simulation first"
+            # state before any trajectory exists.
+            self._refresh_export_estimate()
             self._rebuild_for_current_system()
             self._sync_overlay_to_current_system()
             # Position the hint at bottom-center of the viewport as soon
@@ -1567,6 +1570,11 @@ def _build_window_class() -> type:
             if hasattr(self, "lyapunov_chip"):
                 self.lyapunov_chip.setText("λ₁ = —")
                 self.lyapunov_chip.setVisible(False)
+            # The pre-export estimate is trajectory-derived; clear it
+            # when the system flips so we never show a stale value.
+            if hasattr(self, "export_estimate_chip"):
+                self._last_trajectory = None
+                self._refresh_export_estimate()
 
         def _render_latex_into(self, widget: Any, latex: str) -> None:
             """Render ``latex`` into a flowing widget (or fall back to QLabel).
@@ -1716,6 +1724,9 @@ def _build_window_class() -> type:
                 act = self._transport_actions.get(key)
                 if act is not None:
                     act.setEnabled(True)
+            # Surface the pre-export size estimate now that a trajectory
+            # exists. The chip + Export tooltip both update.
+            self._refresh_export_estimate()
 
         def _on_sim_error(self, kind: str, message: str) -> None:
             self._show_error(f"Simulation failed ({kind})", self._hinted(kind, message))
@@ -2082,6 +2093,99 @@ def _build_window_class() -> type:
             # actually toggles the status-bar pill — and the spinner takes
             # over for indeterminate phases via ``_show_busy``.
             self.progress_bar = self.status_progress
+
+        # ----- pre-export size estimate ----------------------------------
+
+        # Empirical bytes-per-second for the renderer's default 1280x720
+        # libx264 q=8 output. Calibrated against a 10 s reference clip
+        # (~21 MB observed). Tweak if the renderer defaults change.
+        EXPORT_EST_MB_PER_SEC: float = 2.1
+        EXPORT_EST_FPS: int = 30
+
+        def _format_export_estimate(
+            self,
+            *,
+            n_frames: int,
+            fps: int,
+            mb_per_sec: float,
+        ) -> str:
+            """Return a human-readable size estimate.
+
+            ``n_frames`` is the trajectory sample count. We don't always
+            export every sample (the export pipeline picks a fixed
+            ``duration_seconds`` at 30 fps, ~10 s default), so the
+            estimate is for a *full* trajectory at the renderer's default
+            fps.
+            """
+
+            if n_frames <= 0 or fps <= 0:
+                return "—"
+            # Match the export worker's actual fixed 10 s clip default —
+            # what the user will get when they hit Export today.
+            duration_s = float(self._export_duration_seconds(n_frames, fps))
+            est_mb = duration_s * float(mb_per_sec)
+            return (
+                f"~{est_mb:.1f} MB · {n_frames} frames · "
+                f"{duration_s:.1f} s @ {fps} fps"
+            )
+
+        def _export_duration_seconds(self, n_frames: int, fps: int) -> float:
+            """Compute the export clip duration that matches the worker default.
+
+            Today the export worker hard-codes a 10 s clip; if the source
+            trajectory is shorter than that at ``fps``, the worker will
+            still ship the full polyline so the clip is bounded by the
+            trajectory length. We mirror that ceiling here so the
+            estimate doesn't lie.
+            """
+
+            if fps <= 0 or n_frames <= 0:
+                return 0.0
+            # The worker caps duration at 10 s; we cap our estimate too.
+            return float(min(10.0, max(2.0 / fps, n_frames / float(fps))))
+
+        def _refresh_export_estimate(self) -> None:
+            """Recompute and surface the pre-export size estimate.
+
+            Called after every successful simulation. Updates the
+            tooltip on the toolbar Export action and the status-bar
+            estimate chip. If no trajectory exists yet, the chip is
+            hidden and the action's tooltip says "Run a simulation
+            first".
+            """
+
+            traj = self._last_trajectory
+            n_frames = 0
+            if traj is not None:
+                try:
+                    t = np.asarray(traj.t, dtype=float)
+                    n_frames = int(t.size)
+                except (AttributeError, ValueError, TypeError):
+                    n_frames = 0
+            export_action = self._transport_actions.get("action_export")
+            if n_frames <= 0:
+                if hasattr(self, "export_estimate_chip"):
+                    self.export_estimate_chip.setVisible(False)
+                    self.export_estimate_chip.setText("")
+                if export_action is not None:
+                    export_action.setToolTip(
+                        "Render the current trajectory to an MP4 file "
+                        "(Ctrl-E)\n— Run a simulation first."
+                    )
+                return
+            text = self._format_export_estimate(
+                n_frames=n_frames,
+                fps=self.EXPORT_EST_FPS,
+                mb_per_sec=self.EXPORT_EST_MB_PER_SEC,
+            )
+            if hasattr(self, "export_estimate_chip"):
+                self.export_estimate_chip.setText(text)
+                self.export_estimate_chip.setVisible(True)
+            if export_action is not None:
+                export_action.setToolTip(
+                    "Render the current trajectory to an MP4 file "
+                    f"(Ctrl-E)\nEstimated: {text}"
+                )
 
         def _show_busy(self, busy: bool) -> None:
             """Toggle the indeterminate spinner + hide/show the progress pill.
