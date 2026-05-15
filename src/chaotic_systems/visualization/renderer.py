@@ -153,6 +153,10 @@ class Renderer3D:
         self.cmap = cmap
         self.color_by = color_by
         self.axes_labels = axes_labels
+        # Polyline tube width in logical pixels. Surfaced as a setting in
+        # the GUI; defaults to the historical 3.5 px so headless callers
+        # see no behavioral change.
+        self._line_width: float = 3.5
 
         # These are populated lazily when a plotter is attached / created.
         self._plotter: Any = None
@@ -192,7 +196,7 @@ class Renderer3D:
         self._polyline = polyline
 
         line_kwargs: dict[str, Any] = {
-            "line_width": 3.5,
+            "line_width": self._line_width,
             "render_lines_as_tubes": True,
         }
         if self.cmap is not None:
@@ -422,6 +426,35 @@ class Renderer3D:
             self._move_head_actor(head_pos)
         self._request_redraw()
 
+    def set_line_width(self, width: float) -> None:
+        """Set the trajectory polyline width (logical pixels).
+
+        Rebuilds the line actor in place so the head sphere and polyline
+        PolyData are not disturbed. Safe to call before :meth:`attach`;
+        the value will be picked up on the next scene build.
+        """
+
+        self._line_width = float(max(0.1, width))
+        if self._plotter is None or self._polyline is None:
+            return
+        try:
+            self._plotter.remove_actor(self._line_actor, render=False)
+        except (AttributeError, RuntimeError, TypeError):  # pragma: no cover
+            pass
+        line_kwargs: dict[str, Any] = {
+            "line_width": self._line_width,
+            "render_lines_as_tubes": True,
+        }
+        new_cmap = self.cmap if getattr(self, "_color_by_progress_enabled", True) else None
+        if new_cmap is not None:
+            line_kwargs["scalars"] = self.color_by
+            line_kwargs["cmap"] = new_cmap
+            line_kwargs["show_scalar_bar"] = False
+        else:
+            line_kwargs["color"] = self.line_color
+        self._line_actor = self._plotter.add_mesh(self._polyline, **line_kwargs)
+        self._request_redraw()
+
     def set_color_by_progress(self, enabled: bool) -> None:
         """Toggle perceptually-uniform color shading along the trajectory.
 
@@ -451,7 +484,7 @@ class Renderer3D:
         except (AttributeError, RuntimeError, TypeError):  # pragma: no cover
             pass
         line_kwargs: dict[str, Any] = {
-            "line_width": 3.5,
+            "line_width": self._line_width,
             "render_lines_as_tubes": True,
         }
         if new_cmap is not None:

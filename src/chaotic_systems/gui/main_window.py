@@ -234,6 +234,7 @@ def _build_window_class() -> type:
     )
     from PySide6.QtWidgets import (
         QApplication,
+        QColorDialog,
         QComboBox,
         QDoubleSpinBox,
         QFileDialog,
@@ -243,6 +244,7 @@ def _build_window_class() -> type:
         QHBoxLayout,
         QLabel,
         QMainWindow,
+        QMenu,
         QMessageBox,
         QProgressBar,
         QPushButton,
@@ -252,8 +254,10 @@ def _build_window_class() -> type:
         QSplitter,
         QStatusBar,
         QToolBar,
+        QToolButton,
         QVBoxLayout,
         QWidget,
+        QWidgetAction,
     )
 
     try:
@@ -1109,6 +1113,17 @@ def _build_window_class() -> type:
             self._scrubber_dragging: bool = False
             self._current_frame_index: int = 0
 
+            # --- Settings state (session-scoped) -------------------------
+            # Defaults match what the renderer / preview path already
+            # does. Each toggle below is wired to a ``_set_setting_*``
+            # method; future ``QSettings`` integration plugs in here.
+            self._setting_show_axes: bool = True
+            self._setting_show_grid: bool = True
+            self._setting_show_vector_preview: bool = True
+            self._setting_trajectory_width: float = 3.5
+            from chaotic_systems.gui.theme import viewport_background
+            self._setting_bg_color: str = viewport_background()
+
             # --- left panel (card-style group boxes) -----------------------
             left = QWidget(self)
             left.setMinimumWidth(300)
@@ -1467,18 +1482,27 @@ def _build_window_class() -> type:
 
             if self.viewer is None:
                 return
+            if not getattr(self, "_setting_show_vector_preview", True):
+                # User has hidden the preview — just clear and leave the
+                # bg color in place.
+                try:
+                    self.viewer.clear()
+                    self.viewer.set_background(self._setting_bg_color)
+                except (AttributeError, RuntimeError):
+                    pass
+                self._force_viewport_render()
+                return
             try:
                 import pyvista as pv
 
                 from chaotic_systems.gui.theme import (
                     PALETTE,
-                    viewport_background,
                 )
 
                 # Discard whatever was previously drawn (last trajectory
                 # or last preview).
                 self.viewer.clear()
-                self.viewer.set_background(viewport_background())
+                self.viewer.set_background(self._setting_bg_color)
                 system = self.current_system
                 params = default_params(system) or {}
                 rhs = getattr(system, "rhs", None)
@@ -1742,8 +1766,16 @@ def _build_window_class() -> type:
                         title=getattr(system, "name", "trajectory"),
                         axes_labels=axes_labels,
                     )
+                    # Apply the persisted trajectory-width setting before
+                    # the scene builds so the polyline uses the right
+                    # tube width from frame 1.
+                    renderer._line_width = self._setting_trajectory_width  # noqa: SLF001
                     renderer.attach(self.viewer)
                     self._current_renderer = renderer
+                    # Re-apply axes / grid / background settings since the
+                    # plotter's clear() in the build path wiped them.
+                    self._apply_axes_grid()
+                    self._apply_bg_color()
                 except (ValueError, RuntimeError) as exc:
                     self._show_error("Render failed", str(exc))
             # Wire up the transport controls for the new trajectory.
@@ -2010,6 +2042,14 @@ def _build_window_class() -> type:
                         btn.style().polish(btn)
                 self._transport_actions[obj_name] = action
 
+            # --- Settings dropdown ----------------------------------------
+            # Separator + gear button with a popup QMenu. Holds toggles for
+            # axes, grid, background color, trajectory width, and the
+            # vector-field preview. QSettings persistence is stubbed.
+            toolbar.addSeparator()
+            self._settings_button = self._build_settings_button(toolbar, icons_dir)
+            toolbar.addWidget(self._settings_button)
+
             self._toolbar = toolbar
 
         def transport_actions(self) -> dict[str, QAction]:
@@ -2030,6 +2070,230 @@ def _build_window_class() -> type:
             integration plan with the animation agent."""
 
             return self.transport_actions()
+
+        # ------------------------------------------------------------ settings
+
+        # Background-color presets surfaced in the Settings dropdown.
+        # Each entry is ``(label, hex)``. The user can also open a full
+        # ``QColorDialog`` for an arbitrary color.
+        _BG_PRESETS: tuple[tuple[str, str], ...] = (
+            ("Tokyo Night", "#24283b"),
+            ("Deep Night", "#1a1b26"),
+            ("Pure Black", "#000000"),
+            ("Paper Cream", "#f5f1e8"),
+        )
+
+        def _build_settings_button(self, toolbar: QToolBar, icons_dir: Path) -> QToolButton:
+            """Build the gear button with a popup ``QMenu`` of toggles."""
+
+            btn = QToolButton(toolbar)
+            btn.setObjectName("button_settings")
+            btn.setToolTip("Display settings")
+            btn.setText("Settings")
+            icon_path = icons_dir / "gear.svg"
+            if icon_path.exists():
+                btn.setIcon(QIcon(str(icon_path)))
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+
+            menu = QMenu(btn)
+            menu.setObjectName("menu_settings")
+
+            # Show axes ----------------------------------------------------
+            self.action_show_axes = QAction("Show axes", self)
+            self.action_show_axes.setCheckable(True)
+            self.action_show_axes.setChecked(self._setting_show_axes)
+            self.action_show_axes.toggled.connect(self._on_setting_show_axes)
+            menu.addAction(self.action_show_axes)
+
+            # Show grid ----------------------------------------------------
+            self.action_show_grid = QAction("Show grid", self)
+            self.action_show_grid.setCheckable(True)
+            self.action_show_grid.setChecked(self._setting_show_grid)
+            self.action_show_grid.toggled.connect(self._on_setting_show_grid)
+            menu.addAction(self.action_show_grid)
+
+            # Show vector field preview -----------------------------------
+            self.action_show_vector_preview = QAction(
+                "Show vector field preview", self
+            )
+            self.action_show_vector_preview.setCheckable(True)
+            self.action_show_vector_preview.setChecked(
+                self._setting_show_vector_preview
+            )
+            self.action_show_vector_preview.toggled.connect(
+                self._on_setting_show_vector_preview
+            )
+            menu.addAction(self.action_show_vector_preview)
+
+            menu.addSeparator()
+
+            # Background submenu ------------------------------------------
+            bg_menu = menu.addMenu("Background")
+            bg_menu.setObjectName("menu_settings_background")
+            self._bg_actions: dict[str, QAction] = {}
+            for label, hex_color in self._BG_PRESETS:
+                act = QAction(f"  {label}  ({hex_color})", self)
+                act.setCheckable(True)
+                act.setChecked(hex_color.lower() == self._setting_bg_color.lower())
+                act.triggered.connect(
+                    lambda _checked=False, color=hex_color: self._on_setting_bg_color(color)
+                )
+                bg_menu.addAction(act)
+                self._bg_actions[hex_color.lower()] = act
+            bg_menu.addSeparator()
+            pick_act = QAction("Open color picker...", self)
+            pick_act.triggered.connect(self._on_setting_bg_color_pick)
+            bg_menu.addAction(pick_act)
+
+            # Trajectory width — a slider in a QWidgetAction. -------------
+            width_holder = QWidget(menu)
+            wh_layout = QHBoxLayout(width_holder)
+            wh_layout.setContentsMargins(8, 4, 8, 4)
+            wh_layout.setSpacing(8)
+            wh_layout.addWidget(QLabel("Trajectory width", width_holder))
+            self.trajectory_width_slider = QSlider(
+                Qt.Orientation.Horizontal, width_holder
+            )
+            self.trajectory_width_slider.setObjectName("trajectory_width_slider")
+            # Slider integer range maps to 1.0..6.0 px in 0.1 increments.
+            self.trajectory_width_slider.setRange(10, 60)
+            self.trajectory_width_slider.setValue(
+                int(round(self._setting_trajectory_width * 10))
+            )
+            self.trajectory_width_slider.setSingleStep(1)
+            self.trajectory_width_slider.setMinimumWidth(140)
+            self.trajectory_width_slider.valueChanged.connect(
+                self._on_setting_trajectory_width
+            )
+            wh_layout.addWidget(self.trajectory_width_slider, 1)
+            self.trajectory_width_value = QLabel(
+                f"{self._setting_trajectory_width:.1f} px", width_holder
+            )
+            self.trajectory_width_value.setMinimumWidth(48)
+            wh_layout.addWidget(self.trajectory_width_value)
+            width_action = QWidgetAction(self)
+            width_action.setDefaultWidget(width_holder)
+            menu.addSeparator()
+            menu.addAction(width_action)
+
+            btn.setMenu(menu)
+            self._settings_menu = menu
+            return btn
+
+        # -- setting handlers --------------------------------------------
+
+        def _on_setting_show_axes(self, checked: bool) -> None:
+            self._setting_show_axes = bool(checked)
+            self._apply_axes_grid()
+
+        def _on_setting_show_grid(self, checked: bool) -> None:
+            self._setting_show_grid = bool(checked)
+            self._apply_axes_grid()
+
+        def _on_setting_show_vector_preview(self, checked: bool) -> None:
+            self._setting_show_vector_preview = bool(checked)
+            # Repaint the welcome state only when no trajectory has been
+            # rendered yet — once a sim has landed, the preview has been
+            # cleared and re-enabling the setting will surface it on the
+            # next sim cycle.
+            if self._current_renderer is None and self.viewer is not None:
+                if checked:
+                    self._render_vector_field_preview()
+                else:
+                    try:
+                        self.viewer.clear()
+                        self.viewer.set_background(self._setting_bg_color)
+                    except (AttributeError, RuntimeError):
+                        pass
+                    self._force_viewport_render()
+
+        def _on_setting_bg_color(self, hex_color: str) -> None:
+            self._setting_bg_color = str(hex_color)
+            for key, act in self._bg_actions.items():
+                act.setChecked(key == hex_color.lower())
+            self._apply_bg_color()
+
+        def _on_setting_bg_color_pick(self) -> None:
+            from PySide6.QtGui import QColor
+
+            initial = QColor(self._setting_bg_color)
+            picked = QColorDialog.getColor(initial, self, "Pick background color")
+            if not picked.isValid():
+                return
+            hex_color = picked.name()
+            self._setting_bg_color = hex_color
+            # Sync the preset checkmarks (an arbitrary color clears them all).
+            for key, act in self._bg_actions.items():
+                act.setChecked(key == hex_color.lower())
+            self._apply_bg_color()
+
+        def _on_setting_trajectory_width(self, value: int) -> None:
+            self._setting_trajectory_width = float(value) / 10.0
+            self.trajectory_width_value.setText(
+                f"{self._setting_trajectory_width:.1f} px"
+            )
+            # Push to the renderer if one is attached. We rebuild the line
+            # actor via the existing color-by-progress path so we never
+            # rebuild the head sphere or the polyline PolyData.
+            r = self._current_renderer
+            if r is None:
+                return
+            try:
+                r._line_width = self._setting_trajectory_width  # noqa: SLF001
+                # Trigger a line-actor rebuild by flipping color-by-progress
+                # off and on; the kwargs are read fresh each pass.
+                if hasattr(r, "set_line_width"):
+                    r.set_line_width(self._setting_trajectory_width)
+                else:
+                    # Fall back: flip the color-by-progress toggle to force
+                    # a line-mesh rebuild that picks up any new attribute.
+                    enabled = getattr(r, "_color_by_progress_enabled", True)
+                    r.set_color_by_progress(not enabled)
+                    r.set_color_by_progress(bool(enabled))
+            except (AttributeError, RuntimeError):  # pragma: no cover - defensive
+                pass
+
+        def _apply_axes_grid(self) -> None:
+            """Reflect the axes/grid checkboxes onto the active plotter."""
+
+            if self.viewer is None:
+                return
+            try:
+                if self._setting_show_axes:
+                    self.viewer.show_axes()
+                else:
+                    try:
+                        self.viewer.hide_axes()
+                    except (AttributeError, RuntimeError):
+                        pass
+                if self._setting_show_grid:
+                    try:
+                        self.viewer.show_grid()
+                    except (AttributeError, RuntimeError, TypeError):
+                        pass
+                else:
+                    try:
+                        self.viewer.remove_bounds_axes()
+                    except (AttributeError, RuntimeError):
+                        try:
+                            self.viewer.show_grid(show_xaxis=False, show_yaxis=False,
+                                                  show_zaxis=False)
+                        except (AttributeError, RuntimeError, TypeError):
+                            pass
+            finally:
+                self._force_viewport_render()
+
+        def _apply_bg_color(self) -> None:
+            """Push the current background-color setting onto the plotter."""
+
+            if self.viewer is None:
+                return
+            try:
+                self.viewer.set_background(self._setting_bg_color)
+            except (AttributeError, RuntimeError):  # pragma: no cover - defensive
+                pass
+            self._force_viewport_render()
 
         def _on_toggle_theme(self) -> None:
             """Flip between dark and light QSS themes."""
