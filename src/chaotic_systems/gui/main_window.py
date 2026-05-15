@@ -1119,7 +1119,11 @@ def _build_window_class() -> type:
             # method; future ``QSettings`` integration plugs in here.
             self._setting_show_axes: bool = True
             self._setting_show_grid: bool = True
-            self._setting_show_vector_preview: bool = True
+            # Off by default — for systems like Lorenz the RHS magnitudes
+            # vary wildly across phase space, so the magnitude-scaled arrow
+            # glyphs collapse into a visually noisy blob that doesn't read
+            # as a vector field. Users who want it can opt in via Settings.
+            self._setting_show_vector_preview: bool = False
             self._setting_trajectory_width: float = 3.5
             from chaotic_systems.gui.theme import viewport_background
             self._setting_bg_color: str = viewport_background()

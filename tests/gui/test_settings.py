@@ -40,7 +40,9 @@ def test_settings_defaults_are_on(qtbot) -> None:  # type: ignore[no-untyped-def
     window = _make_window(qtbot)
     assert window.action_show_axes.isChecked()
     assert window.action_show_grid.isChecked()
-    assert window.action_show_vector_preview.isChecked()
+    # Vector-field preview is off by default — magnitude-scaled arrows
+    # read as visual noise on systems like Lorenz.
+    assert not window.action_show_vector_preview.isChecked()
     # Trajectory width default mirrors the renderer default (3.5 px).
     assert window._setting_trajectory_width == pytest.approx(3.5)  # noqa: SLF001
 
