@@ -77,3 +77,59 @@ def test_dynamical_system_rhs_shape_guard() -> None:
 
     with pytest.raises(ValueError, match="expected"):
         _Broken().rhs(0.0, np.zeros(3))
+
+
+def test_simulate_rejects_zero_or_negative_span() -> None:
+    sys = _Linear()
+    with pytest.raises(ValueError, match="strictly increasing"):
+        sys.simulate((0.0, 0.0))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        sys.simulate((1.0, 0.0))
+
+
+def test_simulate_rejects_non_positive_dt() -> None:
+    sys = _Linear()
+    with pytest.raises(ValueError, match="dt must be positive"):
+        sys.simulate((0.0, 1.0), dt=-0.1)
+    with pytest.raises(ValueError, match="dt must be positive"):
+        sys.simulate((0.0, 1.0), dt=0.0)
+
+
+def test_simulate_rejects_unknown_integrator() -> None:
+    sys = _Linear()
+    with pytest.raises(KeyError, match="unknown integrator"):
+        sys.simulate((0.0, 1.0), n_points=10, integrator="NoSuchMethod")
+
+
+def test_simulate_rejects_non_finite_initial_state() -> None:
+    sys = _Linear()
+    y0 = np.array([np.nan, 0.0])
+    with pytest.raises(ValueError, match="non-finite"):
+        sys.simulate((0.0, 1.0), y0=y0)
+
+
+def test_simulate_rejects_n_points_below_2() -> None:
+    sys = _Linear()
+    with pytest.raises(ValueError, match="n_points must be >= 2"):
+        sys.simulate((0.0, 1.0), n_points=1)
+
+
+def test_simulate_endpoint_matches_t1() -> None:
+    """Adaptive integrators with `dt=` should hit the t_span endpoint exactly."""
+
+    sys = _Linear()
+    traj = sys.simulate((0.0, 1.0), dt=0.3, integrator="RK45")
+    assert traj.t[-1] == pytest.approx(1.0, abs=1e-12)
+
+
+def test_simulate_symplectic_auto_wires_grad_fns_for_henon_heiles() -> None:
+    """A separable Hamiltonian system + symplectic integrator => no extra args."""
+
+    pytest.importorskip("sympy")
+    from chaotic_systems.systems import HenonHeiles
+
+    sys = HenonHeiles()
+    traj = sys.simulate((0.0, 5.0), dt=0.05, integrator="yoshida4")
+    assert traj.y.shape[0] >= 2
+    assert traj.y.shape[1] == 4
+    assert traj.integrator == "yoshida4"
