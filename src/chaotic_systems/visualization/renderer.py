@@ -391,6 +391,37 @@ class Renderer3D:
         self._set_visible_points(n_visible)
         self._request_redraw()
 
+    def seek_interpolated(self, index_float: float) -> None:
+        """Jump to a *fractional* frame index for sub-frame smoothness.
+
+        The polyline still extends to the integer-floor index (so the
+        full-trajectory bookkeeping the GUI relies on stays predictable),
+        but the head sphere lerps between samples ``i`` and ``i+1``. At
+        60 FPS with even a small stride this is the difference between
+        "head teleports through phase space" and "head glides smoothly".
+
+        Falls back to integer :meth:`seek` semantics when the fractional
+        part is zero (or ``index_float`` is beyond the last sample).
+        """
+
+        n_total = self.points.shape[0]
+        if n_total <= 1:
+            return
+        # Clamp into the valid float range so the head never lerps past
+        # the final sample.
+        idx_f = float(np.clip(index_float, 0.0, n_total - 1))
+        i = int(np.floor(idx_f))
+        frac = idx_f - i
+        # Polyline always goes up to the integer floor — the head sphere
+        # carries the sub-frame motion.
+        self._set_visible_points(i + 1)
+        if frac > 0.0 and i < n_total - 1 and self._head_actor is not None:
+            p0 = self.points[i]
+            p1 = self.points[i + 1]
+            head_pos = p0 + frac * (p1 - p0)
+            self._move_head_actor(head_pos)
+        self._request_redraw()
+
     def set_color_by_progress(self, enabled: bool) -> None:
         """Toggle perceptually-uniform color shading along the trajectory.
 

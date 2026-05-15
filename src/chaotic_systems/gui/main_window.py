@@ -1068,9 +1068,26 @@ def _build_window_class() -> type:
             # Sensible wall-clock playback duration at 1× speed for the
             # default Lorenz trajectory. Configurable by callers via the
             # ``target_playback_seconds`` attribute before pressing Run.
-            self.target_playback_seconds: float = 10.0
-            self._base_tick_ms: int = 33  # ~30 Hz refresh
-            self._frames_per_tick_base: int = 1
+            # 15 s gives a calmer perceptual feel than the original 10 s
+            # without crossing into "too slow" territory.
+            self.target_playback_seconds: float = 15.0
+            # ~60 Hz refresh — modern Qt + macOS handles 16 ms timers
+            # cleanly. The old 33 ms (~30 Hz) cadence forced a high stride
+            # which made the head sphere teleport visibly between phase
+            # points; halving the period lets us advance ~6 frames/tick
+            # for the default 4000-sample Lorenz, in line with the
+            # ``_MAX_STRIDE`` cap below.
+            self._base_tick_ms: int = 16
+            # Hard ceiling on the per-tick stride so the head never
+            # jumps more than a few samples even on dense trajectories.
+            # If the source is so dense that the wall-clock target can't
+            # be met without exceeding this, playback simply runs longer.
+            self._MAX_STRIDE: int = 4
+            self._frames_per_tick_base: float = 1.0
+            # Fractional playback position, in samples. The displayed
+            # frame index is ``floor`` of this; the renderer interpolates
+            # the head sphere's position to the fractional remainder.
+            self._anim_position: float = 0.0
             self._scrubber_dragging: bool = False
             self._current_frame_index: int = 0
 
@@ -2387,23 +2404,28 @@ def _build_window_class() -> type:
                 self.play_button.setChecked(False)
 
         def _recompute_tick_cadence(self) -> None:
-            """Pick a ``_frames_per_tick_base`` so 1× plays over the target wall time.
+            """Pick a fractional ``_frames_per_tick_base`` for fluid playback.
 
-            At 1×, the polyline should grow from frame 0 to frame ``n-1`` over
-            ``target_playback_seconds``. We fix the timer period at
-            ``_base_tick_ms`` (~30 Hz) and pick the per-tick stride
-            accordingly. At higher speeds we multiply the stride; we never
-            shrink the timer period below the base because Qt timers below
-            10-15 ms behave badly across platforms.
+            At 1×, the polyline should grow from frame 0 to frame ``n-1``
+            over ``target_playback_seconds``. The timer fires every
+            ``_base_tick_ms`` (~16 ms / 60 Hz); the per-tick stride is a
+            *float* so dense trajectories advance at fractional rates and
+            the head sphere is sub-frame-interpolated. The stride is
+            capped at ``_MAX_STRIDE`` so even a 10000-frame trajectory
+            never teleports more than four samples per tick — playback
+            just runs slightly longer than the target if it has to.
             """
 
             n = self._renderer_total_frames()
             if n <= 0:
-                self._frames_per_tick_base = 1
+                self._frames_per_tick_base = 1.0
                 return
             target_ms = max(50.0, float(self.target_playback_seconds) * 1000.0)
             ticks = max(1.0, target_ms / float(self._base_tick_ms))
-            self._frames_per_tick_base = max(1, int(round(n / ticks)))
+            ideal = float(n) / ticks
+            self._frames_per_tick_base = float(
+                min(max(ideal, 1.0 / 64.0), float(self._MAX_STRIDE))
+            )
 
         def _renderer_total_frames(self) -> int:
             r = self._current_renderer
@@ -2493,6 +2515,7 @@ def _build_window_class() -> type:
                 return
             idx = int(np.clip(int(frame_index), 0, n - 1))
             self._current_frame_index = idx
+            self._anim_position = float(idx)
             r.seek(idx)
             # Keep the scrubber in sync without re-entering the drag handler.
             block = self.frame_scrubber.blockSignals(True)
@@ -2508,16 +2531,34 @@ def _build_window_class() -> type:
             if r is None or not self._is_playing:
                 return
             n = r.n_frames
-            stride = max(
-                1, int(round(self._frames_per_tick_base * self._speed_multiplier))
-            )
-            next_idx = self._current_frame_index + stride
-            if next_idx >= n - 1:
-                # Snap to the last frame and stop.
+            # Fractional stride — capped at ``_MAX_STRIDE`` so the head
+            # never jumps more than a few samples per tick even on dense
+            # trajectories.
+            raw_stride = self._frames_per_tick_base * float(self._speed_multiplier)
+            stride = min(float(self._MAX_STRIDE), max(1.0 / 64.0, raw_stride))
+            next_pos = self._anim_position + stride
+            if next_pos >= n - 1:
                 self._seek_to(n - 1)
                 self._pause()
                 return
-            self._seek_to(next_idx)
+            self._anim_position = next_pos
+            # Move the head sphere sub-frame-smoothly. The polyline still
+            # grows in integer steps, but the head glides between samples.
+            try:
+                r.seek_interpolated(next_pos)
+            except (AttributeError, TypeError):  # pragma: no cover - older renderer
+                r.seek(int(next_pos))
+            idx_int = int(np.floor(next_pos))
+            self._current_frame_index = idx_int
+            # Keep the scrubber + time label in sync against the integer
+            # index for predictability.
+            block = self.frame_scrubber.blockSignals(True)
+            try:
+                self.frame_scrubber.setValue(idx_int)
+            finally:
+                self.frame_scrubber.blockSignals(block)
+            self._update_time_label(idx_int)
+            self._update_status_frame(idx_int)
 
         def _on_scrubber_press(self) -> None:
             self._scrubber_dragging = True

@@ -95,6 +95,50 @@ def test_polyline_connectivity_truncates_with_seek(points: np.ndarray) -> None:
         plotter.close()
 
 
+def test_seek_interpolated_polyline_uses_floor(points: np.ndarray) -> None:
+    """``seek_interpolated(5.5)`` advances the polyline to 6 samples."""
+
+    r = Renderer3D(points)
+    r.seek_interpolated(5.5)
+    assert r.current_frame == 6
+
+
+def test_seek_interpolated_lerps_head_position(points: np.ndarray) -> None:
+    """The head sphere position is a linear interp between sample i and i+1."""
+
+    import pyvista as pv
+
+    plotter = pv.Plotter(off_screen=True)
+    try:
+        r = Renderer3D(points)
+        r.attach(plotter)
+        r.seek_interpolated(10.25)
+        # Polyline only knows about integer prefixes.
+        assert r.current_frame == 11
+        expected = points[10] + 0.25 * (points[11] - points[10])
+        np.testing.assert_allclose(r.head_position, points[10])  # polyline
+        # Head actor uses the lerped position; we mirror that test by
+        # peeking at the actor position. The actor's GetPosition returns
+        # a 3-tuple. If the test runs without VTK actor backend, fall back
+        # to verifying ``head_position`` matches the floor.
+        actor = r._head_actor  # noqa: SLF001
+        if hasattr(actor, "GetPosition"):
+            pos = np.asarray(actor.GetPosition(), dtype=float)
+            np.testing.assert_allclose(pos, expected, atol=1e-9)
+    finally:
+        plotter.close()
+
+
+def test_seek_interpolated_clamps(points: np.ndarray) -> None:
+    """Floats past the last sample clamp; negatives clamp to 0."""
+
+    r = Renderer3D(points)
+    r.seek_interpolated(-3.5)
+    assert r.current_frame == 2  # polyline minimum
+    r.seek_interpolated(1e9)
+    assert r.current_frame == points.shape[0]
+
+
 def test_set_color_by_progress_before_attach_is_safe(points: np.ndarray) -> None:
     """Toggling progress shading without a plotter should not raise."""
 

@@ -110,12 +110,31 @@ def test_anim_tick_advances_frame(qtbot) -> None:  # type: ignore[no-untyped-def
 
     window._seek_to(0)  # noqa: SLF001
     start = window._current_frame_index  # noqa: SLF001
-    # Force a non-trivial stride so the test is deterministic.
-    window._frames_per_tick_base = 5  # noqa: SLF001
+    # Force a non-trivial stride below the per-tick cap so the test is
+    # deterministic. (The cap exists so dense trajectories never
+    # teleport — see ``_MAX_STRIDE``.)
+    window._frames_per_tick_base = 3.0  # noqa: SLF001
     window._speed_multiplier = 1.0  # noqa: SLF001
     window._is_playing = True  # noqa: SLF001
     window._on_anim_tick()  # noqa: SLF001
-    assert window._current_frame_index == start + 5  # noqa: SLF001
+    assert window._current_frame_index == start + 3  # noqa: SLF001
+    window._is_playing = False  # noqa: SLF001
+
+
+def test_anim_tick_caps_stride(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Per-tick stride is clamped to ``_MAX_STRIDE`` regardless of base."""
+
+    window = _make_window(qtbot)
+    window._on_sim_finished(_synthetic_trajectory(200))  # noqa: SLF001
+    window._pause()  # noqa: SLF001
+    window._seek_to(0)  # noqa: SLF001
+    start = window._current_frame_index  # noqa: SLF001
+    window._frames_per_tick_base = 1000.0  # absurd; should be capped  # noqa: SLF001
+    window._speed_multiplier = 1.0  # noqa: SLF001
+    window._is_playing = True  # noqa: SLF001
+    window._on_anim_tick()  # noqa: SLF001
+    cap = window._MAX_STRIDE  # noqa: SLF001
+    assert window._current_frame_index == start + cap  # noqa: SLF001
     window._is_playing = False  # noqa: SLF001
 
 
