@@ -125,6 +125,21 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
 
 ## Recently shipped (2026-05-15, after the param-form fix)
 
+- **Prerender pipeline + loading bar.** A new ``_PrerenderWorker``
+  warms ``Renderer3D``'s VTK pipeline and builds a cumulative
+  arc-length table before user-visible playback. For trajectories ≥
+  ``MainWindow._PRERENDER_MIN_FRAMES`` (500), the status bar shows
+  "Preparing animation... X%" with a determinate progress pill while
+  the worker runs. Playback then drives by *arc-length* (Manim
+  ``point_from_proportion`` style) so chaotic stretches visit slowly
+  visually and calm regions zip past at uniform visual speed.
+  Renderer gained ``build_prerender_cache``, ``seek_arc_length``,
+  ``has_prerender_cache``, ``total_arc_length``, ``_invalidate_cache``.
+  Cache invalidates on ``set_line_width`` / ``set_color_by_progress``
+  / re-attach. Cancellation precedence in the toolbar Cancel button is
+  now export → prerender → sim. See ``docs/prerender_design.md`` for
+  the prior-art research (ParaView Cinema, napari prefetching, Manim
+  arc-length, VTK shader-cache warming) and design rationale.
 - **Transport controls + scrubbing playback** in the GUI. The viewport
   now has a play / pause / stop / jump-to-end / speed / scrubber strip;
   pressing *Run* simulates, then plays the trajectory back at 1× from

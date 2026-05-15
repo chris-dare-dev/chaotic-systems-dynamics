@@ -101,6 +101,16 @@ swap on the `lines` connectivity. The non-blocking entry points are:
   back to a flat `line_color`.
 - `head_position` / `current_frame` / `n_frames` — read-only accessors
   the GUI uses to render `t = ... / ...` labels and the scrubber range.
+- `build_prerender_cache(progress_cb=, cancel_cb=)` — compute the
+  cumulative arc-length table and warm the VTK pipeline so the first
+  playback tick is GPU-cheap. Idempotent; safe to call from a
+  worker thread (the GUI does exactly that via `_PrerenderWorker`).
+- `seek_arc_length(s)` — move the playhead to arc-length position
+  `s ∈ [0, total_arc_length]`. Drives uniform-visual-speed playback —
+  the Manim `point_from_proportion` analog. Used by `_on_anim_tick`
+  whenever `has_prerender_cache` is `True`.
+- `has_prerender_cache` / `total_arc_length` — read-only flags the GUI
+  checks before choosing the arc-length playback path.
 
 `render_to_video()` builds an off-screen plotter (no display required),
 walks the camera around the attractor, and writes each frame to ffmpeg
@@ -185,11 +195,28 @@ backend is available.
 
 ## Threading model
 
-Both simulation and video export run on background `QThread` workers
-(`_SimulateWorker`, `_ExportWorker` in `main_window.py`) so the Qt main
-loop stays responsive. Workers emit `progress(current, total)` and
-`finished(...)` / `error(kind, message)` signals; the export worker also
-honors a `cancel()` poll so the user can abort a long render.
+Simulation, prerender warm-up, and video export all run on background
+`QThread` workers (`_SimulateWorker`, `_PrerenderWorker`, `_ExportWorker`
+in `main_window.py`) so the Qt main loop stays responsive. Workers emit
+`progress(current, total)` and `finished(...)` / `error(kind, message)`
+signals; both the prerender and the export worker also honor a
+`cancel()` poll so the user can abort.
+
+## Prerender pipeline
+
+After every simulation completes, dense trajectories (≥
+`MainWindow._PRERENDER_MIN_FRAMES`, currently 500) go through a
+**prerender** step before user-visible playback begins. This warms the
+VTK shader cache, pre-allocates the polyline connectivity buffer at its
+worst-case size, and builds a cumulative arc-length table so playback
+moves at uniform *visual* speed rather than uniform *integration time*.
+The status bar shows a determinate progress pill ("Preparing
+animation... X%") while the prerender worker runs; when it finishes,
+the QTimer arms and playback starts. Trajectories below the threshold
+skip the prerender step entirely. See `docs/prerender_design.md` for
+the research summary, prior-art notes (ParaView Cinema, napari
+prefetching, Manim `point_from_proportion`, VTK shader caching), and
+the full design.
 
 ## Headless / CI behavior
 

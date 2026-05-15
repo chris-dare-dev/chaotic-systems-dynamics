@@ -46,6 +46,7 @@ Functional. The full pipeline — backend (systems, integrators, Lyapunov, Poinc
 - Integrator selection from the full registry (including symplectic methods).
 - Simulation and export run on worker threads — the window stays responsive.
 - **Transport controls** under the viewport: Play / Pause / Stop / Jump-to-end / speed dropdown (0.25×–8×) / frame scrubber with live `t = current / total` readout. Press *Run* and the GUI now plays the trajectory back at 1× rather than dumping the static polyline.
+- **Prerender + loading bar.** Right after a simulation finishes, a background worker warms the VTK pipeline and builds a cumulative arc-length table for the trajectory; the status bar shows "Preparing animation... X%" with a determinate progress pill, then playback starts. Playback is driven by *arc-length* (Manim `point_from_proportion` style), so chaotic stretches visit slowly visually and calm regions zip past at uniform visual speed — the head moves at a constant *visual* rate regardless of how fast the underlying parametrization changes through phase space. Trajectories below ~500 samples skip the prerender step and play immediately. See `docs/prerender_design.md` for the design and prior-art research.
 - **Flowing LaTeX panel** — equations scale to the panel width on resize (no horizontal scrolling); aligned environments stack one row per equation so each row scales independently.
 - Keyboard shortcuts:
   | Key | Action |

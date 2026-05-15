@@ -110,14 +110,17 @@ def test_anim_tick_advances_frame(qtbot) -> None:  # type: ignore[no-untyped-def
 
     window._seek_to(0)  # noqa: SLF001
     start = window._current_frame_index  # noqa: SLF001
-    # Force a non-trivial stride below the per-tick cap so the test is
-    # deterministic. (The cap exists so dense trajectories never
-    # teleport — see ``_MAX_STRIDE``.)
-    window._frames_per_tick_base = 3.0  # noqa: SLF001
+    # Force a non-trivial stride EQUAL TO the per-tick cap so the test
+    # is deterministic regardless of how the cap is configured. (The
+    # cap exists so dense trajectories never teleport — see
+    # ``_MAX_STRIDE``; the previous version of this test pinned a
+    # stride > cap, but the cap shrank as sub-frame interpolation
+    # landed.)
+    window._frames_per_tick_base = float(window._MAX_STRIDE)  # noqa: SLF001
     window._speed_multiplier = 1.0  # noqa: SLF001
     window._is_playing = True  # noqa: SLF001
     window._on_anim_tick()  # noqa: SLF001
-    assert window._current_frame_index == start + 3  # noqa: SLF001
+    assert window._current_frame_index == start + window._MAX_STRIDE  # noqa: SLF001
     window._is_playing = False  # noqa: SLF001
 
 
