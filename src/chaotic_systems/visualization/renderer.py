@@ -261,6 +261,18 @@ class Renderer3D:
 
     # ------------------------------------------------------------------ public
 
+    @property
+    def n_frames(self) -> int:
+        """Total number of trajectory samples (frames) this renderer can play."""
+
+        return int(self.points.shape[0])
+
+    @property
+    def current_frame(self) -> int:
+        """One-based count of currently visible samples (clamped to ``[2, n_frames]``)."""
+
+        return int(self._current_n)
+
     def attach(self, qt_interactor: QtInteractor) -> None:
         """Attach this renderer to an existing ``pyvistaqt.QtInteractor``.
 
@@ -315,21 +327,108 @@ class Renderer3D:
             self._set_visible_points(n)
             update_fn()
 
+    def _request_redraw(self) -> None:
+        """Ask the attached plotter to repaint. Safe before initialization.
+
+        We prefer ``plotter.update()`` (the recommended PyVista API for
+        interactive plotters) but fall back to ``plotter.render()`` if the
+        interactor hasn't been initialized yet — which happens when callers
+        drive an off-screen plotter step-by-step before calling
+        ``plotter.show()``.
+        """
+
+        if self._plotter is None:
+            return
+        update_fn: Callable[[], Any] | None = getattr(self._plotter, "update", None)
+        render_fn: Callable[[], Any] | None = getattr(self._plotter, "render", None)
+        if update_fn is not None:
+            try:
+                update_fn()
+                return
+            except RuntimeError:
+                pass
+        if render_fn is not None:
+            try:
+                render_fn()
+            except (RuntimeError, AttributeError):  # pragma: no cover - defensive
+                pass
+
     def step(self, n_visible: int) -> None:
         """Show the first ``n_visible`` samples (clamped). Returns immediately.
 
         Convenient for driving the animation from an external ``QTimer``.
+        ``n_visible`` is the *cumulative* count of points to display — pass
+        ``current_frame + frames_per_tick`` to advance, not a delta.
         """
 
         self._set_visible_points(n_visible)
-        if self._plotter is None:
+        self._request_redraw()
+
+    def seek(self, index: int) -> None:
+        """Jump to frame ``index`` (zero-based). Rebuilds the polyline up to it.
+
+        The frame index is interpreted as the *last* sample to display, so
+        ``seek(0)`` shows the first two samples (the minimum a polyline can
+        carry) and ``seek(n_frames - 1)`` shows the entire trajectory.
+        Equivalent in effect to ``step(index + 1)`` but named for the
+        transport-control idiom of "scrubbing to a position".
+        """
+
+        n_visible = int(np.clip(int(index) + 1, 2, self.points.shape[0]))
+        self._set_visible_points(n_visible)
+        self._request_redraw()
+
+    def set_color_by_progress(self, enabled: bool) -> None:
+        """Toggle perceptually-uniform color shading along the trajectory.
+
+        When enabled, the polyline is colored by a normalized "time" scalar
+        (``[0, 1]`` along the trajectory) using the renderer's ``cmap``
+        (default ``viridis``). When disabled, the polyline reverts to the
+        flat ``line_color``. Safe to call before or after :meth:`attach`.
+
+        Returns immediately if the scene hasn't been built yet — the change
+        takes effect at the next ``attach`` / ``show``.
+        """
+
+        new_cmap: str | None = self.cmap if enabled else None
+        # No-op if state already matches; we use a sentinel cached attribute
+        # so the *first* call after attach with the same value still rebuilds
+        # if the scene was constructed under a different setting.
+        previous = getattr(self, "_color_by_progress_enabled", None)
+        self._color_by_progress_enabled = bool(enabled)
+        if previous == bool(enabled) and self._line_actor is not None:
             return
-        update_fn: Callable[[], Any]
-        if hasattr(self._plotter, "update"):
-            update_fn = self._plotter.update
+
+        if self._plotter is None or self._polyline is None:
+            return
+        # Rebuild only the line mesh — keep head actor and camera intact.
+        try:
+            self._plotter.remove_actor(self._line_actor, render=False)
+        except (AttributeError, RuntimeError, TypeError):  # pragma: no cover
+            pass
+        line_kwargs: dict[str, Any] = {
+            "line_width": 2.0,
+            "render_lines_as_tubes": False,
+        }
+        if new_cmap is not None:
+            line_kwargs["scalars"] = self.color_by
+            line_kwargs["cmap"] = new_cmap
+            line_kwargs["show_scalar_bar"] = False
         else:
-            update_fn = self._plotter.render
-        update_fn()
+            line_kwargs["color"] = self.line_color
+        self._line_actor = self._plotter.add_mesh(self._polyline, **line_kwargs)
+        self._request_redraw()
+
+    @property
+    def head_position(self) -> np.ndarray:
+        """Current world-space position of the head marker.
+
+        Returns the last sample displayed by the polyline, regardless of
+        whether the head actor itself has been built yet.
+        """
+
+        n = int(np.clip(self._current_n, 2, self.points.shape[0]))
+        return np.asarray(self.points[n - 1], dtype=float).copy()
 
     # ------------------------------------------------------------------ video
 
