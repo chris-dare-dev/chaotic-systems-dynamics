@@ -20,6 +20,7 @@ Public API
 from __future__ import annotations
 
 import io
+import re
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -31,8 +32,62 @@ if TYPE_CHECKING:
 __all__ = [
     "latex_to_array",
     "latex_to_qimage",
+    "sanitize_for_mathtext",
     "sympy_to_latex",
 ]
+
+
+# Macros matplotlib's mathtext does NOT understand but for which a near-
+# equivalent macro exists. We pre-process LaTeX strings to swap them for
+# the mathtext-friendly form so the equation panel doesn't render raw
+# ``ParseFatalException`` text.
+#
+# This map covers the substitutions identified in the catalog audit
+# (DoublePendulum / HenonHeiles / Chua all use ``\tfrac``). ``\dfrac`` is
+# included pre-emptively since SymPy emits it for display-style
+# fractions. ``\mathrm`` and ``\operatorname`` are tolerated by mathtext
+# (it treats them as upright groups), but we normalise them here so they
+# render consistently with the rest of the panel.
+_MATHTEXT_MACRO_SUBSTITUTIONS: tuple[tuple[str, str], ...] = (
+    (r"\tfrac", r"\frac"),
+    (r"\dfrac", r"\frac"),
+    (r"\nicefrac", r"\frac"),
+)
+
+
+def sanitize_for_mathtext(latex: str) -> str:
+    """Return ``latex`` with mathtext-unsupported macros rewritten in place.
+
+    Matplotlib's mathtext engine is a strict subset of LaTeX — display-style
+    fraction macros (``\\tfrac`` / ``\\dfrac`` / ``\\nicefrac``) raise
+    ``ParseFatalException``. We pre-process the input so the user sees a
+    rendered equation instead of an exception traceback. The replacements
+    are conservative whole-word swaps that preserve the surrounding braces.
+
+    The function is idempotent: passing already-clean LaTeX returns it
+    unchanged.
+    """
+
+    out = latex
+    for old, new in _MATHTEXT_MACRO_SUBSTITUTIONS:
+        # \tfrac etc. — boundary on a non-letter ensures we don't catch
+        # e.g. \tfraction (no such macro, but it's defensive).
+        #
+        # ``re.sub`` interprets backslash sequences in the *replacement*
+        # string (``\f`` becomes form-feed, ``\1``-``\9`` become group
+        # back-refs). Passing the replacement as a lambda sidesteps that
+        # — the callable's return value is taken literally.
+        replacement_value = new
+        out = re.sub(
+            re.escape(old) + r"(?=[^A-Za-z])",
+            lambda _m, r=replacement_value: r,
+            out,
+        )
+        # If the macro is at the very end of the string (no trailing
+        # character), the lookahead above won't fire; handle that case.
+        if out.endswith(old):
+            out = out[: -len(old)] + new
+    return out
 
 
 # Environments whose rows really ARE separately-renderable equations.
@@ -78,6 +133,9 @@ def _strip_alignment_env(latex: str) -> list[str]:
     return rows
 
 
+_FALLBACK_MESSAGE = r"\text{renderer cannot display this expression}"
+
+
 def _render_with_matplotlib(
     latex: str,
     *,
@@ -91,60 +149,98 @@ def _render_with_matplotlib(
     Single draw pass: we configure the figure to size itself to its
     content via ``bbox_inches="tight"`` on ``savefig`` rather than the
     historical draw-then-resize-then-redraw sequence.
+
+    Sanitisation
+    ------------
+    Display-style fraction macros (``\\tfrac`` / ``\\dfrac``) are silently
+    rewritten to ``\\frac`` so the equation panel always renders the
+    equation rather than dumping a ``ParseFatalException`` into the GUI.
+    If a sanitised string still fails to parse we fall back to a clean
+    "cannot display" message instead of raising.
     """
 
     import matplotlib
 
-    # Use a non-interactive backend so this works headless.
+    # Use a non-interactive backend so this works headless. We don't
+    # ``matplotlib.use(...)`` after a Qt application has been built because
+    # Qt has already locked in QtAgg; using a stand-alone ``Figure`` plus
+    # ``FigureCanvasAgg`` lets us render off-screen regardless of the
+    # interactive backend matplotlib is using elsewhere in the process.
     matplotlib.use("Agg", force=False)
     from matplotlib import image as mpimg
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
 
-    fig = Figure(figsize=(0.5, 0.5), dpi=dpi)
-    try:
-        if background is None:
-            fig.patch.set_alpha(0.0)
-            face: Any = (0.0, 0.0, 0.0, 0.0)
-        else:
-            fig.patch.set_alpha(1.0)
-            fig.patch.set_facecolor(background)
-            face = background
-        fig.text(
-            0.5,
-            0.5,
-            f"${latex}$",
-            fontsize=fontsize,
-            color=color,
-            verticalalignment="center",
-            horizontalalignment="center",
-        )
+    sanitized = sanitize_for_mathtext(latex)
+    attempts = [sanitized]
+    if sanitized != latex:
+        # The original might still parse on some matplotlib versions; we
+        # try the sanitised form first because it's the conservative choice.
+        attempts.append(latex)
+    attempts.append(_FALLBACK_MESSAGE)
 
-        buf = io.BytesIO()
-        fig.savefig(
-            buf,
-            format="png",
-            dpi=dpi,
-            transparent=background is None,
-            facecolor=face,
-            bbox_inches="tight",
-            pad_inches=0.05,
-        )
-        buf.seek(0)
-        rgba = mpimg.imread(buf)
-        arr = (np.clip(rgba, 0.0, 1.0) * 255).astype(np.uint8)
-        if arr.ndim == 2:
-            arr = np.dstack([arr, arr, arr, np.full_like(arr, 255)])
-        elif arr.shape[2] == 3:
-            arr = np.dstack([arr, np.full(arr.shape[:2], 255, dtype=np.uint8)])
-        return arr
-    finally:
-        # ``Figure`` from ``matplotlib.figure`` doesn't need ``plt.close``;
-        # GC will reclaim it. But we explicitly clear the artists so the
-        # backend's text caches don't keep references alive.
+    last_exc: Exception | None = None
+    for attempt in attempts:
+        fig = Figure(figsize=(0.5, 0.5), dpi=dpi)
+        # Bind a headless Agg canvas explicitly — without this, calling
+        # ``savefig`` on a bare Figure in a Qt-bound process can route
+        # through the QtAgg canvas which raises on a worker / background
+        # thread or before the Qt event loop has spun up.
+        FigureCanvasAgg(fig)
         try:
-            fig.clf()
-        except Exception:  # pragma: no cover - defensive
-            pass
+            if background is None:
+                fig.patch.set_alpha(0.0)
+                face: Any = (0.0, 0.0, 0.0, 0.0)
+            else:
+                fig.patch.set_alpha(1.0)
+                fig.patch.set_facecolor(background)
+                face = background
+            fig.text(
+                0.5,
+                0.5,
+                f"${attempt}$",
+                fontsize=fontsize,
+                color=color,
+                verticalalignment="center",
+                horizontalalignment="center",
+            )
+
+            buf = io.BytesIO()
+            fig.savefig(
+                buf,
+                format="png",
+                dpi=dpi,
+                transparent=background is None,
+                facecolor=face,
+                bbox_inches="tight",
+                pad_inches=0.05,
+            )
+            buf.seek(0)
+            rgba = mpimg.imread(buf)
+            arr = (np.clip(rgba, 0.0, 1.0) * 255).astype(np.uint8)
+            if arr.ndim == 2:
+                arr = np.dstack([arr, arr, arr, np.full_like(arr, 255)])
+            elif arr.shape[2] == 3:
+                arr = np.dstack(
+                    [arr, np.full(arr.shape[:2], 255, dtype=np.uint8)]
+                )
+            return arr
+        except Exception as exc:  # noqa: BLE001 - we re-raise below if all fail
+            last_exc = exc
+            continue
+        finally:
+            # ``Figure`` from ``matplotlib.figure`` doesn't need ``plt.close``;
+            # GC will reclaim it. But we explicitly clear the artists so the
+            # backend's text caches don't keep references alive.
+            try:
+                fig.clf()
+            except Exception:  # pragma: no cover - defensive
+                pass
+    # Even the fallback message failed — extremely unlikely (it's plain
+    # ASCII inside \text), but raise something informative if it does.
+    raise RuntimeError(
+        "mathtext could not render any variant of the supplied LaTeX"
+    ) from last_exc
 
 
 def _cache_key(
