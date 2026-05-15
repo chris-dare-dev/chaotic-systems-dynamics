@@ -194,7 +194,7 @@ def _build_window_class() -> type:
         QThread,
         Signal,
     )
-    from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
+    from PySide6.QtGui import QKeySequence, QPalette, QPixmap, QShortcut
     from PySide6.QtWidgets import (
         QComboBox,
         QDoubleSpinBox,
@@ -217,6 +217,20 @@ def _build_window_class() -> type:
         from pyvistaqt import QtInteractor
     except ImportError:  # pragma: no cover - pyvistaqt is a hard runtime dep
         QtInteractor = None  # type: ignore[assignment]
+
+    def _palette_text_color_hex(widget: QWidget) -> str:
+        """Return the active palette's foreground text color as a hex string.
+
+        Used to keep LaTeX glyphs legible on whatever theme Qt is using —
+        dark on light, light on dark. Falls back to a neutral mid-gray if
+        the palette query fails for any reason.
+        """
+
+        try:
+            color = widget.palette().color(QPalette.ColorRole.WindowText)
+            return color.name()  # "#RRGGBB"
+        except Exception:  # pragma: no cover - defensive
+            return "#cccccc"
 
     # -----------------------------------------------------------------------
     # Parameter widget — spinbox + slider, optional log scale.
@@ -636,12 +650,16 @@ def _build_window_class() -> type:
             self._rebuild_for_current_system()
 
         def _clear_param_form(self) -> None:
-            """Empty the parameter form, scheduling widget deletion."""
+            """Empty the parameter form.
+
+            ``QFormLayout.removeRow(int)`` already deletes the row's widgets
+            (since Qt 5.8). Calling ``deleteLater()`` on the same widgets
+            afterwards raises ``RuntimeError: Internal C++ object already
+            deleted``. We just drop our Python-side references.
+            """
 
             while self._param_form_layout.rowCount() > 0:
                 self._param_form_layout.removeRow(0)
-            for widget in self._param_widgets.values():
-                widget.deleteLater()
             self._param_widgets = {}
 
         def _rebuild_for_current_system(self) -> None:
@@ -670,8 +688,13 @@ def _build_window_class() -> type:
                 dpr = float(screen.devicePixelRatio()) if screen is not None else 1.0
             except (AttributeError, RuntimeError):  # pragma: no cover
                 dpr = 1.0
+            # Match the rendered glyph color to the app palette so equations
+            # remain legible on both light and dark themes.
+            color = _palette_text_color_hex(label)
             try:
-                image = latex_to_qimage(latex, fontsize=18, dpi=int(180 * dpr))
+                image = latex_to_qimage(
+                    latex, fontsize=13, dpi=int(120 * dpr), color=color
+                )
                 image.setDevicePixelRatio(dpr)
             except Exception as exc:
                 label.setText(f"<LaTeX render failed: {exc}>")
