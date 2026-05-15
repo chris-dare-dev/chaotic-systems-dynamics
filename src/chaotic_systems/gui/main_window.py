@@ -1182,8 +1182,25 @@ def _build_window_class() -> type:
             # ``_anim_position`` carries the playhead. See
             # ``docs/prerender_design.md`` for the motivation.
             self._anim_arc_position: float = 0.0
+            # Wall-clock anchors. The animation loop computes the
+            # target playhead from wall-clock elapsed time rather than
+            # accumulating per-tick increments — that way a missed
+            # frame causes the head to *catch up* on the next render
+            # instead of falling behind. Set by :meth:`_play` and
+            # rebased whenever the speed changes mid-playback or the
+            # user scrubs.
+            self._play_wall_start: float = 0.0
+            self._play_arc_start: float = 0.0
+            self._play_position_start: float = 0.0
             self._scrubber_dragging: bool = False
             self._current_frame_index: int = 0
+            # Optional per-render trace. When non-None, every animation
+            # tick appends a ``(wall_time, head_x, head_y, head_z)``
+            # row. Used by ``tools/validate_smoothness.py`` and the
+            # unit tests to measure max per-frame head displacement.
+            self._anim_trace: list[tuple[float, float, float, float]] | None = (
+                None
+            )
 
             # --- Settings state (session-scoped) -------------------------
             # Defaults match what the renderer / preview path already
@@ -2947,14 +2964,22 @@ def _build_window_class() -> type:
         def _on_speed_changed(self, _idx: int) -> None:
             data = self.speed_box.currentData()
             try:
-                self._speed_multiplier = float(data)
+                new_speed = float(data)
             except (TypeError, ValueError):
-                self._speed_multiplier = 1.0
-            if self._is_playing:
-                # Re-arm the timer with the new cadence; we only change the
-                # per-tick stride, not the timer period, so high speeds stay
-                # smooth (4 frames per 33 ms tick at 4×, 8 at 8×).
-                pass  # _on_anim_tick reads the multiplier each tick
+                new_speed = 1.0
+            old_speed = float(self._speed_multiplier)
+            self._speed_multiplier = new_speed
+            if self._is_playing and new_speed != old_speed:
+                # Rebase the wall-clock anchors so the playhead doesn't
+                # jump when the user switches speed mid-playback. The
+                # *current* arc position is the new start; ``now``
+                # becomes the new wall-start. The next tick will
+                # advance at the new rate without rewinding.
+                import time
+
+                self._play_wall_start = time.perf_counter()
+                self._play_arc_start = float(self._anim_arc_position)
+                self._play_position_start = float(self._anim_position)
 
         def _on_toggle_play(self) -> None:
             if self._current_renderer is None:
@@ -2981,6 +3006,16 @@ def _build_window_class() -> type:
             # behave correctly — playback resumes from where the
             # scrubber points, not from frame 0.
             self._sync_arc_position_from_frame(self._current_frame_index)
+            # Anchor wall-clock pacing: every subsequent tick computes
+            # ``target = start_arc + (now - wall_start) * arc_per_second``.
+            # This is vsync-independent — a missed timer tick causes
+            # the next render to land at the correct *wall-clock*
+            # position rather than falling behind.
+            import time
+
+            self._play_wall_start = time.perf_counter()
+            self._play_arc_start = float(self._anim_arc_position)
+            self._play_position_start = float(self._anim_position)
             self._anim_timer.start(self._base_tick_ms)
 
         def _sync_arc_position_from_frame(self, frame_index: int) -> None:
@@ -3049,41 +3084,33 @@ def _build_window_class() -> type:
             r = self._current_renderer
             if r is None or not self._is_playing:
                 return
+            import time
+
             n = r.n_frames
+            now = time.perf_counter()
+            elapsed = max(0.0, now - self._play_wall_start)
+            speed = float(self._speed_multiplier)
             # Branch on whether the renderer has a warm prerender cache.
-            # If it does, drive playback by *arc-length* so chaotic
-            # stretching regions visit slowly visually and calm regions
-            # zip past at uniform visual speed — the Manim-style
-            # ``point_from_proportion`` analog described in
-            # ``docs/prerender_design.md``. If not (short trajectories,
-            # or the user cancelled prerender), fall back to the
-            # legacy integer-frame stride.
+            # If it does, drive playback by *arc-length* (Manim-style
+            # ``point_from_proportion``) so chaotic stretches advance
+            # slowly visually and calm regions zip past at uniform
+            # visual speed. If not (short trajectories, or the user
+            # cancelled prerender), fall back to the legacy
+            # integer-frame stride path — also recomputed off wall
+            # clock for vsync independence.
             if getattr(r, "has_prerender_cache", False) and r.total_arc_length > 0.0:
-                # Map the current frame-index position back to an
-                # arc-length parameter using the cumulative arc table.
-                # We carry the arc-length position on the instance
-                # under ``_anim_arc_position`` so the head moves
-                # smoothly across ticks regardless of speed changes.
                 total_arc = float(r.total_arc_length)
-                if not hasattr(self, "_anim_arc_position"):
-                    self._anim_arc_position = 0.0
-                # Wall-clock rate: full trajectory takes
-                # ``target_playback_seconds`` at 1×.
                 arc_per_second = total_arc / max(
                     0.05, float(self.target_playback_seconds)
                 )
-                arc_increment = (
-                    arc_per_second
-                    * (float(self._base_tick_ms) / 1000.0)
-                    * float(self._speed_multiplier)
-                )
-                next_arc = self._anim_arc_position + arc_increment
-                if next_arc >= total_arc:
+                target_arc = self._play_arc_start + elapsed * arc_per_second * speed
+                if target_arc >= total_arc:
                     # Snap to the end and pause.
                     self._anim_arc_position = total_arc
                     r.seek_arc_length(total_arc)
                     self._anim_position = float(n - 1)
                     self._current_frame_index = n - 1
+                    self._record_trace(now, r)
                     block = self.frame_scrubber.blockSignals(True)
                     try:
                         self.frame_scrubber.setValue(n - 1)
@@ -3093,13 +3120,14 @@ def _build_window_class() -> type:
                     self._update_status_frame(n - 1)
                     self._pause()
                     return
-                self._anim_arc_position = next_arc
-                r.seek_arc_length(next_arc)
+                self._anim_arc_position = target_arc
+                r.seek_arc_length(target_arc)
+                self._record_trace(now, r)
                 # Map back to integer-frame index for the scrubber and
                 # time-label, so all existing UI bindings keep working.
                 arc = r._arc_lengths  # noqa: SLF001
                 if arc is not None:
-                    idx_int = int(np.searchsorted(arc, next_arc, side="right")) - 1
+                    idx_int = int(np.searchsorted(arc, target_arc, side="right")) - 1
                     idx_int = max(0, min(idx_int, n - 1))
                 else:
                     idx_int = 0
@@ -3114,27 +3142,28 @@ def _build_window_class() -> type:
                 self._update_status_frame(idx_int)
                 return
 
-            # Legacy integer-frame stride path (short trajectories,
-            # cancelled prerender, or any renderer without the
-            # arc-length cache).
-            # Fractional stride — capped at ``_MAX_STRIDE`` so the head
-            # never jumps more than a few samples per tick even on dense
-            # trajectories.
-            raw_stride = self._frames_per_tick_base * float(self._speed_multiplier)
-            stride = min(float(self._MAX_STRIDE), max(1.0 / 64.0, raw_stride))
-            next_pos = self._anim_position + stride
-            if next_pos >= n - 1:
+            # Legacy integer-frame path. Compute the target position
+            # from wall-clock elapsed time and the configured
+            # samples-per-second rate, NOT from accumulated per-tick
+            # strides. The ``_frames_per_tick_base`` value is still
+            # the canonical rate; we just multiply it by the elapsed
+            # tick count instead of the integer tick counter, which
+            # makes the loop self-correcting under variable frame
+            # rate.
+            ticks_elapsed = elapsed * 1000.0 / max(1.0, float(self._base_tick_ms))
+            samples_per_tick = float(self._frames_per_tick_base) * speed
+            target_pos = self._play_position_start + ticks_elapsed * samples_per_tick
+            if target_pos >= n - 1:
                 self._seek_to(n - 1)
                 self._pause()
                 return
-            self._anim_position = next_pos
-            # Move the head sphere sub-frame-smoothly. The polyline still
-            # grows in integer steps, but the head glides between samples.
+            self._anim_position = target_pos
             try:
-                r.seek_interpolated(next_pos)
+                r.seek_interpolated(target_pos)
             except (AttributeError, TypeError):  # pragma: no cover - older renderer
-                r.seek(int(next_pos))
-            idx_int = int(np.floor(next_pos))
+                r.seek(int(target_pos))
+            self._record_trace(now, r)
+            idx_int = int(np.floor(target_pos))
             self._current_frame_index = idx_int
             # Keep the scrubber + time label in sync against the integer
             # index for predictability.
@@ -3145,6 +3174,23 @@ def _build_window_class() -> type:
                 self.frame_scrubber.blockSignals(block)
             self._update_time_label(idx_int)
             self._update_status_frame(idx_int)
+
+        def _record_trace(self, wall_time: float, renderer: Renderer3D) -> None:
+            """Append a ``(t, x, y, z)`` row to the optional animation trace.
+
+            Used by ``tools/validate_smoothness.py`` and the smoothness
+            unit tests to measure per-frame head displacement. No-op
+            unless :attr:`_anim_trace` has been pre-allocated by the
+            caller (e.g. the validator script sets it to ``[]`` before
+            triggering playback).
+            """
+
+            if self._anim_trace is None:
+                return
+            pos = renderer.head_position
+            self._anim_trace.append(
+                (float(wall_time), float(pos[0]), float(pos[1]), float(pos[2]))
+            )
 
         def _on_scrubber_press(self) -> None:
             self._scrubber_dragging = True
