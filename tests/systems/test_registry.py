@@ -12,14 +12,24 @@ from chaotic_systems.core import DynamicalSystem, Trajectory
 from chaotic_systems.systems import get_system, list_system_names, list_systems
 
 
-def test_list_systems_returns_classes_in_stable_order() -> None:
-    classes = list_systems()
-    names = [c.name for c in classes]
+def test_list_systems_returns_instances_in_stable_order() -> None:
+    instances = list_systems()
+    # Should hand back instances (not classes) so downstream callers can
+    # read `.initial_state`, `.parameters`, etc. directly.
+    assert all(isinstance(s, DynamicalSystem) for s in instances)
+    names = [s.name for s in instances]
     assert names == list_system_names()
     # The Lorenz attractor should be first — it's the public face of the project.
     assert names[0] == "Lorenz"
     assert "DoublePendulum" in names
     assert "HenonHeiles" in names
+
+
+def test_get_system_returns_registry_singleton() -> None:
+    """``get_system(name)`` returns the same instance every call."""
+    a = get_system("Lorenz")
+    b = get_system("Lorenz")
+    assert a is b
 
 
 @pytest.mark.parametrize("name", list_system_names())

@@ -15,20 +15,49 @@ combinations. Rather than ship a flaky test, we honor an opt-in:
 
 This keeps the visualization tests as the load-bearing smoke check for the
 PyVista renderer; the GUI tests cover widget-wiring on top of that.
+
+Scoping
+-------
+The ``pytest_collection_modifyitems`` hook below filters strictly to items
+*under* ``tests/gui/``. Earlier versions iterated over every collected
+item, which silently skipped the entire 38 + 13 = 51 backend test suite
+when running ``pytest`` from the repo root.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
+
+_THIS_DIR = Path(__file__).resolve().parent
 
 
 def _can_run_gui_tests() -> bool:
     return os.environ.get("CHAOTIC_GUI_TESTS_USE_DISPLAY") == "1"
 
 
-def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def]
+def _item_is_under_gui(item: pytest.Item) -> bool:
+    """True iff ``item`` lives under this directory (tests/gui/)."""
+
+    item_path = getattr(item, "path", None)
+    if item_path is not None:
+        try:
+            Path(item_path).resolve().relative_to(_THIS_DIR)
+            return True
+        except ValueError:
+            return False
+    # Fallback for pytest < 7 — item.fspath.
+    fspath = getattr(item, "fspath", None)
+    if fspath is None:
+        return False
+    return str(_THIS_DIR) in str(fspath)
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     if _can_run_gui_tests():
         return
     skip_marker = pytest.mark.skip(
@@ -38,7 +67,8 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
         )
     )
     for item in items:
-        item.add_marker(skip_marker)
+        if _item_is_under_gui(item):
+            item.add_marker(skip_marker)
 
 
 @pytest.fixture(scope="session")

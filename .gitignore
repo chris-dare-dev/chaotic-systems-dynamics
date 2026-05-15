@@ -107,3 +107,6 @@ assets/generated/*.png
 # Local notebooks / scratch
 scratch/
 *.ipynb
+
+# Local adversarial critique — kept locally for context, not committed.
+CRITIQUE.md
