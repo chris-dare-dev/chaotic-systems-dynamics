@@ -23,25 +23,73 @@ The project should *render the math*, not hide it. Every system displays its gov
 
 ## Current state (2026-05-15)
 
-- Empty git repository on `main` branch, remote at `git@github.com:chris-dare-dev/chaotic-systems-dynamics.git`.
-- This scaffolding pass establishes:
-  - Directory layout under `src/chaotic_systems/` with empty packages for `core`, `systems`, `integrators`, `visualization`, `gui`.
-  - Test directory mirroring the source layout.
-  - Governance files: `README.md`, `CONTEXT.md`, `SECURITY.md`, `CLAUDE.md`, `LICENSE`, `pyproject.toml`, `.gitignore`, `.python-version`.
-- Nothing is implemented. No dependencies are pinned. Nothing is runnable yet.
+The math and visualization layers landed in parallel passes on the same day.
+
+**Math / numerics** (`core/`, `integrators/`, `systems/`):
+- `DynamicalSystem`, `Parameter`, `Trajectory` base types.
+- `HamiltonianSystem`, `LagrangianSystem` specializations.
+- Adaptive integrators (RK45, RK23, DOP853, LSODA), fixed-step, and
+  symplectic methods scaffolded under `integrators/`.
+- Concrete systems: Lorenz, Rossler, DoublePendulum, Chua, HenonHeiles,
+  Duffing — exposed through `chaotic_systems.systems.registry`.
+- Lyapunov exponent helpers and Poincare sections.
+
+**Visualization + GUI** (`visualization/`, `gui/`):
+- `Renderer3D` (PyVista + VTK) with progressive-reveal animation,
+  attachable to a `pyvistaqt.QtInteractor` for embedding in the GUI.
+- `Renderer3D.render_to_video()` writes MP4s via `imageio-ffmpeg`,
+  off-screen — no display required.
+- LaTeX rendering via matplotlib mathtext, with automatic unrolling of
+  `\begin{aligned}` blocks into stacked rows. `latex_to_qimage()` feeds
+  the GUI panels.
+- `chaotic_systems.gui.MainWindow` — PySide6 main window:
+  system picker, parameter spinboxes auto-generated from each system's
+  parameter schema, integrator picker, t_end / dt controls, Run +
+  Export Video buttons, embedded 3D viewport, right-hand LaTeX panel
+  showing ODE system (and Lagrangian, if any).
+- Entry point: `python -m chaotic_systems.gui` (or
+  `chaotic-systems-gui` after `pip install -e .`).
+- Demos: `examples/lorenz_gui.py`, `examples/lorenz_video.py`.
+
+**Dependencies pinned** in `pyproject.toml`: numpy, scipy, sympy, numba,
+matplotlib, PySide6, pyvista, pyvistaqt, imageio, imageio-ffmpeg. Dev
+extras: pytest, pytest-qt, pytest-benchmark, hypothesis, ruff, mypy.
+
+**Tests**: 13 visualization tests (contract adapter, LaTeX rendering,
+end-to-end off-screen video export); 3 GUI smoke tests (window builds,
+parameter widgets generate from registry, LaTeX panel populates). GUI
+tests are gated behind `CHAOTIC_GUI_TESTS_USE_DISPLAY=1` because
+`pyvistaqt.QtInteractor` needs a real OpenGL context.
 
 ## What's next
 
-In rough priority order:
+The scaffolding and the visualization MVP are done. Open follow-ups:
 
-1. **Core abstractions.** Define `DynamicalSystem` and `Integrator` base classes in `core/`. A system advertises its state dimension, its vector field $\dot{y} = f(t, y)$, optionally its Lagrangian/Hamiltonian in symbolic form, and its LaTeX representation. An integrator advances `(y, t) → (y', t')`.
-2. **First system + first integrator.** Lorenz attractor + classical RK4. Smallest end-to-end slice that produces a trajectory.
-3. **Visualization MVP.** A 3D plot of the trajectory using a native plotting stack (likely matplotlib's 3D axes or PyVista — choice deferred until the GUI stack is picked).
-4. **GUI stack decision.** PySide6/Qt is the leading candidate for a native window that can host both a 3D viewport and LaTeX-rendered equations. Tkinter is a fallback if dependencies become a problem. **Explicitly not Electron / web-based.**
-5. **Adaptive integrator.** RK45 with embedded error estimate.
-6. **Symplectic integrator + double pendulum.** Demonstrates the Lagrangian path and the energy-preservation argument for symplectic methods.
-7. **Lyapunov exponent estimation.** Tangent-space method.
-8. **Video export.** MP4 / GIF rendering of an animated trajectory.
+1. **GUI play/pause/scrub.** The current GUI runs a simulation and shows
+   the full polyline; a `QTimer`-driven animation with play / pause /
+   scrub controls and a "current time" indicator is the next ergonomic
+   step. The renderer's `step(n_visible)` is ready for it.
+2. **2D phase-space panels.** Add a second tab (or a docked widget)
+   showing Poincare sections and arbitrary 2D projections via
+   matplotlib or PyQtGraph.
+3. **Lyapunov display.** Surface the largest Lyapunov exponent
+   (already implemented in `core/lyapunov.py`) somewhere in the GUI —
+   probably a status-bar widget that updates after each Run.
+4. **Persistent settings.** Remember the last-used system, parameters,
+   and integrator across launches (`QSettings`).
+5. **Real-time parameter rebinding.** Today, changing a slider doesn't
+   re-simulate until you press Run. A "live" mode that re-integrates
+   a short window on every change would be nice for exploration.
+6. **CI for the GUI smoke tests.** Today the GUI tests are skipped
+   without a display. A `xvfb` job (Linux) or a macOS runner with a
+   logged-in user could turn them back on.
+7. **Tests for the math layer.** The visualization side has 13 tests;
+   the math agent has not yet pushed tests for the systems and
+   integrators. Once those land, run them in CI alongside the
+   visualization suite.
+8. **Pre-rendered intros (manim).** Out-of-scope today but a nice
+   future direction for tutorial videos that explain each system before
+   the live simulation runs.
 
 ## Non-goals (for now)
 
@@ -52,7 +100,21 @@ In rough priority order:
 
 ## Open questions
 
-- **GUI stack:** PySide6 (Qt) vs. Dear PyGui vs. Tkinter + matplotlib. Leaning PySide6 for the LaTeX rendering and 3D viewport story.
-- **3D rendering:** matplotlib's `mpl_toolkits.mplot3d` is easy but slow. PyVista / VTK is faster and prettier but heavier. Decision deferred to the visualization phase.
-- **LaTeX rendering inside the GUI:** matplotlib's mathtext is built-in and limited; full LaTeX needs a TeX install. Likely use matplotlib mathtext to start.
-- **Symbolic backend:** `sympy` for symbolic Lagrangians and code-gen of vector fields. Risk: parsing user-supplied expressions safely (see `SECURITY.md`).
+- **Symbolic backend:** `sympy` is the symbolic engine for Lagrangians
+  and LaTeX prettification. Parsing user-supplied expressions safely is
+  still an open risk — see `SECURITY.md` and revisit when the GUI grows
+  a "custom system" expression box.
+- **Full LaTeX vs. mathtext.** Today we render via matplotlib mathtext,
+  which covers the chaotic-systems case but not exotic typography. If
+  the project grows to display textbook excerpts, an opt-in path via
+  `matplotlib.rcParams["text.usetex"] = True` (requires a TeX install)
+  is the natural escape hatch.
+
+## Resolved decisions (2026-05-15)
+
+- **GUI stack:** PySide6 + PyVista (via pyvistaqt) + matplotlib for
+  LaTeX. The Tkinter and Dear PyGui alternatives are off the table.
+- **3D rendering:** PyVista / VTK. matplotlib's `mpl_toolkits.mplot3d`
+  is too slow once trajectories exceed a few thousand points.
+- **Video export:** `imageio` with the `imageio-ffmpeg` plugin (it
+  bundles a static ffmpeg, so users do not need a system install).

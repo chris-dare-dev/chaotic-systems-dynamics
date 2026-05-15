@@ -46,11 +46,14 @@ Early scaffolding stage. The directory layout, governance files, and package ske
 
 ## Installation
 
-_To be filled in once dependencies are pinned._
+Python 3.12 (pinned in `.python-version`). PySide6 and PyVista ship
+binary wheels on macOS / Linux / Windows, so no system-level Qt or VTK
+install is needed.
 
 ```bash
-# placeholder — not yet runnable
-pip install -e .
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
 ## Usage
@@ -58,20 +61,33 @@ pip install -e .
 ### As a library
 
 ```python
-# placeholder — not yet implemented
 from chaotic_systems.systems import Lorenz
-from chaotic_systems.integrators import RK45
 
-system = Lorenz(sigma=10, rho=28, beta=8/3)
-trajectory = RK45(system).integrate(y0=[1, 1, 1], t_span=(0, 100), dt=0.01)
+lorenz = Lorenz()
+traj = lorenz.simulate(t_span=(0, 40), integrator="RK45", dt=0.01)
+# traj.t is (N,), traj.y is (N, 3)
 ```
 
 ### As a desktop app
 
 ```bash
-# placeholder — not yet implemented
 python -m chaotic_systems.gui
+# or, after `pip install -e .`:
+chaotic-systems-gui
 ```
+
+The left panel lets you pick a system, tweak its parameters and
+integrator, and run a simulation. The center is a live 3D viewport. The
+right panel shows the system's ODE system (and Lagrangian, if any) in
+rendered LaTeX. `Export video` writes an MP4 of the trajectory.
+
+### Render a video without launching the GUI
+
+```bash
+python examples/lorenz_video.py /tmp/lorenz.mp4
+```
+
+See `docs/visualization.md` for the full architecture.
 
 ## Project layout
 

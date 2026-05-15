@@ -36,15 +36,53 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Visualization",
 ]
 
-# Runtime dependencies will be filled in by later agents once the
-# numerical / GUI / visualization stacks are chosen.
-dependencies = []
+# Runtime dependencies — merged from the math (core/integrators/systems)
+# stack and the visualization/GUI stack. Keep additions to both halves of
+# this list rather than overwriting either.
+#
+# Math stack:
+#   - numpy, scipy: numerical work
+#   - sympy: symbolic Lagrangians / Hamiltonians and LaTeX prettification
+#   - numba: JIT-compiled inner loops for integrators
+#
+# Visualization + GUI stack:
+#   - PySide6 / Qt: native desktop window
+#   - PyVista + pyvistaqt: embedded 3D viewport (VTK underneath)
+#   - matplotlib: LaTeX (mathtext) rendering and 2D phase-space panels
+#   - imageio + imageio-ffmpeg: offline video export
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "sympy>=1.13",
+    "numba>=0.60",
+    "matplotlib>=3.9",
+    "PySide6>=6.7",
+    "pyvista>=0.44",
+    "pyvistaqt>=0.11",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+]
+
+[project.scripts]
+chaotic-systems-gui = "chaotic_systems.gui.__main__:main"
 
 [project.optional-dependencies]
-# Development tooling — to be pinned once the toolchain stabilizes.
-dev = []
+# Development tooling.
+dev = [
+    "pytest>=8.0",
+    "pytest-benchmark>=5.0",
+    "pytest-qt>=4.4",
+    "hypothesis>=6.100",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
 # Test-only extras.
-test = []
+test = [
+    "pytest>=8.0",
+    "pytest-benchmark>=5.0",
+    "pytest-qt>=4.4",
+    "hypothesis>=6.100",
+]
 
 [project.urls]
 Homepage = "https://github.com/chris-dare-dev/chaotic-systems-dynamics"
