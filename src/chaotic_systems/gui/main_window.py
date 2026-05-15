@@ -4,28 +4,45 @@ Layout
 ------
 ::
 
-    +------------------+--------------------+--------------------+
-    | system + params  |  3D viewport       |  LaTeX equations   |
-    | (left dock)      |  (PyVista QtInter) |  (right dock)      |
-    +------------------+--------------------+--------------------+
+    +-------------------------------------------------------------+
+    |  QToolBar:  Run | Pause | Stop | Jump-to-end | Export ...   |
+    +------------------+--------------------+---------------------+
+    |  System          |  3D viewport       |  Mathematics        |
+    |  Parameters      |  (PyVista          |    Equations of     |
+    |  Integrator      |   QtInteractor)    |     motion          |
+    |  Time range      |   + transport      |    Lagrangian /     |
+    |  Export          |     scrubber       |     Hamiltonian     |
+    +------------------+--------------------+---------------------+
+    |  QStatusBar: state | frame i / N | t = ... | lambda1 = ...  |
+    +-------------------------------------------------------------+
 
-The left panel exposes:
-  - a combo box of available systems (read from the registry),
-  - one labeled parameter widget per system parameter, auto-generated
-    from the system's parameter schema. Each widget is a ``QDoubleSpinBox``
-    paired with a horizontal slider; parameters that span multiple orders
-    of magnitude can opt into a log scale (see :class:`_ParamWidget`).
-  - an integrator combo box (populated from the integrator registry),
-  - "Run" and "Export video" buttons, plus a "Reset view" button and a
-    Cancel button shown while a simulation/export is running,
-  - a status-bar progress widget driven by the worker thread.
+The left panel groups controls into card-style ``QGroupBox`` widgets
+(see ``docs/ui_design.md``). The center is a ``pyvistaqt.QtInteractor``
+driven by :class:`Renderer3D` with a bottom transport strip
+(play/pause/stop/jump-to-end/speed/scrubber). If construction fails
+(e.g. no OpenGL context) we drop in a placeholder label so the rest of
+the GUI stays usable. The right panel renders the system's ODE LaTeX
+(and Lagrangian, if any) via matplotlib mathtext.
 
-The center is a ``pyvistaqt.QtInteractor`` driven by :class:`Renderer3D`.
-If construction fails (e.g. no OpenGL context) we drop in a placeholder
-label so the rest of the GUI stays usable.
+Theming
+-------
+The dark Tokyo Night Storm QSS is applied in :func:`build_application`
+via :func:`chaotic_systems.gui.theme.apply_theme`. Renderer colors and
+LaTeX glyph color both read from the palette so they stay coherent if
+the theme switches.
 
-The right panel renders the system's ODE LaTeX (and Lagrangian, if any)
-via matplotlib mathtext, with hi-DPI awareness.
+Transport actions
+-----------------
+The toolbar exposes ``QAction``s with stable object names so the same
+control surface is available to scripts and external agents:
+
+    transport_run, transport_pause, transport_stop, transport_jump_end,
+    action_export, action_reset_view, action_toggle_theme
+
+Use :meth:`MainWindow.transport_actions` to fetch the dict at runtime.
+The bottom transport strip below the viewport remains the primary user
+control surface; the toolbar is a parallel binding for shortcuts and
+discoverability.
 
 The window is fully usable even before the registry exists: it falls
 back to a built-in Lorenz placeholder so the GUI can be exercised in
@@ -37,6 +54,9 @@ Keyboard shortcuts
 - Ctrl-E: Export video
 - R:      Reset camera
 - Esc:    Cancel the running simulation / export
+- Space:  Play / Pause
+- Ctrl-.: Stop and rewind
+- End:    Jump to last frame
 """
 
 from __future__ import annotations
@@ -190,16 +210,28 @@ def _build_window_class() -> type:
 
     from PySide6.QtCore import (
         QObject,
+        QSize,
         Qt,
         QThread,
+        QTimer,
         Signal,
     )
-    from PySide6.QtGui import QKeySequence, QPalette, QPixmap, QShortcut
+    from PySide6.QtGui import (
+        QAction,
+        QImage,
+        QKeySequence,
+        QPalette,
+        QPixmap,
+        QShortcut,
+    )
     from PySide6.QtWidgets import (
+        QApplication,
         QComboBox,
         QDoubleSpinBox,
         QFileDialog,
         QFormLayout,
+        QFrame,
+        QGroupBox,
         QHBoxLayout,
         QLabel,
         QMainWindow,
@@ -207,8 +239,12 @@ def _build_window_class() -> type:
         QProgressBar,
         QPushButton,
         QScrollArea,
+        QSizePolicy,
         QSlider,
         QSplitter,
+        QStatusBar,
+        QStyle,
+        QToolBar,
         QVBoxLayout,
         QWidget,
     )
@@ -231,6 +267,379 @@ def _build_window_class() -> type:
             return color.name()  # "#RRGGBB"
         except Exception:  # pragma: no cover - defensive
             return "#cccccc"
+
+    # -----------------------------------------------------------------------
+    # LaTeX flowing widget — scales rendered pixmaps to fit the available
+    # width, never overflows horizontally. Multi-row aligned environments
+    # are stacked into per-row labels so each row scales independently.
+    # -----------------------------------------------------------------------
+
+    class _LatexRow(QLabel):
+        """A single LaTeX row label that scales its cached pixmap to fit width.
+
+        The high-DPI source pixmap is rendered once (in the renderer thread,
+        via matplotlib) and cached on the instance. Resizes only trigger a
+        cheap ``Qt.SmoothTransformation`` scale of the already-rasterized
+        pixmap — never a re-render through matplotlib.
+        """
+
+        def __init__(self, parent: QWidget | None = None) -> None:
+            super().__init__(parent)
+            self.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            # `setScaledContents` would distort the aspect ratio; we do the
+            # scaling ourselves to preserve it.
+            self.setScaledContents(False)
+            self._source_pixmap: QPixmap | None = None
+            self._dpr: float = 1.0
+            self.setMinimumHeight(1)
+
+        def set_source(self, pixmap: QPixmap, dpr: float) -> None:
+            """Install a fresh high-DPI source pixmap and reflow."""
+
+            self._source_pixmap = pixmap
+            self._dpr = max(float(dpr), 1.0)
+            self._reflow()
+
+        def clear_source(self) -> None:
+            self._source_pixmap = None
+            self.clear()
+
+        def _logical_source_width(self) -> int:
+            if self._source_pixmap is None or self._source_pixmap.isNull():
+                return 0
+            return int(self._source_pixmap.width() / self._dpr)
+
+        def _logical_source_height(self) -> int:
+            if self._source_pixmap is None or self._source_pixmap.isNull():
+                return 0
+            return int(self._source_pixmap.height() / self._dpr)
+
+        def _reflow(self) -> None:
+            if self._source_pixmap is None or self._source_pixmap.isNull():
+                return
+            avail = max(1, self.width())
+            src_w = self._logical_source_width()
+            src_h = self._logical_source_height()
+            if src_w <= 0 or src_h <= 0:
+                return
+            if src_w <= avail:
+                # Pixmap already fits — show at native size.
+                display = self._source_pixmap
+                logical_w = src_w
+                logical_h = src_h
+            else:
+                # Scale down proportionally. We scale to the device-pixel size
+                # the smooth transform expects, then set the DPR so Qt draws
+                # the correct logical size.
+                target_logical_w = avail
+                ratio = target_logical_w / src_w
+                target_logical_h = max(1, int(src_h * ratio))
+                target_device_w = int(target_logical_w * self._dpr)
+                target_device_h = int(target_logical_h * self._dpr)
+                display = self._source_pixmap.scaled(
+                    target_device_w,
+                    target_device_h,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                display.setDevicePixelRatio(self._dpr)
+                logical_w = target_logical_w
+                logical_h = target_logical_h
+            self.setPixmap(display)
+            self.setFixedHeight(logical_h)
+            # We are allowed to shrink horizontally; only the height is fixed.
+            self.setMinimumWidth(0)
+            self.setMaximumWidth(16777215)
+            _ = logical_w  # used implicitly by the layout
+
+        def resizeEvent(self, event: Any) -> None:  # type: ignore[override]
+            super().resizeEvent(event)
+            self._reflow()
+
+    class _FlowingLatex(QWidget):
+        """A widget that lays out one or more rendered LaTeX rows vertically.
+
+        Each row is an independent ``_LatexRow``. The widget never produces
+        horizontal overflow: rows wider than the available width are scaled
+        down proportionally. If the panel shrinks below a sane minimum
+        (``min_width`` px), the parent scroll area can still scroll
+        *vertically* but horizontal overflow is suppressed.
+
+        Re-rendering through matplotlib happens only inside :meth:`set_latex`.
+        Resizes only trigger ``QPixmap.scaled``.
+        """
+
+        # Minimum logical width at which the widget will still try to scale
+        # the equation. Below this the rows display at this width and the
+        # parent QScrollArea (if any) takes over.
+        MIN_WIDTH_PX = 120
+
+        def __init__(self, parent: QWidget | None = None) -> None:
+            super().__init__(parent)
+            self._layout = QVBoxLayout(self)
+            self._layout.setContentsMargins(0, 0, 0, 0)
+            self._layout.setSpacing(4)
+            self._layout.addStretch(1)
+            self._rows: list[_LatexRow] = []
+            self._fallback_label: QLabel | None = None
+            self.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+            self.setMinimumWidth(self.MIN_WIDTH_PX)
+            # Track the latest render config so callers can re-render on
+            # palette / DPI change without re-passing all the arguments.
+            self._last_latex: str = ""
+            self._last_color: str = "#000000"
+            self._last_dpi: int = 120
+            self._last_fontsize: int = 13
+            self._last_dpr: float = 1.0
+
+        # -- public API ---------------------------------------------------
+
+        def set_latex(
+            self,
+            latex: str,
+            *,
+            color: str,
+            fontsize: int = 13,
+            dpi: int = 120,
+            dpr: float = 1.0,
+        ) -> None:
+            """Render ``latex`` into the widget. One row per equation line."""
+
+            from chaotic_systems.visualization.latex import _strip_alignment_env
+
+            self._last_latex = latex
+            self._last_color = color
+            self._last_dpi = dpi
+            self._last_fontsize = fontsize
+            self._last_dpr = max(float(dpr), 1.0)
+
+            self._clear_rows()
+            self._clear_fallback()
+            if not latex:
+                return
+
+            rows = _strip_alignment_env(latex)
+            target_dpi = int(self._last_dpi * self._last_dpr)
+            try:
+                for row_latex in rows:
+                    image = self._render_one(row_latex, color, fontsize, target_dpi)
+                    if image is None:
+                        continue
+                    pixmap = QPixmap.fromImage(image)
+                    pixmap.setDevicePixelRatio(self._last_dpr)
+                    row_widget = _LatexRow(self)
+                    row_widget.set_source(pixmap, self._last_dpr)
+                    # Insert *before* the trailing stretch so rows pack from
+                    # the top.
+                    insert_at = max(0, self._layout.count() - 1)
+                    self._layout.insertWidget(insert_at, row_widget)
+                    self._rows.append(row_widget)
+            except Exception as exc:  # noqa: BLE001 — surfaced as a fallback label
+                self._install_fallback(f"<LaTeX render failed: {exc}>")
+                return
+
+            if not self._rows:
+                self._install_fallback("<LaTeX produced no rows>")
+
+        def rerender_at(self, *, color: str, dpr: float) -> None:
+            """Re-render with the previously-set LaTeX but a new color/DPI ratio."""
+
+            if not self._last_latex:
+                return
+            self.set_latex(
+                self._last_latex,
+                color=color,
+                fontsize=self._last_fontsize,
+                dpi=self._last_dpi,
+                dpr=dpr,
+            )
+
+        # -- internals ----------------------------------------------------
+
+        def _render_one(
+            self,
+            latex: str,
+            color: str,
+            fontsize: int,
+            dpi: int,
+        ) -> QImage | None:
+            from chaotic_systems.visualization.latex import _render_with_matplotlib
+
+            # We bypass the public mathtext entry point so we can render *one
+            # row* and avoid double-stripping aligned environments.
+            arr = _render_with_matplotlib(
+                latex,
+                fontsize=fontsize,
+                dpi=dpi,
+                color=color,
+                background=None,
+            )
+            if arr.size == 0:
+                return None
+            h, w, _ = arr.shape
+            contiguous = np.ascontiguousarray(arr)
+            image = QImage(
+                contiguous.data, w, h, 4 * w, QImage.Format.Format_RGBA8888
+            ).copy()
+            return image
+
+        def _clear_rows(self) -> None:
+            for row in self._rows:
+                row.setParent(None)
+                row.deleteLater()
+            self._rows = []
+
+        def _clear_fallback(self) -> None:
+            if self._fallback_label is not None:
+                self._fallback_label.setParent(None)
+                self._fallback_label.deleteLater()
+                self._fallback_label = None
+
+        def _install_fallback(self, text: str) -> None:
+            self._clear_rows()
+            self._clear_fallback()
+            lab = QLabel(text, self)
+            lab.setWordWrap(True)
+            insert_at = max(0, self._layout.count() - 1)
+            self._layout.insertWidget(insert_at, lab)
+            self._fallback_label = lab
+
+        def has_pixmap_rows(self) -> bool:
+            """Test hook: returns True iff at least one row carries a pixmap."""
+
+            return any(
+                r.pixmap() is not None and not r.pixmap().isNull() for r in self._rows
+            )
+
+        def pixmap(self) -> QPixmap | None:  # type: ignore[override]
+            """Back-compat: return the first row's pixmap (or ``None``).
+
+            Mirrors the ``QLabel.pixmap()`` accessor used by the original
+            non-flowing implementation so existing smoke tests still work.
+            """
+
+            for r in self._rows:
+                pm = r.pixmap()
+                if pm is not None and not pm.isNull():
+                    return pm
+            return None
+
+        def text(self) -> str:  # type: ignore[override]
+            """Back-compat: return fallback text if any row failed to render."""
+
+            if self._fallback_label is not None:
+                return self._fallback_label.text()
+            return ""
+
+        def max_row_pixmap_width(self) -> int:
+            """Test hook: largest *displayed* pixmap width (in device px)."""
+
+            best = 0
+            for r in self._rows:
+                pm = r.pixmap()
+                if pm is None or pm.isNull():
+                    continue
+                best = max(best, int(pm.width() / max(1.0, pm.devicePixelRatio())))
+            return best
+
+    # -----------------------------------------------------------------------
+    # Card-style group box helper. A `QGroupBox` with `variant="card"` so
+    # the QSS theme can target it without leaking onto plain group boxes
+    # that other code might add later.
+    # -----------------------------------------------------------------------
+
+    def _make_card(title: str, parent: QWidget) -> tuple[QGroupBox, QVBoxLayout]:
+        """Return a (groupbox, inner_layout) pair pre-styled as a card."""
+
+        box = QGroupBox(title, parent)
+        box.setProperty("variant", "card")
+        inner = QVBoxLayout(box)
+        inner.setContentsMargins(12, 16, 12, 12)
+        inner.setSpacing(8)
+        return box, inner
+
+    # -----------------------------------------------------------------------
+    # Collapsible section — a header button with a chevron that toggles
+    # the visibility of a body widget. Used in the right ("Mathematics")
+    # panel to fold the Lagrangian section when not relevant.
+    # -----------------------------------------------------------------------
+
+    class _CollapsibleSection(QWidget):
+        """A foldable section: clickable header reveals/hides the body widget."""
+
+        def __init__(
+            self,
+            title: str,
+            body: QWidget,
+            parent: QWidget | None = None,
+            *,
+            expanded: bool = True,
+        ) -> None:
+            super().__init__(parent)
+            self._body = body
+            self._toggle = QPushButton(self)
+            self._toggle.setCheckable(True)
+            self._toggle.setFlat(True)
+            self._toggle.setProperty("variant", "section-toggle")
+            self._toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+            # Layout-friendly: align text to left + add minimal padding. The
+            # color / hover state lives in the QSS so theme switches "just
+            # work".
+            self._toggle.setStyleSheet(
+                "QPushButton[variant=\"section-toggle\"] {"
+                " text-align: left; padding: 4px 6px;"
+                " font-weight: 600; border: none; background: transparent; }"
+            )
+            self._toggle.toggled.connect(self._on_toggled)
+            self._title = title
+
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+            layout.addWidget(self._toggle)
+            layout.addWidget(self._body, 1)
+            self._toggle.setChecked(expanded)
+            self._refresh_label(expanded)
+
+        def _refresh_label(self, expanded: bool) -> None:
+            arrow = "v" if expanded else ">"
+            self._toggle.setText(f"  {arrow}  {self._title}")
+
+        def _on_toggled(self, checked: bool) -> None:
+            self._body.setVisible(checked)
+            self._refresh_label(checked)
+
+        def setExpanded(self, expanded: bool) -> None:  # noqa: N802 - Qt-style
+            self._toggle.setChecked(expanded)
+
+    # -----------------------------------------------------------------------
+    # Viewport title overlay — a translucent QLabel pinned to the top-left
+    # of the QtInteractor showing the current system's display name.
+    # -----------------------------------------------------------------------
+
+    class _ViewportOverlay(QLabel):
+        """Semi-transparent overlay label, positioned by the parent on resize."""
+
+        def __init__(self, parent: QWidget) -> None:
+            super().__init__(parent)
+            self.setProperty("role", "overlay")
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.setMargin(0)
+            self.hide()
+
+        def set_system_name(self, name: str) -> None:
+            if not name:
+                self.hide()
+                return
+            self.setText(name)
+            self.adjustSize()
+            self.show()
 
     # -----------------------------------------------------------------------
     # Parameter widget — spinbox + slider, optional log scale.
@@ -277,18 +686,31 @@ def _build_window_class() -> type:
             self._spin.setDecimals(decimals)
             self._spin.setSingleStep(step)
             self._spin.setValue(default)
+            self._spin.setMinimumWidth(88)
+            # Tooltip pulls `description` and (if present) `units` from the
+            # backend Parameter via duck-typing. The visualization-side
+            # ParameterSpec doesn't currently carry units; the real core
+            # Parameter does, so we try both.
+            units = getattr(p, "units", None) or ""
+            tip_parts: list[str] = []
             if p.description:
-                self._spin.setToolTip(p.description)
+                tip_parts.append(p.description)
+            if units:
+                tip_parts.append(f"units: {units}")
+            tip_parts.append(f"range: [{lo:g}, {hi:g}]")
+            self._spin.setToolTip("\n".join(tip_parts))
 
             self._slider = QSlider(Qt.Orientation.Horizontal, self)
             self._slider.setRange(0, 1000)
             self._slider.setValue(self._to_slider(default))
+            self._slider.setToolTip(self._spin.toolTip())
 
             self._spin.valueChanged.connect(self._on_spin_changed)
             self._slider.valueChanged.connect(self._on_slider_changed)
 
             layout = QHBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(8)
             layout.addWidget(self._spin, 0)
             layout.addWidget(self._slider, 1)
 
@@ -486,12 +908,48 @@ def _build_window_class() -> type:
             self._export_thread: QThread | None = None
             self._export_worker: _ExportWorker | None = None
 
-            # --- left panel -------------------------------------------------
-            left = QWidget(self)
-            left_layout = QVBoxLayout(left)
-            left_layout.setContentsMargins(8, 8, 8, 8)
+            # Transport / animation state. The animation timer ticks on the
+            # GUI thread; each tick advances the renderer's visible polyline
+            # by ``_frames_per_tick`` samples. Pause / Stop just stop the
+            # timer — the trajectory data stays in memory.
+            self._anim_timer: QTimer = QTimer(self)
+            self._anim_timer.setTimerType(Qt.TimerType.PreciseTimer)
+            self._anim_timer.timeout.connect(self._on_anim_tick)
+            self._is_playing: bool = False
+            self._speed_multiplier: float = 1.0
+            # Sensible wall-clock playback duration at 1× speed for the
+            # default Lorenz trajectory. Configurable by callers via the
+            # ``target_playback_seconds`` attribute before pressing Run.
+            self.target_playback_seconds: float = 10.0
+            self._base_tick_ms: int = 33  # ~30 Hz refresh
+            self._frames_per_tick_base: int = 1
+            self._scrubber_dragging: bool = False
+            self._current_frame_index: int = 0
 
-            self.system_box = QComboBox(left)
+            # --- left panel (card-style group boxes) -----------------------
+            left = QWidget(self)
+            left.setMinimumWidth(300)
+            left_outer = QVBoxLayout(left)
+            left_outer.setContentsMargins(16, 16, 16, 16)
+            left_outer.setSpacing(16)
+
+            # We wrap the cards in a QScrollArea so narrow windows still
+            # surface all controls (just scrollable).
+            left_scroll = QScrollArea(left)
+            left_scroll.setWidgetResizable(True)
+            left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+            left_scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            left_inner = QWidget(left_scroll)
+            cards_layout = QVBoxLayout(left_inner)
+            cards_layout.setContentsMargins(0, 0, 0, 0)
+            cards_layout.setSpacing(16)
+
+            # --- card: System ---
+            system_card, system_layout = _make_card("System", left_inner)
+            self.system_box = QComboBox(system_card)
+            self.system_box.setToolTip("Switch to a different dynamical system")
             for sys_obj in self._systems:
                 self.system_box.addItem(getattr(sys_obj, "name", repr(sys_obj)))
             if preselect is not None:
@@ -499,139 +957,255 @@ def _build_window_class() -> type:
                 if idx >= 0:
                     self.system_box.setCurrentIndex(idx)
             self.system_box.currentIndexChanged.connect(self._on_system_changed)
-            left_layout.addWidget(QLabel("System:", left))
-            left_layout.addWidget(self.system_box)
+            system_layout.addWidget(self.system_box)
+            cards_layout.addWidget(system_card)
 
-            self._param_form_host = QWidget(left)
+            # --- card: Parameters ---
+            params_card, params_layout = _make_card("Parameters", left_inner)
+            self._param_form_host = QWidget(params_card)
             self._param_form_layout = QFormLayout(self._param_form_host)
             self._param_form_layout.setContentsMargins(0, 0, 0, 0)
-            left_layout.addWidget(QLabel("Parameters:", left))
-            left_layout.addWidget(self._param_form_host)
+            self._param_form_layout.setHorizontalSpacing(8)
+            self._param_form_layout.setVerticalSpacing(8)
+            self._param_form_layout.setLabelAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            params_layout.addWidget(self._param_form_host)
+            cards_layout.addWidget(params_card)
 
-            self.integrator_box = QComboBox(left)
+            # --- card: Integrator ---
+            integrator_card, integrator_layout = _make_card("Integrator", left_inner)
+            self.integrator_box = QComboBox(integrator_card)
+            self.integrator_box.setToolTip(
+                "ODE solver. RK45 is the default; pick LSODA/DOP853 for stiffer problems."
+            )
             for name in self._integrators:
                 self.integrator_box.addItem(name)
             # Default to RK45 if present.
             default_idx = self.integrator_box.findText("RK45")
             if default_idx >= 0:
                 self.integrator_box.setCurrentIndex(default_idx)
-            left_layout.addWidget(QLabel("Integrator:", left))
-            left_layout.addWidget(self.integrator_box)
+            integrator_layout.addWidget(self.integrator_box)
+            cards_layout.addWidget(integrator_card)
 
-            self.t_end = QDoubleSpinBox(left)
+            # --- card: Time range ---
+            time_card, time_layout = _make_card("Time range", left_inner)
+            time_form = QFormLayout()
+            time_form.setContentsMargins(0, 0, 0, 0)
+            time_form.setHorizontalSpacing(8)
+            time_form.setVerticalSpacing(8)
+            time_form.setLabelAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            self.t_end = QDoubleSpinBox(time_card)
             self.t_end.setRange(0.1, 1e4)
             self.t_end.setDecimals(2)
             self.t_end.setValue(40.0)
-            self.dt = QDoubleSpinBox(left)
+            self.t_end.setToolTip("Final simulation time (seconds)")
+            self.dt = QDoubleSpinBox(time_card)
             self.dt.setRange(1e-5, 1.0)
             self.dt.setDecimals(5)
             self.dt.setValue(0.01)
-            left_layout.addWidget(QLabel("t_end (s):", left))
-            left_layout.addWidget(self.t_end)
-            left_layout.addWidget(QLabel("dt (s):", left))
-            left_layout.addWidget(self.dt)
+            self.dt.setToolTip("Integration step (seconds). Smaller = more accurate, slower.")
+            time_form.addRow(QLabel("t_end (s)", time_card), self.t_end)
+            time_form.addRow(QLabel("dt (s)", time_card), self.dt)
+            time_layout.addLayout(time_form)
 
-            button_row = QHBoxLayout()
-            self.run_button = QPushButton("Run", left)
+            # Run / Reset live inside the Time range card so they're the
+            # last things the user sees scrolling top-to-bottom.
+            run_row = QHBoxLayout()
+            run_row.setContentsMargins(0, 0, 0, 0)
+            run_row.setSpacing(8)
+            self.run_button = QPushButton("Run", time_card)
+            self.run_button.setProperty("variant", "primary")
+            self.run_button.setToolTip("Integrate the system (Ctrl-R)")
+            self.run_button.setObjectName("button_run")
             self.run_button.clicked.connect(self._on_run)
-            self.export_button = QPushButton("Export video", left)
+            self.reset_view_button = QPushButton("Reset view", time_card)
+            self.reset_view_button.setToolTip("Re-center the 3D camera (R)")
+            self.reset_view_button.setObjectName("button_reset_view")
+            self.reset_view_button.clicked.connect(self._on_reset_view)
+            run_row.addWidget(self.run_button, 1)
+            run_row.addWidget(self.reset_view_button, 1)
+            time_layout.addLayout(run_row)
+            cards_layout.addWidget(time_card)
+
+            # --- card: Export ---
+            export_card, export_layout = _make_card("Export", left_inner)
+            export_row = QHBoxLayout()
+            export_row.setContentsMargins(0, 0, 0, 0)
+            export_row.setSpacing(8)
+            self.export_button = QPushButton("Export MP4", export_card)
+            self.export_button.setObjectName("button_export")
+            self.export_button.setToolTip("Render the current trajectory to an MP4 file (Ctrl-E)")
             self.export_button.clicked.connect(self._on_export)
-            self.cancel_button = QPushButton("Cancel", left)
+            self.cancel_button = QPushButton("Cancel", export_card)
+            self.cancel_button.setProperty("variant", "danger")
+            self.cancel_button.setObjectName("button_cancel")
+            self.cancel_button.setToolTip("Cancel an in-flight export (Esc)")
             self.cancel_button.clicked.connect(self._on_cancel)
             self.cancel_button.setEnabled(False)
-            self.reset_view_button = QPushButton("Reset view", left)
-            self.reset_view_button.clicked.connect(self._on_reset_view)
-            button_row.addWidget(self.run_button)
-            button_row.addWidget(self.export_button)
-            button_row.addWidget(self.cancel_button)
-            button_row.addWidget(self.reset_view_button)
-            left_layout.addLayout(button_row)
-
-            # Progress + status.
-            self.progress_bar = QProgressBar(left)
+            export_row.addWidget(self.export_button, 1)
+            export_row.addWidget(self.cancel_button, 1)
+            export_layout.addLayout(export_row)
+            self.progress_bar = QProgressBar(export_card)
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
             self.progress_bar.setVisible(False)
-            left_layout.addWidget(self.progress_bar)
-            self.status_label = QLabel("", left)
+            self.progress_bar.setTextVisible(False)
+            export_layout.addWidget(self.progress_bar)
+            cards_layout.addWidget(export_card)
+
+            # Inline status line (kept for back-compat; the real status
+            # surface is the QStatusBar at the bottom of the window).
+            self.status_label = QLabel("", left_inner)
             self.status_label.setWordWrap(True)
-            left_layout.addWidget(self.status_label)
+            self.status_label.setProperty("role", "caption")
+            cards_layout.addWidget(self.status_label)
 
             # Current state readout.
-            self.state_label = QLabel("y(t_end) = (no simulation yet)", left)
+            self.state_label = QLabel("y(t_end) = (no simulation yet)", left_inner)
             self.state_label.setWordWrap(True)
-            left_layout.addWidget(QLabel("Current state:", left))
-            left_layout.addWidget(self.state_label)
+            self.state_label.setProperty("role", "caption")
+            cards_layout.addWidget(self.state_label)
 
-            left_layout.addStretch(1)
+            cards_layout.addStretch(1)
+            left_scroll.setWidget(left_inner)
+            left_outer.addWidget(left_scroll, 1)
 
-            # --- center: 3D viewport ---------------------------------------
+            # --- center: 3D viewport + transport controls -----------------
+            from chaotic_systems.gui.theme import viewport_background
+
             self.viewer: Any = None
-            viewer_widget: QWidget
+            inner_viewer_widget: QWidget
             if QtInteractor is None:
-                viewer_widget = QLabel(
+                inner_viewer_widget = QLabel(
                     "3D viewport unavailable: pyvistaqt is not installed."
                 )
-                viewer_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                inner_viewer_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
             else:
                 try:
                     self.viewer = QtInteractor(self)
-                    self.viewer.set_background("white")
-                    viewer_widget = self.viewer.interactor
+                    self.viewer.set_background(viewport_background())
+                    inner_viewer_widget = self.viewer.interactor
                 except Exception as exc:  # pragma: no cover - depends on display
                     label = QLabel(
                         "3D viewport unavailable on this display\n"
                         f"({type(exc).__name__}: {exc})"
                     )
                     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    viewer_widget = label
+                    inner_viewer_widget = label
                     self.viewer = None
 
-            # --- right panel: LaTeX ----------------------------------------
+            # Frame around the viewport. QFrame[role="viewport-frame"] gets
+            # the thin border + radius from the QSS, so the PyVista canvas
+            # visually sits in a card matching the rest of the chrome.
+            viewport_frame = QFrame(self)
+            viewport_frame.setProperty("role", "viewport-frame")
+            viewport_frame.setFrameShape(QFrame.Shape.NoFrame)
+            viewport_frame.setMinimumWidth(480)
+            vframe_layout = QVBoxLayout(viewport_frame)
+            vframe_layout.setContentsMargins(1, 1, 1, 1)
+            vframe_layout.setSpacing(0)
+            vframe_layout.addWidget(inner_viewer_widget, 1)
+
+            # Wrap the framed viewer + transport row in a vertical container
+            # so the transport docks directly under the viewport.
+            center = QWidget(self)
+            center.setMinimumWidth(480)
+            center_layout = QVBoxLayout(center)
+            center_layout.setContentsMargins(8, 16, 8, 8)
+            center_layout.setSpacing(8)
+            center_layout.addWidget(viewport_frame, 1)
+
+            transport = self._build_transport_panel(center)
+            center_layout.addWidget(transport, 0)
+            viewer_widget = center
+
+            # Overlay label (semi-transparent system-name chip, top-left).
+            # Lives as a child of the viewport frame so it draws on top of
+            # the QtInteractor without affecting layout.
+            self.viewport_overlay = _ViewportOverlay(viewport_frame)
+            self._viewport_frame = viewport_frame
+            viewport_frame.installEventFilter(self)
+
+            # --- right panel: Mathematics ----------------------------------
             right = QWidget(self)
+            right.setMinimumWidth(340)
             right_layout = QVBoxLayout(right)
-            right_layout.setContentsMargins(8, 8, 8, 8)
+            right_layout.setContentsMargins(16, 16, 16, 16)
+            right_layout.setSpacing(16)
 
-            right_layout.addWidget(QLabel("Equations of motion:", right))
-            self.ode_label = QLabel(right)
-            self.ode_label.setAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-            )
-            self.ode_label.setWordWrap(True)
-            self.ode_scroll = QScrollArea(right)
-            self.ode_scroll.setWidget(self.ode_label)
+            math_card, math_layout = _make_card("Mathematics", right)
+            math_layout.setSpacing(8)
+
+            # Flowing LaTeX widgets — scale rendered pixmaps to the panel's
+            # current width and avoid horizontal overflow. Wrapped in a
+            # QScrollArea that allows *vertical* scrolling only.
+            self.ode_widget = _FlowingLatex(math_card)
+            self.ode_label = self.ode_widget  # back-compat alias for tests
+            self.ode_scroll = QScrollArea(math_card)
+            self.ode_scroll.setWidget(self.ode_widget)
             self.ode_scroll.setWidgetResizable(True)
-            right_layout.addWidget(self.ode_scroll, 1)
-
-            right_layout.addWidget(QLabel("Lagrangian / Hamiltonian:", right))
-            self.lagr_label = QLabel(right)
-            self.lagr_label.setAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+            self.ode_scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self.ode_scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
             )
-            self.lagr_label.setWordWrap(True)
-            self.lagr_scroll = QScrollArea(right)
-            self.lagr_scroll.setWidget(self.lagr_label)
+
+            self.lagr_widget = _FlowingLatex(math_card)
+            self.lagr_label = self.lagr_widget  # back-compat alias for tests
+            self.lagr_scroll = QScrollArea(math_card)
+            self.lagr_scroll.setWidget(self.lagr_widget)
             self.lagr_scroll.setWidgetResizable(True)
-            right_layout.addWidget(self.lagr_scroll, 1)
+            self.lagr_scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self.lagr_scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+
+            self._ode_section = _CollapsibleSection(
+                "Equations of motion", self.ode_scroll, math_card, expanded=True
+            )
+            self._lagr_section = _CollapsibleSection(
+                "Lagrangian / Hamiltonian",
+                self.lagr_scroll,
+                math_card,
+                expanded=True,
+            )
+            math_layout.addWidget(self._ode_section, 1)
+            math_layout.addWidget(self._lagr_section, 1)
+            right_layout.addWidget(math_card, 1)
 
             # --- assemble ---------------------------------------------------
             splitter = QSplitter(Qt.Orientation.Horizontal, self)
+            splitter.setHandleWidth(1)
+            splitter.setChildrenCollapsible(False)
             splitter.addWidget(left)
             splitter.addWidget(viewer_widget)
             splitter.addWidget(right)
             splitter.setStretchFactor(0, 0)
             splitter.setStretchFactor(1, 3)
             splitter.setStretchFactor(2, 1)
-            splitter.setSizes([320, 800, 320])
+            splitter.setSizes([320, 800, 340])
             self.setCentralWidget(splitter)
+
+            # Toolbar + status bar — built after the central widget so the
+            # window-level placements know their parent.
+            self._transport_actions: dict[str, QAction] = {}
+            self._build_toolbar()
+            self._build_status_bar()
 
             # Keyboard shortcuts.
             QShortcut(QKeySequence("Ctrl+R"), self, activated=self._on_run)
             QShortcut(QKeySequence("Ctrl+E"), self, activated=self._on_export)
             QShortcut(QKeySequence("R"), self, activated=self._on_reset_view)
             QShortcut(QKeySequence("Esc"), self, activated=self._on_cancel)
+            QShortcut(QKeySequence(Qt.Key.Key_Space), self, activated=self._on_toggle_play)
+            QShortcut(QKeySequence("Ctrl+."), self, activated=self._on_stop)
+            QShortcut(QKeySequence("End"), self, activated=self._on_jump_to_end)
 
+            self._set_transport_enabled(False)
             self._rebuild_for_current_system()
+            self._sync_overlay_to_current_system()
 
         # ------------------------------------------------------------------
 
@@ -648,6 +1222,7 @@ def _build_window_class() -> type:
 
         def _on_system_changed(self, _idx: int) -> None:
             self._rebuild_for_current_system()
+            self._sync_overlay_to_current_system()
 
         def _clear_param_form(self) -> None:
             """Empty the parameter form.
@@ -669,40 +1244,64 @@ def _build_window_class() -> type:
             for key, raw in raw_params.items():
                 p = _coerce_parameter(key, raw)
                 w = _ParamWidget(p, self._param_form_host)
-                label_text = f"{p.name}:"
-                self._param_form_layout.addRow(QLabel(label_text), w)
+                label_text = f"{p.name}"
+                label = QLabel(label_text)
+                label.setProperty("role", "caption")
+                self._param_form_layout.addRow(label, w)
                 self._param_widgets[key] = w
+
+            # Collapse the Lagrangian section automatically when the
+            # current system isn't derived from one — the body still
+            # renders the "not derived" placeholder so users can expand
+            # to confirm.
+            lagr = getattr(system, "lagrangian_latex", None)
+            if hasattr(self, "_lagr_section"):
+                self._lagr_section.setExpanded(bool(lagr))
 
             # Update LaTeX panels.
             self._render_latex_into(self.ode_label, getattr(system, "latex", "") or "")
-            lagr = getattr(system, "lagrangian_latex", None)
             self._render_latex_into(
                 self.lagr_label,
                 lagr or r"\text{(not derived from a Lagrangian)}",
             )
 
-        def _render_latex_into(self, label: Any, latex: str) -> None:
+            # Refresh status-bar lyapunov chip — clear when system changes.
+            if hasattr(self, "lyapunov_chip"):
+                self.lyapunov_chip.setText("lambda1 = -")
+
+        def _render_latex_into(self, widget: Any, latex: str) -> None:
+            """Render ``latex`` into a flowing widget (or fall back to QLabel).
+
+            For ``_FlowingLatex`` widgets we delegate to the widget's own
+            cache-aware render path so resizes don't trigger re-rasterization.
+            For raw ``QLabel`` widgets (legacy callers, custom subclasses) we
+            fall back to the original ``latex_to_qimage`` -> ``setPixmap``
+            path.
+            """
+
             # Hi-DPI: render at dpi * device-pixel-ratio for crisp output.
             try:
                 screen = self.screen()
                 dpr = float(screen.devicePixelRatio()) if screen is not None else 1.0
             except (AttributeError, RuntimeError):  # pragma: no cover
                 dpr = 1.0
-            # Match the rendered glyph color to the app palette so equations
-            # remain legible on both light and dark themes.
-            color = _palette_text_color_hex(label)
+            color = _palette_text_color_hex(widget)
+            if isinstance(widget, _FlowingLatex):
+                widget.set_latex(latex, color=color, fontsize=13, dpi=120, dpr=dpr)
+                return
+            # Fallback: legacy QLabel rendering path.
             try:
                 image = latex_to_qimage(
                     latex, fontsize=13, dpi=int(120 * dpr), color=color
                 )
                 image.setDevicePixelRatio(dpr)
             except Exception as exc:
-                label.setText(f"<LaTeX render failed: {exc}>")
+                widget.setText(f"<LaTeX render failed: {exc}>")
                 return
             pixmap = QPixmap.fromImage(image)
             pixmap.setDevicePixelRatio(dpr)
-            label.setPixmap(pixmap)
-            label.setFixedSize(int(pixmap.width() / dpr), int(pixmap.height() / dpr))
+            widget.setPixmap(pixmap)
+            widget.setFixedSize(int(pixmap.width() / dpr), int(pixmap.height() / dpr))
 
         def _params(self) -> dict[str, float]:
             return {key: w.value() for key, w in self._param_widgets.items()}
@@ -770,6 +1369,10 @@ def _build_window_class() -> type:
         def _on_sim_finished(self, traj: Any) -> None:
             self._last_trajectory = traj
             self._update_state_label(traj)
+            # Always pause / drop any prior playback before attaching a new
+            # renderer — the old renderer's actors are about to go away.
+            self._pause()
+            self._current_renderer = None
             if self.viewer is not None:
                 try:
                     self.viewer.clear()
@@ -787,7 +1390,25 @@ def _build_window_class() -> type:
                     self._current_renderer = renderer
                 except (ValueError, RuntimeError) as exc:
                     self._show_error("Render failed", str(exc))
-            self._set_status("Simulation complete.")
+            # Wire up the transport controls for the new trajectory.
+            n = self._renderer_total_frames()
+            if n > 1:
+                self._recompute_tick_cadence()
+                self.frame_scrubber.setRange(0, n - 1)
+                self._set_transport_enabled(True)
+                self._seek_to(0)
+                # Run starts at 1× from frame 0 per the spec.
+                self._play()
+            else:
+                self._set_transport_enabled(False)
+            self._set_status("Simulation complete.", state="done")
+            # Light up the toolbar transport actions that depend on having
+            # a trajectory loaded.
+            for key in ("transport_pause", "transport_stop", "transport_jump_end",
+                        "action_export"):
+                act = self._transport_actions.get(key)
+                if act is not None:
+                    act.setEnabled(True)
 
         def _on_sim_error(self, kind: str, message: str) -> None:
             self._show_error(f"Simulation failed ({kind})", self._hinted(kind, message))
@@ -825,7 +1446,7 @@ def _build_window_class() -> type:
             if not path_str:
                 return
 
-            self._set_status(f"Exporting to {path_str}...", busy=True)
+            self._set_status(f"Exporting to {path_str}...", busy=True, state="exporting")
             self.run_button.setEnabled(False)
             self.export_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
@@ -860,7 +1481,7 @@ def _build_window_class() -> type:
             self.progress_bar.setValue(current)
 
         def _on_export_finished(self, path: str) -> None:
-            self._set_status(f"Wrote {path}")
+            self._set_status(f"Wrote {path}", state="done")
             QMessageBox.information(self, "Export complete", f"Wrote {path}")
 
         def _on_export_error(self, kind: str, message: str) -> None:
@@ -898,6 +1519,481 @@ def _build_window_class() -> type:
         def _on_reset_view(self) -> None:
             if self._current_renderer is not None:
                 self._current_renderer.reset_camera()
+
+        # ------------------------------------------------------------ toolbar
+
+        # Toolbar action specs: (object_name, label, QStyle pixmap enum,
+        # tooltip, slot, starts_enabled). Kept as data so the structure is
+        # readable and external agents can introspect it via
+        # ``MainWindow.transport_actions()``.
+        def _toolbar_action_specs(self) -> list[tuple[str, str, Any, str, Any, bool]]:
+            sp = QStyle.StandardPixmap
+            return [
+                (
+                    "transport_run",
+                    "Run",
+                    sp.SP_MediaPlay,
+                    "Integrate and start animated playback (Ctrl-R)",
+                    self._on_run,
+                    True,
+                ),
+                (
+                    "transport_pause",
+                    "Pause",
+                    sp.SP_MediaPause,
+                    "Pause / resume playback (Space)",
+                    self._on_toggle_play,
+                    False,
+                ),
+                (
+                    "transport_stop",
+                    "Stop",
+                    sp.SP_MediaStop,
+                    "Stop playback and rewind to start (Ctrl-.)",
+                    self._on_stop,
+                    False,
+                ),
+                (
+                    "transport_jump_end",
+                    "Jump to end",
+                    sp.SP_MediaSkipForward,
+                    "Jump to the last frame of the trajectory (End)",
+                    self._on_jump_to_end,
+                    False,
+                ),
+                (
+                    "action_export",
+                    "Export MP4",
+                    sp.SP_DialogSaveButton,
+                    "Render the current trajectory to an MP4 file (Ctrl-E)",
+                    self._on_export,
+                    False,
+                ),
+                (
+                    "action_reset_view",
+                    "Reset view",
+                    sp.SP_BrowserReload,
+                    "Re-center the 3D camera (R)",
+                    self._on_reset_view,
+                    True,
+                ),
+                (
+                    "action_toggle_theme",
+                    "Toggle theme",
+                    sp.SP_DesktopIcon,
+                    "Switch between dark and light themes",
+                    self._on_toggle_theme,
+                    True,
+                ),
+            ]
+
+        def _build_toolbar(self) -> None:
+            """Build the top toolbar with media-style transport actions.
+
+            The actions live as ``QAction``s on the toolbar with stable
+            ``objectName``s so they're addressable by name; parallel agents
+            wiring animation hooks can look them up without re-creating
+            anything.
+            """
+
+            toolbar = QToolBar("main", self)
+            toolbar.setObjectName("toolbar_main")
+            toolbar.setMovable(False)
+            toolbar.setFloatable(False)
+            toolbar.setIconSize(QSize(18, 18))
+            toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+            style = self.style()
+            for i, spec in enumerate(self._toolbar_action_specs()):
+                obj_name, label, pix_enum, tip, slot, enabled = spec
+                # Separators before Export and Toggle-theme group related
+                # actions visually.
+                if obj_name in {"action_export", "action_toggle_theme"} and i > 0:
+                    toolbar.addSeparator()
+                action = QAction(label, self)
+                action.setObjectName(obj_name)
+                action.setToolTip(tip)
+                action.setIcon(style.standardIcon(pix_enum))
+                action.setEnabled(enabled)
+                action.triggered.connect(slot)
+                if obj_name == "transport_run":
+                    # Mark "Run" as the primary action via QSS variant.
+                    toolbar.addAction(action)
+                    btn = toolbar.widgetForAction(action)
+                    if btn is not None:
+                        btn.setProperty("variant", "primary")
+                        btn.style().unpolish(btn)
+                        btn.style().polish(btn)
+                else:
+                    toolbar.addAction(action)
+                self._transport_actions[obj_name] = action
+
+            self._toolbar = toolbar
+
+        def transport_actions(self) -> dict[str, QAction]:
+            """Return the toolbar's transport ``QAction``s keyed by object name.
+
+            Stable keys: ``transport_run``, ``transport_pause``,
+            ``transport_stop``, ``transport_jump_end``, ``action_export``,
+            ``action_reset_view``, ``action_toggle_theme``.
+
+            External agents wiring playback hooks should prefer this entry
+            point over reaching into ``self._transport_actions`` directly.
+            """
+
+            return dict(self._transport_actions)
+
+        def _register_transport_actions(self) -> dict[str, QAction]:
+            """Compatibility alias for the registration hook documented in the
+            integration plan with the animation agent."""
+
+            return self.transport_actions()
+
+        def _on_toggle_theme(self) -> None:
+            """Flip between dark and light QSS themes."""
+
+            from chaotic_systems.gui.theme import (
+                apply_theme,
+                current_theme,
+                viewport_background,
+            )
+
+            app = QApplication.instance()
+            if app is None:
+                return
+            new_mode = "light" if current_theme() == "dark" else "dark"
+            apply_theme(app, new_mode)
+            # Re-render LaTeX so glyph color tracks the new palette.
+            self._rebuild_for_current_system()
+            # Keep the PyVista background in sync.
+            if self.viewer is not None:
+                try:
+                    self.viewer.set_background(viewport_background())
+                except (AttributeError, RuntimeError):
+                    pass
+
+        # ------------------------------------------------------------ status bar
+
+        def _build_status_bar(self) -> None:
+            """Build the bottom status bar with state + frame/time/lyapunov chips."""
+
+            bar = QStatusBar(self)
+            self.setStatusBar(bar)
+
+            # State chip — Idle / Running / Exporting / Error.
+            self.state_chip = QLabel("Idle", bar)
+            self.state_chip.setProperty("role", "chip")
+            self.state_chip.setProperty("state", "idle")
+            self.state_chip.setToolTip("Current run state")
+
+            # Frame chip — i / N.
+            self.frame_chip = QLabel("frame 0 / 0", bar)
+            self.frame_chip.setProperty("role", "chip")
+            self.frame_chip.setToolTip("Animated frame index / total frames")
+
+            # Time chip — t = ...
+            self.time_chip = QLabel("t = 0.000", bar)
+            self.time_chip.setProperty("role", "chip")
+            self.time_chip.setToolTip("Current simulation time")
+
+            # Lyapunov chip — lambda1 = ... when computed.
+            self.lyapunov_chip = QLabel("lambda1 = -", bar)
+            self.lyapunov_chip.setProperty("role", "chip")
+            self.lyapunov_chip.setProperty("highlight", "lyapunov")
+            self.lyapunov_chip.setToolTip(
+                "Largest Lyapunov exponent (positive = chaotic)"
+            )
+
+            bar.addWidget(self.state_chip)
+            bar.addPermanentWidget(self.frame_chip)
+            bar.addPermanentWidget(self.time_chip)
+            bar.addPermanentWidget(self.lyapunov_chip)
+
+        def _set_state_chip(self, text: str, state: str) -> None:
+            """Update the state chip text and the QSS ``state`` property.
+
+            ``state`` should be one of ``"idle"``, ``"running"``,
+            ``"exporting"``, ``"error"``. The QSS theme styles the chip
+            accordingly via the attribute selector.
+            """
+
+            self.state_chip.setText(text)
+            self.state_chip.setProperty("state", state)
+            self.state_chip.style().unpolish(self.state_chip)
+            self.state_chip.style().polish(self.state_chip)
+
+        def _update_status_frame(self, frame_index: int) -> None:
+            n = self._renderer_total_frames()
+            self.frame_chip.setText(f"frame {max(0, frame_index)} / {max(0, n - 1)}")
+            t_now = self._trajectory_t_value(frame_index)
+            if t_now is None:
+                self.time_chip.setText("t = 0.000")
+            else:
+                self.time_chip.setText(f"t = {t_now:.3f}")
+
+        # ------------------------------------------------------------ overlay
+
+        def _sync_overlay_to_current_system(self) -> None:
+            """Refresh the viewport overlay to show the current system's name."""
+
+            try:
+                name = getattr(self.current_system, "name", "")
+            except IndexError:
+                name = ""
+            if hasattr(self, "viewport_overlay") and self.viewport_overlay is not None:
+                self.viewport_overlay.set_system_name(name)
+                self._reposition_overlay()
+
+        def _reposition_overlay(self) -> None:
+            """Pin the overlay to the top-left of the viewport frame."""
+
+            if (
+                not hasattr(self, "viewport_overlay")
+                or self.viewport_overlay is None
+                or not hasattr(self, "_viewport_frame")
+            ):
+                return
+            margin = 12
+            self.viewport_overlay.move(margin, margin)
+            self.viewport_overlay.raise_()
+
+        def eventFilter(self, watched: Any, event: Any) -> bool:  # type: ignore[override]
+            # Re-anchor the overlay whenever the viewport frame resizes so it
+            # never drifts under the LaTeX panel.
+            from PySide6.QtCore import QEvent
+
+            if (
+                hasattr(self, "_viewport_frame")
+                and watched is self._viewport_frame
+                and event.type() == QEvent.Type.Resize
+            ):
+                self._reposition_overlay()
+            return super().eventFilter(watched, event)
+
+        # ------------------------------------------------------------ transport
+
+        # Discrete playback-speed presets — chosen to match what users get in
+        # video tools (VLC / QuickTime). The "1×" preset is calibrated so the
+        # full trajectory plays back over ``target_playback_seconds`` of
+        # wall-clock time at the default tick cadence.
+        _SPEED_PRESETS: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
+
+        def _build_transport_panel(self, parent: QWidget) -> QWidget:
+            """Build the bottom transport-control strip under the viewport.
+
+            Layout::
+
+                [Play] [Stop] [End]  Speed: [1× v]   [=====O==========] t = 12.3 / 40.0
+            """
+
+            host = QWidget(parent)
+            row = QHBoxLayout(host)
+            row.setContentsMargins(6, 2, 6, 2)
+            row.setSpacing(6)
+
+            self.play_button = QPushButton("Play", host)
+            self.play_button.setToolTip("Play / Pause (Space)")
+            self.play_button.setCheckable(True)
+            self.play_button.clicked.connect(self._on_toggle_play)
+
+            self.stop_button = QPushButton("Stop", host)
+            self.stop_button.setToolTip("Stop and rewind to start (Ctrl-.)")
+            self.stop_button.clicked.connect(self._on_stop)
+
+            self.jump_end_button = QPushButton("End", host)
+            self.jump_end_button.setToolTip("Jump to the end of the trajectory (End)")
+            self.jump_end_button.clicked.connect(self._on_jump_to_end)
+
+            self.speed_box = QComboBox(host)
+            for s in self._SPEED_PRESETS:
+                label = f"{s:g}×"  # narrow space + multiplication sign
+                self.speed_box.addItem(label, s)
+            default_idx = self.speed_box.findData(1.0)
+            if default_idx >= 0:
+                self.speed_box.setCurrentIndex(default_idx)
+            self.speed_box.currentIndexChanged.connect(self._on_speed_changed)
+
+            self.frame_scrubber = QSlider(Qt.Orientation.Horizontal, host)
+            self.frame_scrubber.setRange(0, 0)
+            self.frame_scrubber.setSingleStep(1)
+            self.frame_scrubber.setPageStep(10)
+            self.frame_scrubber.setTracking(True)
+            self.frame_scrubber.sliderPressed.connect(self._on_scrubber_press)
+            self.frame_scrubber.sliderReleased.connect(self._on_scrubber_release)
+            self.frame_scrubber.valueChanged.connect(self._on_scrubber_value)
+
+            self.time_label = QLabel("t = 0.000 / 0.000", host)
+            self.time_label.setMinimumWidth(140)
+
+            row.addWidget(self.play_button)
+            row.addWidget(self.stop_button)
+            row.addWidget(self.jump_end_button)
+            row.addWidget(QLabel("Speed:", host))
+            row.addWidget(self.speed_box)
+            row.addWidget(self.frame_scrubber, 1)
+            row.addWidget(self.time_label)
+            return host
+
+        def _set_transport_enabled(self, enabled: bool) -> None:
+            for w in (
+                self.play_button,
+                self.stop_button,
+                self.jump_end_button,
+                self.speed_box,
+                self.frame_scrubber,
+            ):
+                w.setEnabled(enabled)
+            if not enabled:
+                self.play_button.setChecked(False)
+
+        def _recompute_tick_cadence(self) -> None:
+            """Pick a ``_frames_per_tick_base`` so 1× plays over the target wall time.
+
+            At 1×, the polyline should grow from frame 0 to frame ``n-1`` over
+            ``target_playback_seconds``. We fix the timer period at
+            ``_base_tick_ms`` (~30 Hz) and pick the per-tick stride
+            accordingly. At higher speeds we multiply the stride; we never
+            shrink the timer period below the base because Qt timers below
+            10-15 ms behave badly across platforms.
+            """
+
+            n = self._renderer_total_frames()
+            if n <= 0:
+                self._frames_per_tick_base = 1
+                return
+            target_ms = max(50.0, float(self.target_playback_seconds) * 1000.0)
+            ticks = max(1.0, target_ms / float(self._base_tick_ms))
+            self._frames_per_tick_base = max(1, int(round(n / ticks)))
+
+        def _renderer_total_frames(self) -> int:
+            r = self._current_renderer
+            if r is None:
+                return 0
+            return int(r.n_frames)
+
+        def _trajectory_t_value(self, frame_index: int) -> float | None:
+            traj = self._last_trajectory
+            if traj is None:
+                return None
+            try:
+                t = np.asarray(traj.t, dtype=float)
+            except (AttributeError, ValueError):
+                return None
+            if t.ndim != 1 or t.size == 0:
+                return None
+            idx = int(np.clip(frame_index, 0, t.size - 1))
+            return float(t[idx])
+
+        def _update_time_label(self, frame_index: int) -> None:
+            t_now = self._trajectory_t_value(frame_index)
+            t_end = self._trajectory_t_value(self._renderer_total_frames() - 1)
+            if t_now is None or t_end is None:
+                self.time_label.setText("t = 0.000 / 0.000")
+                return
+            self.time_label.setText(f"t = {t_now:.3f} / {t_end:.3f}")
+
+        def _on_speed_changed(self, _idx: int) -> None:
+            data = self.speed_box.currentData()
+            try:
+                self._speed_multiplier = float(data)
+            except (TypeError, ValueError):
+                self._speed_multiplier = 1.0
+            if self._is_playing:
+                # Re-arm the timer with the new cadence; we only change the
+                # per-tick stride, not the timer period, so high speeds stay
+                # smooth (4 frames per 33 ms tick at 4×, 8 at 8×).
+                pass  # _on_anim_tick reads the multiplier each tick
+
+        def _on_toggle_play(self) -> None:
+            if self._current_renderer is None:
+                return
+            if self._is_playing:
+                self._pause()
+            else:
+                self._play()
+
+        def _play(self) -> None:
+            if self._current_renderer is None:
+                return
+            n = self._renderer_total_frames()
+            if n <= 1:
+                return
+            # If we're at the end, rewind to start so Play is meaningful.
+            if self._current_frame_index >= n - 1:
+                self._seek_to(0)
+            self._is_playing = True
+            self.play_button.setChecked(True)
+            self.play_button.setText("Pause")
+            self._anim_timer.start(self._base_tick_ms)
+
+        def _pause(self) -> None:
+            self._is_playing = False
+            self.play_button.setChecked(False)
+            self.play_button.setText("Play")
+            self._anim_timer.stop()
+
+        def _on_stop(self) -> None:
+            if self._current_renderer is None:
+                return
+            self._pause()
+            self._seek_to(0)
+
+        def _on_jump_to_end(self) -> None:
+            if self._current_renderer is None:
+                return
+            self._pause()
+            self._seek_to(self._renderer_total_frames() - 1)
+
+        def _seek_to(self, frame_index: int) -> None:
+            r = self._current_renderer
+            if r is None:
+                return
+            n = r.n_frames
+            if n <= 1:
+                return
+            idx = int(np.clip(int(frame_index), 0, n - 1))
+            self._current_frame_index = idx
+            r.seek(idx)
+            # Keep the scrubber in sync without re-entering the drag handler.
+            block = self.frame_scrubber.blockSignals(True)
+            try:
+                self.frame_scrubber.setValue(idx)
+            finally:
+                self.frame_scrubber.blockSignals(block)
+            self._update_time_label(idx)
+            self._update_status_frame(idx)
+
+        def _on_anim_tick(self) -> None:
+            r = self._current_renderer
+            if r is None or not self._is_playing:
+                return
+            n = r.n_frames
+            stride = max(
+                1, int(round(self._frames_per_tick_base * self._speed_multiplier))
+            )
+            next_idx = self._current_frame_index + stride
+            if next_idx >= n - 1:
+                # Snap to the last frame and stop.
+                self._seek_to(n - 1)
+                self._pause()
+                return
+            self._seek_to(next_idx)
+
+        def _on_scrubber_press(self) -> None:
+            self._scrubber_dragging = True
+            if self._is_playing:
+                self._pause()
+
+        def _on_scrubber_release(self) -> None:
+            self._scrubber_dragging = False
+
+        def _on_scrubber_value(self, value: int) -> None:
+            # Pause during interactive drags; idle programmatic updates are
+            # already filtered out via blockSignals in :meth:`_seek_to`.
+            if self._scrubber_dragging and self._is_playing:
+                self._pause()
+            self._seek_to(int(value))
 
         def _axes_labels_for(self, system: SystemLike) -> tuple[str, str, str] | None:
             name = getattr(system, "name", "")
@@ -947,17 +2043,45 @@ def _build_window_class() -> type:
                 )
             return message
 
-        def _set_status(self, text: str, *, busy: bool = False) -> None:
+        def _set_status(
+            self,
+            text: str,
+            *,
+            busy: bool = False,
+            state: str | None = None,
+        ) -> None:
             self.status_label.setText(text)
             self.setCursor(Qt.CursorShape.WaitCursor if busy else Qt.CursorShape.ArrowCursor)
+            # Mirror the message into the status-bar's permanent state chip.
+            if state is None:
+                inferred = "running" if busy else "idle"
+            else:
+                inferred = state
+            label_map = {
+                "idle": "Idle",
+                "running": "Running",
+                "exporting": "Exporting",
+                "error": "Error",
+                "done": "Done",
+            }
+            chip_label = label_map.get(inferred, inferred.capitalize())
+            chip_state = inferred if inferred != "done" else "idle"
+            self._set_state_chip(chip_label, chip_state)
 
         def _show_error(self, title: str, message: str) -> None:
-            self._set_status(message)
+            self._set_status(message, state="error")
             QMessageBox.critical(self, title, message)
 
         # ------------------------------------------------------------------
 
         def closeEvent(self, event: Any) -> None:  # type: ignore[override]
+            # Stop the animation first — its timer fires on the GUI thread
+            # and can otherwise keep the event loop alive briefly while the
+            # window is tearing down.
+            try:
+                self._anim_timer.stop()
+            except RuntimeError:  # pragma: no cover - already cleaned up
+                pass
             # Best-effort cleanup so we don't leave background threads dangling.
             for thread in (self._sim_thread, self._export_thread):
                 if thread is not None:
@@ -976,18 +2100,27 @@ def _build_window_class() -> type:
     return _MainWindow
 
 
-def build_application(argv: list[str] | None = None) -> tuple[Any, Any]:
+def build_application(
+    argv: list[str] | None = None, *, theme: str = "dark"
+) -> tuple[Any, Any]:
     """Construct ``QApplication`` and :class:`MainWindow`.
 
     Returns ``(app, window)`` without calling ``app.exec()`` — useful for
     tests and for callers that want to customize the window before showing it.
+
+    The Tokyo Night Storm dark QSS theme is applied to the ``QApplication``
+    by default; pass ``theme="light"`` for the (currently stub) light
+    variant.
     """
 
     import sys
 
     from PySide6.QtWidgets import QApplication
 
+    from chaotic_systems.gui.theme import apply_theme
+
     app = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
+    apply_theme(app, theme)
     window_cls = _build_window_class()
     window = window_cls()
     return app, window
