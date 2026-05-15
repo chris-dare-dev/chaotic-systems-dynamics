@@ -167,3 +167,81 @@ def test_set_color_by_progress_after_attach(points: np.ndarray) -> None:
         r.set_color_by_progress(True)
     finally:
         plotter.close()
+
+
+def test_polydata_has_no_verts_after_build(points: np.ndarray) -> None:
+    """The PolyData carries no vertex cells — only line cells.
+
+    Regression test for the "viridis dot cloud" artifact: ``pv.PolyData``'s
+    default constructor populates one vertex cell per input point, which
+    VTK renders as visible point glyphs colored by the same scalar that
+    shades the polyline. The renderer clears ``verts`` explicitly so only
+    the line cells we set draw, not the orphan points.
+    """
+
+    import pyvista as pv
+
+    plotter = pv.Plotter(off_screen=True)
+    try:
+        r = Renderer3D(points)
+        r.attach(plotter)
+        # The polyline should expose zero vertex cells but at least one line.
+        assert r._polyline.n_verts == 0  # noqa: SLF001
+        assert r._polyline.n_lines >= 1  # noqa: SLF001
+    finally:
+        plotter.close()
+
+
+def test_seek_interpolated_tail_is_midpoint(points: np.ndarray) -> None:
+    """``seek_interpolated(2.5)`` extends the polyline to the midpoint of
+    ``points[2]`` and ``points[3]`` via the tail slot.
+
+    The final point of the visible polyline (the tail) is the linear
+    interpolant — so a half-step fractional seek lands the polyline tip
+    halfway between two trajectory samples. This is what makes the
+    polyline grow continuously rather than in integer jumps.
+    """
+
+    import pyvista as pv
+
+    plotter = pv.Plotter(off_screen=True)
+    try:
+        r = Renderer3D(points)
+        r.attach(plotter)
+        r.seek_interpolated(2.5)
+        # Connectivity for i=2, frac=0.5: header=4, indices=[0, 1, 2, tail]
+        lines = np.asarray(r._polyline.lines)  # noqa: SLF001
+        assert lines[0] == 4
+        # Pull the last index off (the tail slot) and read that point.
+        tail_idx = int(lines[4])
+        tail_point = np.asarray(r._polyline.points)[tail_idx]  # noqa: SLF001
+        expected = points[2] + 0.5 * (points[3] - points[2])
+        np.testing.assert_allclose(tail_point, expected, atol=1e-12)
+    finally:
+        plotter.close()
+
+
+def test_set_line_width_does_not_increase_actor_count(points: np.ndarray) -> None:
+    """Repeated ``set_line_width`` calls must not leak ghost line actors.
+
+    The method removes the previous line actor before adding the new one;
+    if that bookkeeping ever regresses, the plotter's actor list will
+    grow and the scene will render multiple stacked polylines.
+    """
+
+    import pyvista as pv
+
+    plotter = pv.Plotter(off_screen=True)
+    try:
+        r = Renderer3D(points)
+        r.attach(plotter)
+        baseline = len(plotter.renderer.actors)
+        for w in (2.0, 4.0, 1.5, 6.0):
+            r.set_line_width(w)
+        assert len(plotter.renderer.actors) == baseline
+        # Same invariant for the color-by-progress rebuild path.
+        for state in (False, True, False, True):
+            r.set_color_by_progress(state)
+        assert len(plotter.renderer.actors) == baseline
+    finally:
+        plotter.close()
