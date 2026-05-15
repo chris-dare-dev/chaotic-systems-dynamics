@@ -937,6 +937,95 @@ def _build_window_class() -> type:
             self.finished.emit(self._path)
 
     # -----------------------------------------------------------------------
+    # Busy spinner — a tiny rotating-arc widget for indeterminate work.
+    # Mounted in the bottom status bar; visible during simulation or during
+    # export warm-up. Once the export emits its first determinate progress
+    # tick, the spinner stops and the bevelled bar takes over.
+    # -----------------------------------------------------------------------
+
+    class _BusySpinner(QWidget):
+        """A small Apple-style rotating arc, palette accent color.
+
+        The widget paints a 270-degree arc and spins it at ~60 FPS by
+        updating an angle offset on a ``QTimer``. ``start()`` shows the
+        widget and arms the timer; ``stop()`` hides it and disarms.
+        Drawing is fully QPainter-based, so the widget needs nothing
+        beyond a parent widget.
+        """
+
+        DEFAULT_SIZE_PX = 16
+
+        def __init__(
+            self,
+            parent: QWidget | None = None,
+            *,
+            diameter: int = DEFAULT_SIZE_PX,
+            color: str = "#7aa2f7",
+        ) -> None:
+            super().__init__(parent)
+            self._diameter = int(diameter)
+            self._color_hex = color
+            self._angle = 0
+            self.setFixedSize(self._diameter + 4, self._diameter + 4)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self._timer = QTimer(self)
+            self._timer.setTimerType(Qt.TimerType.PreciseTimer)
+            self._timer.timeout.connect(self._advance)
+            self.hide()
+
+        # -- public API -----------------------------------------------------
+
+        def start(self) -> None:
+            self.show()
+            # 60 FPS rotation — visually smooth, costs us a few microseconds
+            # per frame against an offscreen Qt buffer.
+            self._timer.start(16)
+
+        def stop(self) -> None:
+            self._timer.stop()
+            self.hide()
+
+        # -- internals ------------------------------------------------------
+
+        def _advance(self) -> None:
+            # 6 deg per tick × 60 Hz = 360 deg/s full revolution. Smooth.
+            self._angle = (self._angle + 6) % 360
+            self.update()
+
+        def paintEvent(self, event: Any) -> None:  # type: ignore[override]
+            from PySide6.QtCore import QRectF
+            from PySide6.QtGui import QColor, QPainter, QPen
+
+            painter = QPainter(self)
+            try:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                pen_width = max(2.0, self._diameter / 8.0)
+                # Faint track ring under the spinning arc — Apple-style.
+                track_color = QColor(self._color_hex)
+                track_color.setAlpha(60)
+                pen_track = QPen(track_color)
+                pen_track.setWidthF(pen_width)
+                pen_track.setCapStyle(Qt.PenCapStyle.RoundCap)
+                arc_rect = QRectF(
+                    pen_width / 2.0 + 1,
+                    pen_width / 2.0 + 1,
+                    self._diameter - 1,
+                    self._diameter - 1,
+                )
+                painter.setPen(pen_track)
+                painter.drawArc(arc_rect, 0, 360 * 16)
+                # The leading arc — 270 deg sweep, rotating.
+                pen = QPen(QColor(self._color_hex))
+                pen.setWidthF(pen_width)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                start_angle = int(-self._angle * 16)
+                painter.drawArc(arc_rect, start_angle, 270 * 16)
+            finally:
+                painter.end()
+            _ = event  # unused; required signature
+
+    # -----------------------------------------------------------------------
     # The actual main window.
     # -----------------------------------------------------------------------
 
@@ -1096,15 +1185,12 @@ def _build_window_class() -> type:
             self.cancel_button.clicked.connect(self._on_cancel)
             self.cancel_button.setEnabled(False)
             self.cancel_button.setVisible(False)
-            # Status-bar progress widget — built later in
-            # ``_build_status_bar``. We stage a hidden QProgressBar on the
-            # left panel only as a back-compat hook for the export pipeline,
-            # which used to live in an Export card.
-            self.progress_bar = QProgressBar(left_inner)
-            self.progress_bar.setRange(0, 100)
-            self.progress_bar.setValue(0)
-            self.progress_bar.setVisible(False)
-            self.progress_bar.setTextVisible(False)
+            # The legacy left-panel ``progress_bar`` is gone — progress lives
+            # exclusively on the bottom status bar via ``status_progress``
+            # (Apple-style bevelled pill) and ``status_spinner``. We keep a
+            # ``progress_bar`` attribute as a back-compat alias resolved via
+            # ``__getattr__`` below; legacy callers see the status-bar
+            # widget instead of a separate top-left bar.
 
             # Inline status line (kept for back-compat; the real status
             # surface is the QStatusBar at the bottom of the window).
@@ -1555,9 +1641,9 @@ def _build_window_class() -> type:
             self.run_button.setEnabled(False)
             self.export_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
-            self.progress_bar.setVisible(True)
-            # Indeterminate progress for live sim.
-            self.progress_bar.setRange(0, 0)
+            # The status bar's spinner + bevelled progress chunk are wired
+            # by ``_set_status``; indeterminate while the integrator runs.
+            self._show_busy(True)
             # Welcome-state cleanup — the viewport is about to hold a real
             # trajectory; the hint and the vector-field preview are done.
             if hasattr(self, "viewport_hint") and self.viewport_hint is not None:
@@ -1644,9 +1730,8 @@ def _build_window_class() -> type:
             self.run_button.setEnabled(True)
             self.export_button.setEnabled(True)
             self.cancel_button.setEnabled(self._export_thread is not None)
-            self.progress_bar.setVisible(self._export_thread is not None)
-            self.progress_bar.setRange(0, 100)
-            self.progress_bar.setValue(0)
+            if self._export_thread is None:
+                self._show_busy(False)
             run_action = self._transport_actions.get("transport_run")
             if run_action is not None:
                 run_action.setEnabled(True)
@@ -1674,9 +1759,12 @@ def _build_window_class() -> type:
             self.run_button.setEnabled(False)
             self.export_button.setEnabled(False)
             self.cancel_button.setEnabled(True)
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setRange(0, 100)
-            self.progress_bar.setValue(0)
+            # Spinner shows during the export warm-up; the determinate
+            # progress chunk takes over once the first frame ships.
+            self._show_busy(True)
+            self.status_progress.setRange(0, 100)
+            self.status_progress.setValue(0)
+            self.status_progress.setVisible(True)
 
             worker = _ExportWorker(
                 trajectory=traj,
@@ -1701,8 +1789,13 @@ def _build_window_class() -> type:
         def _on_export_progress(self, current: int, total: int) -> None:
             if total <= 0:
                 return
-            self.progress_bar.setMaximum(total)
-            self.progress_bar.setValue(current)
+            # The first determinate update hides the spinner; the bevelled
+            # progress chunk now carries the signal.
+            if self.status_spinner.isVisible():
+                self.status_spinner.stop()
+            self.status_progress.setRange(0, int(total))
+            self.status_progress.setValue(int(current))
+            self.status_progress.setVisible(True)
 
         def _on_export_finished(self, path: str) -> None:
             self._set_status(f"Wrote {path}", state="done")
@@ -1721,8 +1814,7 @@ def _build_window_class() -> type:
             self.run_button.setEnabled(True)
             self.export_button.setEnabled(True)
             self.cancel_button.setEnabled(False)
-            self.progress_bar.setVisible(False)
-            self.progress_bar.setValue(0)
+            self._show_busy(False)
 
         def _on_cancel(self) -> None:
             cancelled = False
@@ -1946,19 +2038,68 @@ def _build_window_class() -> type:
             )
             self.lyapunov_chip.setVisible(False)
 
-            # In-line progress bar for live simulation feedback.
+            # Busy spinner — Apple-style rotating arc shown to the LEFT of
+            # the state chip during indeterminate work (simulation / export
+            # warm-up). Hides as soon as the determinate progress chunk can
+            # take over.
+            self.status_spinner = _BusySpinner(bar, diameter=14)
+
+            # Determinate progress chunk — Apple-style bevelled pill,
+            # gradient fill. Only visible while the export pipeline is
+            # actively shipping frames; for the simulation pipeline the
+            # spinner does the work.
             self.status_progress = QProgressBar(bar)
-            self.status_progress.setRange(0, 0)
+            self.status_progress.setObjectName("status_progress")
+            self.status_progress.setProperty("variant", "pill")
+            self.status_progress.setRange(0, 100)
+            self.status_progress.setValue(0)
             self.status_progress.setTextVisible(False)
-            self.status_progress.setFixedHeight(12)
-            self.status_progress.setMaximumWidth(160)
+            self.status_progress.setFixedHeight(8)
+            self.status_progress.setMinimumWidth(140)
+            self.status_progress.setMaximumWidth(220)
             self.status_progress.setVisible(False)
 
+            # Pre-export estimate chip — visible only after a sim completes
+            # so the user can size up the download before clicking Export.
+            self.export_estimate_chip = QLabel("", bar)
+            self.export_estimate_chip.setProperty("role", "chip")
+            self.export_estimate_chip.setProperty("highlight", "estimate")
+            self.export_estimate_chip.setToolTip(
+                "Estimated export size, frame count, and duration"
+            )
+            self.export_estimate_chip.setVisible(False)
+
+            bar.addWidget(self.status_spinner)
             bar.addWidget(self.state_chip)
             bar.addWidget(self.status_progress)
+            bar.addPermanentWidget(self.export_estimate_chip)
             bar.addPermanentWidget(self.frame_chip)
             bar.addPermanentWidget(self.time_chip)
             bar.addPermanentWidget(self.lyapunov_chip)
+
+            # Back-compat alias for the (now-removed) left-panel progress
+            # bar. Anything still calling ``self.progress_bar.setVisible``
+            # actually toggles the status-bar pill — and the spinner takes
+            # over for indeterminate phases via ``_show_busy``.
+            self.progress_bar = self.status_progress
+
+        def _show_busy(self, busy: bool) -> None:
+            """Toggle the indeterminate spinner + hide/show the progress pill.
+
+            ``busy=True`` runs the rotating-arc spinner and hides the
+            determinate progress chunk. ``busy=False`` stops the spinner
+            and resets the progress chunk to a hidden / zeroed state.
+            """
+
+            if busy:
+                self.status_spinner.start()
+                self.status_progress.setVisible(False)
+                self.status_progress.setValue(0)
+            else:
+                self.status_spinner.stop()
+                self.status_progress.setVisible(False)
+                self.status_progress.setRange(0, 100)
+                self.status_progress.setValue(0)
 
         def _set_state_chip(self, text: str, state: str) -> None:
             """Update the state chip text and the QSS ``state`` property.
@@ -2364,14 +2505,9 @@ def _build_window_class() -> type:
                 "idle" if inferred == "done" else "running"
             )
             self._set_state_chip(chip_label, chip_state)
-            # Show the indeterminate status-bar progress chunk while the
-            # background work is running (simulate or export).
-            if hasattr(self, "status_progress"):
-                if inferred in ("running", "exporting"):
-                    self.status_progress.setRange(0, 0)
-                    self.status_progress.setVisible(True)
-                else:
-                    self.status_progress.setVisible(False)
+            # Spinner is shown during indeterminate phases (sim, export
+            # warm-up). The bevelled progress chunk only appears for the
+            # determinate export path; ``_show_busy`` handles that.
 
         def _show_error(self, title: str, message: str) -> None:
             self._set_status(message, state="error")
