@@ -26,13 +26,43 @@ The project should *render the math*, not hide it. Every system displays its gov
 The math and visualization layers landed in parallel passes on the same day.
 
 **Math / numerics** (`core/`, `integrators/`, `systems/`):
-- `DynamicalSystem`, `Parameter`, `Trajectory` base types.
-- `HamiltonianSystem`, `LagrangianSystem` specializations.
-- Adaptive integrators (RK45, RK23, DOP853, LSODA), fixed-step, and
-  symplectic methods scaffolded under `integrators/`.
+- `DynamicalSystem`, `Parameter`, `Trajectory` base types
+  (`core/base.py`).
+- `LagrangianSystem` — sympy Lagrangian -> Euler-Lagrange equations ->
+  `lambdify`-d fast numerical RHS. Drives `DoublePendulum`.
+- `HamiltonianSystem` — sympy Hamiltonian -> Hamilton's equations, with
+  separable-system support (kinetic / potential split) for symplectic
+  integrators. Drives `HenonHeiles`.
+- Integrators (`integrators/`) all conforming to a single
+  `Integrator` protocol with a shared `integrate(rhs, t_span, y0, dt=,
+  n_points=, rtol=, atol=)` signature:
+  - **Adaptive** (scipy wrappers): RK45, RK23, DOP853, Radau, BDF, LSODA.
+  - **Fixed-step**: RK4, Euler (with `_NUMBA_AVAILABLE` shim — numba is
+    used for hand-JIT'd inner loops when callers want it).
+  - **Symplectic** (separable Hamiltonians): leapfrog, velocity_verlet,
+    yoshida4. Hand-coded, with a `from_hamiltonian()` adapter that
+    builds the `grad_T` / `grad_V` callables from a
+    `HamiltonianSystem`. Energy is bounded over 1000+ periods of the
+    SHO; yoshida4 holds `|E - E0| < 1e-6`.
+- `largest_lyapunov_two_trajectory` (Benettin two-trajectory method) and
+  `lyapunov_spectrum` (variational + continuous QR). Lorenz returns
+  ~0.907 against the canonical 0.9056 in 5 seconds.
+- `poincare_section` — event-driven section-collector built on
+  `scipy.integrate.solve_ivp` event detection.
 - Concrete systems: Lorenz, Rossler, DoublePendulum, Chua, HenonHeiles,
-  Duffing — exposed through `chaotic_systems.systems.registry`.
-- Lyapunov exponent helpers and Poincare sections.
+  Duffing — exposed through `chaotic_systems.systems.registry` with a
+  stable display order.
+- **Tests** (`tests/core`, `tests/integrators`, `tests/systems`): 38
+  unit / numerical-accuracy tests covering the base classes, every
+  adaptive / fixed-step / symplectic integrator, the simple-pendulum
+  reduction of `LagrangianSystem`, energy conservation on the double
+  pendulum and Hénon-Heiles, exponential divergence and largest
+  Lyapunov on Lorenz, Poincaré section finiteness, and registry
+  round-trip.
+- **Examples** (`examples/`): `lyapunov_lorenz.py`,
+  `double_pendulum_energy.py`, `poincare_henon.py`.
+- **Docs**: `docs/numerics.md` (integrator zoo + trade-offs) and
+  `docs/systems.md` (each system + reference).
 
 **Visualization + GUI** (`visualization/`, `gui/`):
 - `Renderer3D` (PyVista + VTK) with progressive-reveal animation,
@@ -55,11 +85,18 @@ The math and visualization layers landed in parallel passes on the same day.
 matplotlib, PySide6, pyvista, pyvistaqt, imageio, imageio-ffmpeg. Dev
 extras: pytest, pytest-qt, pytest-benchmark, hypothesis, ruff, mypy.
 
-**Tests**: 13 visualization tests (contract adapter, LaTeX rendering,
-end-to-end off-screen video export); 3 GUI smoke tests (window builds,
-parameter widgets generate from registry, LaTeX panel populates). GUI
-tests are gated behind `CHAOTIC_GUI_TESTS_USE_DISPLAY=1` because
-`pyvistaqt.QtInteractor` needs a real OpenGL context.
+**Tests**: 38 math/integrator tests under `tests/core`,
+`tests/integrators`, `tests/systems`; 13 visualization tests (contract
+adapter, LaTeX rendering, end-to-end off-screen video export); 3 GUI
+smoke tests (window builds, parameter widgets generate from registry,
+LaTeX panel populates). GUI tests are gated behind
+`CHAOTIC_GUI_TESTS_USE_DISPLAY=1` because `pyvistaqt.QtInteractor`
+needs a real OpenGL context. Note: the GUI conftest hook currently
+skips *all* collected items rather than only the gui/ subset — that's
+a known papercut on the GUI side and means `pytest tests/` from the
+repo root yields a misleading "everything skipped" result; run
+`pytest tests/core tests/integrators tests/systems
+tests/visualization` for the non-GUI portion.
 
 ## What's next
 
@@ -83,11 +120,17 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
 6. **CI for the GUI smoke tests.** Today the GUI tests are skipped
    without a display. A `xvfb` job (Linux) or a macOS runner with a
    logged-in user could turn them back on.
-7. **Tests for the math layer.** The visualization side has 13 tests;
-   the math agent has not yet pushed tests for the systems and
-   integrators. Once those land, run them in CI alongside the
-   visualization suite.
-8. **Pre-rendered intros (manim).** Out-of-scope today but a nice
+7. **Fix the gui/ conftest hook scope.** The `pytest_collection_modifyitems`
+   in `tests/gui/conftest.py` currently marks every collected item as
+   skipped (it doesn't filter to items under `tests/gui/`). Tighten the
+   filter so the global `pytest` invocation runs the math + viz tests
+   and only skips the GUI ones.
+8. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
+   integrators don't JIT the outer loop because numba can't infer
+   arbitrary Python `rhs` types. A future pass could expose a
+   `compile_rhs(system)` helper that returns a numba-typed RHS and an
+   inner loop matching, e.g., the `_rk4_step` API.
+9. **Pre-rendered intros (manim).** Out-of-scope today but a nice
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
