@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chaotic-systems-dynamics"
+version = "0.0.0"
+description = "Simulation and visualization of chaotic dynamical systems with a native desktop GUI."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Chris Dare", email = "me@chrisdare.net" },
+]
+keywords = [
+    "chaos",
+    "dynamical-systems",
+    "lorenz",
+    "double-pendulum",
+    "lyapunov",
+    "hamiltonian",
+    "lagrangian",
+    "ode",
+    "simulation",
+    "visualization",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+# Runtime dependencies will be filled in by later agents once the
+# numerical / GUI / visualization stacks are chosen.
+dependencies = []
+
+[project.optional-dependencies]
+# Development tooling — to be pinned once the toolchain stabilizes.
+dev = []
+# Test-only extras.
+test = []
+
+[project.urls]
+Homepage = "https://github.com/chris-dare-dev/chaotic-systems-dynamics"
+Repository = "https://github.com/chris-dare-dev/chaotic-systems-dynamics"
+Issues = "https://github.com/chris-dare-dev/chaotic-systems-dynamics/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chaotic_systems"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "tests/",
+    "examples/",
+    "docs/",
+    "README.md",
+    "CONTEXT.md",
+    "SECURITY.md",
+    "CLAUDE.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+
+# ---------------------------------------------------------------------------
+# Tool configuration scaffolding. Concrete settings land when the toolchain
+# is wired up (ruff, mypy, pytest).
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
