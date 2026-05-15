@@ -37,24 +37,34 @@ QWidget {
     selection-color: #1f2335;
 }
 
-/* Cards are QGroupBoxes with the "card" property. */
+/* Cards are QGroupBoxes with the "card" property. The title now sits
+ * outside the card body with a 4 px left accent stripe (a thin
+ * border-left applied via a property selector) so cards have visible
+ * hierarchy and the left rail reads as "primary surface". */
 QGroupBox[variant="card"] {
     background-color: #1f2335;
     border: 1px solid #3b4261;
-    border-radius: 8px;
-    margin-top: 16px;
-    padding: 12px 12px 12px 12px;
+    border-left: 3px solid #3b4261;
+    border-radius: 6px;
+    margin-top: 26px;
+    padding: 14px 12px 12px 12px;
 }
 
 QGroupBox[variant="card"]::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    left: 12px;
-    top: -2px;
-    padding: 0 6px;
-    color: #9aa5ce;
-    font-size: 12pt;
+    left: 4px;
+    top: 4px;
+    padding: 0 4px;
+    color: #c0caf5;
+    font-size: 14pt;
     font-weight: 600;
+    background: transparent;
+}
+
+QGroupBox[variant="card"]:focus,
+QGroupBox[variant="card"]:hover {
+    border-left: 3px solid #7aa2f7;
 }
 
 /* Labels: body vs heading distinguished by property. */
@@ -71,7 +81,7 @@ QLabel[role="heading"] {
 
 QLabel[role="caption"] {
     color: #9aa5ce;
-    font-size: 10pt;
+    font-size: 11pt;
 }
 
 QLabel[role="overlay"] {
@@ -82,6 +92,27 @@ QLabel[role="overlay"] {
     padding: 4px 8px;
     font-size: 11pt;
     font-weight: 600;
+}
+
+/* Viewport bottom-center hint — semi-transparent "Press Ctrl-R" copy
+ * shown before the first simulation runs. Disappears on Run. */
+QLabel[role="hint"] {
+    color: #9aa5ce;
+    background-color: rgba(31, 35, 53, 160);
+    border: 1px solid #3b4261;
+    border-radius: 12px;
+    padding: 6px 14px;
+    font-size: 11pt;
+    font-weight: 500;
+}
+
+/* Section-title labels — explicit class for non-QGroupBox headings. */
+QLabel[class="section-title"] {
+    color: #c0caf5;
+    font-size: 14pt;
+    font-weight: 600;
+    padding: 0;
+    margin: 0;
 }
 
 /* Buttons — secondary by default, primary opt-in via [variant="primary"]. */
@@ -316,13 +347,13 @@ QSplitter::handle {
 }
 
 QSplitter::handle:horizontal {
-    width: 1px;
+    width: 4px;
     margin: 0 1px;
     background: #3b4261;
 }
 
 QSplitter::handle:vertical {
-    height: 1px;
+    height: 4px;
     margin: 1px 0;
     background: #3b4261;
 }
@@ -499,15 +530,23 @@ QToolTip {
     font-size: 10pt;
 }
 
-/* Focus rings — visible for keyboard navigation. */
+/* Focus rings — explicit 2 px accent outline for keyboard navigation
+ * (WCAG 2.1 SC 2.4.7). Qt's QSS doesn't honor ``outline`` reliably so
+ * we use a thicker accent border with a negative margin so the layout
+ * doesn't shift on focus. */
 QPushButton:focus,
 QToolButton:focus,
 QComboBox:focus,
 QDoubleSpinBox:focus,
 QSpinBox:focus,
-QSlider:focus {
-    outline: none;
-    border-color: #7aa2f7;
+QLineEdit:focus {
+    border: 2px solid #7aa2f7;
+    margin: -1px;
+}
+
+QSlider::handle:horizontal:focus {
+    background: #ffffff;
+    border: 3px solid #7aa2f7;
 }
 
 /* Messages. */
