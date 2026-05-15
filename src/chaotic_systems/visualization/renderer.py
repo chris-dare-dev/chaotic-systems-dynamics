@@ -63,6 +63,121 @@ def _full_polyline_connectivity(n: int) -> np.ndarray:
     return lines
 
 
+def _catmull_rom(
+    p0: np.ndarray,
+    p1: np.ndarray,
+    p2: np.ndarray,
+    p3: np.ndarray,
+    t: float,
+) -> np.ndarray:
+    """Evaluate the uniform Catmull-Rom spline at parameter ``t`` in ``[0, 1]``.
+
+    The spline interpolates ``p1`` at ``t=0`` and ``p2`` at ``t=1`` while
+    using ``p0`` and ``p3`` as the tangent-defining neighbours. Result is
+    C^1 continuous across segment boundaries — the velocity vector matches
+    on either side of ``p1`` (or ``p2``) — so the head sphere glides
+    smoothly through trajectory samples instead of cornering at each.
+
+    Standard uniform form (Catmull-Rom 1974; see Catmull & Rom,
+    "A class of local interpolating splines"):
+
+        q(t) = 0.5 * (
+            (2 * P1)
+            + (-P0 + P2) * t
+            + (2*P0 - 5*P1 + 4*P2 - P3) * t^2
+            + (-P0 + 3*P1 - 3*P2 + P3) * t^3
+        )
+
+    For centripetal weighting (alpha=0.5) use :func:`_centripetal_t_values`
+    to reparameterise the segment before calling this function.
+    """
+
+    t2 = t * t
+    t3 = t2 * t
+    return 0.5 * (
+        (2.0 * p1)
+        + (-p0 + p2) * t
+        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+        + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+    )
+
+
+def _centripetal_segment_eval(
+    p0: np.ndarray,
+    p1: np.ndarray,
+    p2: np.ndarray,
+    p3: np.ndarray,
+    frac: float,
+) -> np.ndarray:
+    """Evaluate the centripetal Catmull-Rom spline on segment ``[p1, p2]``.
+
+    ``frac`` is in ``[0, 1]`` along the *uniform* parameterization of
+    the segment (the caller's notion of "halfway between p1 and p2");
+    we remap it to the centripetal parameter so the spline stays well
+    behaved in tight curves and avoids overshoot / self-loops.
+
+    The centripetal Catmull-Rom variant (Yuksel et al. 2011, "On the
+    Parameterization of Catmull-Rom Curves") uses
+    ``t_i+1 = t_i + ||P_i+1 - P_i||^alpha`` with ``alpha = 0.5`` —
+    the chord-length raised to 1/2. This is the standard cure for the
+    overshoot / cusp artifacts of plain uniform Catmull-Rom.
+
+    Falls back to a uniform Catmull-Rom evaluation when the segment is
+    degenerate (zero-length chord between any consecutive pair).
+    """
+
+    # Centripetal parameter values. alpha=0.5 → sqrt of chord length.
+    def _knot(a: np.ndarray, b: np.ndarray, t_a: float) -> float:
+        chord = float(np.linalg.norm(b - a))
+        # Guard zero-length segments; collapse to a tiny eps so the
+        # parameter strictly increases and the math stays defined.
+        return t_a + max(np.sqrt(chord), 1e-12)
+
+    t0 = 0.0
+    t1 = _knot(p0, p1, t0)
+    t2 = _knot(p1, p2, t1)
+    t3 = _knot(p2, p3, t2)
+
+    # Fall back to uniform Catmull-Rom if the parameterization
+    # collapsed (e.g. all points identical) — keeps the call total.
+    if t2 <= t1 or t3 <= t2 or t1 <= t0:
+        return _catmull_rom(p0, p1, p2, p3, float(frac))
+
+    # Map the user's [0, 1] fraction along the [p1, p2] segment to the
+    # corresponding centripetal parameter t in [t1, t2].
+    t = t1 + float(frac) * (t2 - t1)
+
+    # Barry-Goldman evaluation of the Catmull-Rom segment in
+    # non-uniform parameter space. Three linear interpolations down,
+    # then two, then one — numerically stable and cheap.
+    a1 = (t1 - t) / (t1 - t0) * p0 + (t - t0) / (t1 - t0) * p1
+    a2 = (t2 - t) / (t2 - t1) * p1 + (t - t1) / (t2 - t1) * p2
+    a3 = (t3 - t) / (t3 - t2) * p2 + (t - t2) / (t3 - t2) * p3
+    b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2
+    b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3
+    c = (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2
+    return c
+
+
+def _spline_neighbour_indices(
+    i: int, n: int
+) -> tuple[int, int, int, int]:
+    """Return ``(i-1, i, i+1, i+2)`` clipped to ``[0, n - 1]``.
+
+    Catmull-Rom needs four samples per segment. At the trajectory
+    endpoints we clip rather than extrapolate ghost points — the result
+    is locally equivalent to a quadratic interpolation, which is fine
+    because the endpoints get exactly one sub-frame anyway.
+    """
+
+    return (
+        max(0, i - 1),
+        max(0, min(i, n - 1)),
+        max(0, min(i + 1, n - 1)),
+        max(0, min(i + 2, n - 1)),
+    )
+
+
 def _orbit_camera_position(
     center: np.ndarray, radius: float, angle: float
 ) -> list[Any]:
@@ -178,19 +293,7 @@ class Renderer3D:
         # sub-frame segment. The connectivity buffer is sized once for
         # the worst case (header byte + every integer index + the tail
         # index) and sliced per frame so we never allocate while playing.
-        n_points = self.points.shape[0]
-        self._tail_index: int = n_points  # row index of the tail slot
-        self._points_buffer: np.ndarray = np.empty((n_points + 1, 3), dtype=float)
-        self._points_buffer[:n_points] = self.points
-        self._points_buffer[n_points] = self.points[-1]
-        self._scalar_buffer: np.ndarray = np.empty(n_points + 1, dtype=float)
-        self._scalar_buffer[:n_points] = np.linspace(0.0, 1.0, n_points)
-        self._scalar_buffer[n_points] = 1.0
-        # Worst-case connectivity is [count, 0..n-1, tail] = n + 2 ints.
-        # We re-bind a slice each frame so VTK only sees the active prefix.
-        self._connectivity_buffer: np.ndarray = np.empty(
-            n_points + 2, dtype=np.int64
-        )
+        self._allocate_render_buffers(self.points)
 
         # Cached bbox / center used by both head positioning and the
         # video-export camera orbit. Computed once because the trajectory
@@ -216,7 +319,65 @@ class Renderer3D:
         # contract). Reset by :meth:`_invalidate_cache`.
         self._head_world_pos: np.ndarray | None = None
 
+        # Catmull-Rom-oversampled point array, populated by
+        # :meth:`build_prerender_cache(smooth_factor=k)`. When non-None,
+        # the polyline geometry is drawn against this dense array
+        # (``k * N`` points) instead of the raw integration samples.
+        # The integration samples themselves stay in ``self.points``
+        # for parameter-display / t-value lookup purposes — they're the
+        # authoritative dynamics; ``_smooth_points`` is only there to
+        # give VTK a denser curve to render so the polyline body reads
+        # as a smooth curve instead of a chain of line segments.
+        self._smooth_points: np.ndarray | None = None
+        # Cumulative arc-length table over ``_smooth_points``. When this
+        # is in place, :meth:`seek_arc_length` consults it instead of
+        # ``_arc_lengths`` so head positions land on the smooth curve.
+        self._smooth_arc_lengths: np.ndarray | None = None
+        self._smooth_total_arc: float = 0.0
+        # ``_sample_to_smooth_idx[i]`` is the row in ``_smooth_points``
+        # that corresponds to integration sample ``i``. The smooth
+        # oversampler guarantees the original samples appear at
+        # ``i * stride`` (the integer-aligned subset), so the lookup is
+        # an O(1) array read rather than a search.
+        self._sample_to_smooth_idx: np.ndarray | None = None
+        self._smooth_stride: int = 1
+
     # ------------------------------------------------------------------ setup
+
+    def _render_points(self) -> np.ndarray:
+        """Return the point array VTK should render the polyline against.
+
+        Returns ``_smooth_points`` when the Catmull-Rom oversampled array
+        has been built; otherwise the raw integration samples. Callers
+        that need to know "how many rows does my polyline have" should
+        consult this — it's the source of truth for all buffer-sizing
+        operations.
+        """
+
+        if self._smooth_points is not None:
+            return self._smooth_points
+        return self.points
+
+    def _allocate_render_buffers(self, points: np.ndarray) -> None:
+        """(Re)allocate the per-frame buffers against ``points``.
+
+        Called from ``__init__`` with the raw integration samples and
+        from :meth:`_install_smooth_points` after the Catmull-Rom
+        oversampler has produced a denser array. Sizes the points,
+        scalar, and connectivity buffers for ``points.shape[0] + 1``
+        rows (the extra row is the writable tail slot).
+        """
+
+        n_points = int(points.shape[0])
+        self._tail_index = n_points
+        self._points_buffer = np.empty((n_points + 1, 3), dtype=float)
+        self._points_buffer[:n_points] = points
+        self._points_buffer[n_points] = points[-1]
+        self._scalar_buffer = np.empty(n_points + 1, dtype=float)
+        self._scalar_buffer[:n_points] = np.linspace(0.0, 1.0, n_points)
+        self._scalar_buffer[n_points] = 1.0
+        self._connectivity_buffer = np.empty(n_points + 2, dtype=np.int64)
+        self._current_n = n_points
 
     def _build_scene(self, plotter: Any) -> None:
         """Populate ``plotter`` with the trajectory line and head marker.
@@ -235,12 +396,17 @@ class Renderer3D:
 
         import pyvista as pv
 
-        n = self.points.shape[0]
+        render_points = self._render_points()
+        n = int(render_points.shape[0])
         # Re-seed the tail and reset the connectivity-state cache. This
         # matters when a renderer is re-attached (e.g. an off-screen
-        # video export reuses the instance and rebuilds the scene).
-        self._points_buffer[:n] = self.points
-        self._points_buffer[n] = self.points[-1]
+        # video export reuses the instance and rebuilds the scene), and
+        # when the Catmull-Rom oversampler has swapped in a denser
+        # ``_smooth_points`` array (which requires bigger buffers).
+        if self._points_buffer.shape[0] != n + 1:
+            self._allocate_render_buffers(render_points)
+        self._points_buffer[:n] = render_points
+        self._points_buffer[n] = render_points[-1]
         self._scalar_buffer[:n] = np.linspace(0.0, 1.0, n)
         self._scalar_buffer[n] = 1.0
 
@@ -354,7 +520,7 @@ class Renderer3D:
         return buf[: i + 3]
 
     def _set_visible_points(self, n: int) -> None:
-        """Update the polyline to show only the first ``n`` points.
+        """Update the polyline to show only the first ``n`` integration samples.
 
         We never re-add a mesh or rebuild the sphere — only the lines
         connectivity array on the PolyData and the head actor's position
@@ -366,14 +532,29 @@ class Renderer3D:
         :meth:`seek_interpolated`; we need a pure-integer seek to drop
         that tail segment cleanly, so we can't short-circuit even when
         ``n`` already matches ``_current_n``.
+
+        ``n`` is in *integration-sample* units. When the Catmull-Rom
+        oversampler has run, we translate ``n`` to the corresponding
+        index in ``_smooth_points`` so the polyline body still renders
+        the smooth curve.
         """
 
         n = int(np.clip(n, 2, self.points.shape[0]))
         self._current_n = n
+        if self._smooth_points is not None and n >= 2:
+            # Integer sample ``n - 1`` corresponds to a known position
+            # in the dense smooth array — anchor on it so the polyline
+            # tip aligns with the head sphere exactly.
+            n_render = self._smooth_index_for_sample(n - 1) + 1
+            n_render = int(np.clip(n_render, 2, self._smooth_points.shape[0]))
+            tip = self._smooth_points[n_render - 1]
+        else:
+            n_render = n
+            tip = self.points[n - 1]
         if self._polyline is not None:
-            self._polyline.lines = self._make_integer_connectivity(n)
+            self._polyline.lines = self._make_integer_connectivity(n_render)
         if self._head_actor is not None:
-            self._move_head_actor(self.points[n - 1])
+            self._move_head_actor(tip)
 
     # ------------------------------------------------------------------ public
 
@@ -404,6 +585,10 @@ class Renderer3D:
         self._prerender_built = False
         self._plotter = qt_interactor
         self._owns_plotter = False
+        # If the renderer previously installed a dense Catmull-Rom buffer,
+        # ``_build_scene`` will resize the points/scalar/connectivity
+        # buffers and lay out the polyline against the smooth array on
+        # the new plotter.
         self._build_scene(self._plotter)
 
     def reset_camera(self) -> None:
@@ -515,6 +700,12 @@ class Renderer3D:
         "head and polyline-tail teleport between samples" and "both
         glide smoothly".
 
+        When the Catmull-Rom oversampler has run, the polyline tip and
+        head position come from the spline (C^1 continuous) rather than
+        the linear chord. The integer-frame index is still the
+        authoritative playhead coordinate the GUI cares about — the
+        spline is just the geometry the renderer draws.
+
         Falls back to integer :meth:`seek` semantics when the fractional
         part is zero (or ``index_float`` is at the last sample).
         """
@@ -535,9 +726,17 @@ class Renderer3D:
             return
         # Sub-frame branch: write the tail point in place, set the
         # fractional connectivity, and move the head sphere too.
-        p0 = self.points[i]
-        p1 = self.points[i + 1]
-        head_pos = p0 + frac * (p1 - p0)
+        if self._smooth_points is not None:
+            head_pos, n_render_prefix, scalar = self._smooth_subframe(i, frac)
+        else:
+            p0 = self.points[i]
+            p1 = self.points[i + 1]
+            head_pos = p0 + frac * (p1 - p0)
+            n_render_prefix = i + 1
+            scalar = float(
+                self._scalar_buffer[i]
+                + frac * (self._scalar_buffer[i + 1] - self._scalar_buffer[i])
+            )
         # ``_current_n`` tracks the *integer prefix* count (i + 1)
         # — that's what the public ``current_frame`` and the
         # transport bookkeeping want to see. We update it whether or
@@ -550,17 +749,68 @@ class Renderer3D:
             poly_pts = self._polyline.points
             poly_pts[self._tail_index] = head_pos
             # Keep the scalar in sync so the tail segment colours match
-            # the cmap progression. ``i + 1`` indexes the scalar at the
-            # next integer sample (``linspace(0,1,n)[i+1]``).
-            scalar = self._scalar_buffer[i] + frac * (
-                self._scalar_buffer[i + 1] - self._scalar_buffer[i]
-            )
+            # the cmap progression.
             poly_scalar = self._polyline.point_data[self.color_by]
             poly_scalar[self._tail_index] = scalar
-            self._polyline.lines = self._make_fractional_connectivity(i)
+            self._polyline.lines = self._make_fractional_connectivity(
+                n_render_prefix - 1
+            )
         if self._head_actor is not None:
             self._move_head_actor(head_pos)
         self._request_redraw()
+
+    def _smooth_subframe(
+        self, i: int, frac: float
+    ) -> tuple[np.ndarray, int, float]:
+        """Compute the spline-evaluated tail / head for sample ``i + frac``.
+
+        Returns ``(head_pos, n_render_prefix, scalar)`` where:
+        - ``head_pos`` is the centripetal Catmull-Rom point at fractional
+          position ``frac`` along the segment ``[points[i], points[i+1]]``.
+        - ``n_render_prefix`` is how many dense smooth-points should be
+          drawn before the tail point — pick the largest dense index
+          whose arc-length is strictly less than the spline-evaluated
+          tail's arc-length, so the polyline body+tail covers the smooth
+          curve exactly once.
+        - ``scalar`` is the cmap parameter at the head position
+          (linear in [0, 1]).
+
+        Assumes ``_smooth_points`` and ``_sample_to_smooth_idx`` are in
+        place (the caller checks before invoking this).
+        """
+
+        # Centripetal Catmull-Rom evaluation. Clip neighbour indices at
+        # the trajectory endpoints instead of using ghost points; near
+        # the boundary the segment degrades gracefully to a quadratic
+        # interpolation.
+        n_total = self.points.shape[0]
+        i0, i1, i2, i3 = _spline_neighbour_indices(i, n_total)
+        head_pos = _centripetal_segment_eval(
+            self.points[i0],
+            self.points[i1],
+            self.points[i2],
+            self.points[i3],
+            float(frac),
+        ).astype(float, copy=False)
+
+        # Pick the polyline prefix length so the rendered curve stops
+        # *just before* the head — the tail segment then connects the
+        # last dense smooth-point to the spline-evaluated head, closing
+        # any tiny gap from quadrature error.
+        assert self._sample_to_smooth_idx is not None  # noqa: S101
+        n_prefix = int(self._sample_to_smooth_idx[i]) + 1
+        # Walk forward through the smooth array as long as we haven't
+        # passed the head position's parameter (frac fraction of the
+        # segment). We pre-cache the per-sample stride at oversample
+        # time so this is a constant-time slice.
+        stride = int(self._smooth_stride)
+        n_prefix_target = n_prefix + int(np.floor(frac * stride))
+        max_prefix = self._smooth_points.shape[0] - 1
+        n_prefix_target = int(np.clip(n_prefix_target, n_prefix, max_prefix))
+
+        n_total_samples = self.points.shape[0]
+        scalar = (float(i) + float(frac)) / max(1.0, n_total_samples - 1)
+        return head_pos, n_prefix_target + 1, scalar
 
     # --------------------------------------------------------- prerender API
 
@@ -604,23 +854,114 @@ class Renderer3D:
         self._arc_lengths = arc.astype(float, copy=False)
         self._total_arc = float(arc[-1])
 
+    def _smooth_index_for_sample(self, i: int) -> int:
+        """Return the row in ``_smooth_points`` matching integration sample ``i``."""
+
+        if self._sample_to_smooth_idx is None:
+            return int(i)
+        i = int(np.clip(i, 0, self._sample_to_smooth_idx.shape[0] - 1))
+        return int(self._sample_to_smooth_idx[i])
+
+    def _build_smooth_points(self, factor: int) -> None:
+        """Oversample the trajectory ``factor`` times via centripetal Catmull-Rom.
+
+        Produces a dense ``_smooth_points`` array of shape
+        ``((N - 1) * factor + 1, 3)`` that interpolates through every
+        original integration sample at indices ``i * factor`` and fills
+        in ``factor - 1`` spline-evaluated points between each pair.
+
+        The accompanying ``_smooth_arc_lengths`` table covers the dense
+        curve so :meth:`seek_arc_length` can land on it directly.
+        ``_sample_to_smooth_idx[i] = i * factor`` provides the
+        constant-time mapping from integration sample to dense index.
+
+        Memory: at 4× oversampling on a 4000-sample trajectory the
+        dense buffer is ~376 KB (3 floats × 8 bytes × 16k rows). Well
+        inside the 10 MB budget called out in the task brief.
+
+        Idempotent: returns immediately if the smooth buffer is already
+        in place. Skips construction when ``factor <= 1`` (the
+        oversampled curve degenerates to the original samples).
+        """
+
+        if factor <= 1:
+            return
+        if self._smooth_points is not None:
+            return
+        n = self.points.shape[0]
+        if n < 2:
+            return
+        # Pre-allocate the dense buffer. The endpoints coincide with
+        # the trajectory endpoints; the (factor - 1) interior points
+        # per segment are filled by the spline.
+        m = (n - 1) * factor + 1
+        smooth = np.empty((m, 3), dtype=float)
+        # Pre-compute the fractional samples for each interior point.
+        # Index ``k`` in [1, factor) → frac = k / factor.
+        fracs = np.arange(1, factor, dtype=float) / float(factor)
+        # Walk segments. The dense array layout is:
+        #   smooth[i * factor]        == points[i]            (anchor)
+        #   smooth[i * factor + k]    == spline(i, frac=k/factor) for k in 1..factor-1
+        for i in range(n - 1):
+            i0, i1, i2, i3 = _spline_neighbour_indices(i, n)
+            p0 = self.points[i0]
+            p1 = self.points[i1]
+            p2 = self.points[i2]
+            p3 = self.points[i3]
+            # Anchor sample lands exactly on the integration point.
+            smooth[i * factor] = p1
+            # Interior spline-evaluated points.
+            for k_idx, frac in enumerate(fracs):
+                smooth[i * factor + 1 + k_idx] = _centripetal_segment_eval(
+                    p0, p1, p2, p3, float(frac)
+                )
+        # Tail anchor.
+        smooth[-1] = self.points[-1]
+
+        # Cumulative arc-length over the dense array.
+        d = np.diff(smooth, axis=0)
+        seg_lens = np.linalg.norm(d, axis=1)
+        smooth_arc = np.concatenate(([0.0], np.cumsum(seg_lens)))
+
+        # Sample-to-smooth index map. Each integration sample lands at
+        # ``i * factor`` in the dense array.
+        idx_map = np.arange(n, dtype=np.int64) * factor
+
+        self._smooth_points = smooth
+        self._smooth_arc_lengths = smooth_arc.astype(float, copy=False)
+        self._smooth_total_arc = float(smooth_arc[-1])
+        self._sample_to_smooth_idx = idx_map
+        self._smooth_stride = int(factor)
+
+    # Default oversampling factor for the Catmull-Rom dense-points
+    # array. 4× gives a noticeably smoother polyline body without
+    # blowing the memory budget — a 4000-sample trajectory expands to
+    # 16k smooth points, ~376 KB. Bumping to 8 quadruples the buffer
+    # but the visible smoothness improvement plateaus.
+    SMOOTH_OVERSAMPLE_FACTOR: int = 4
+
     def build_prerender_cache(
         self,
         *,
         progress_cb: Callable[[int, int], None] | None = None,
         cancel_cb: Callable[[], bool] | None = None,
+        smooth_factor: int | None = None,
     ) -> bool:
         """Build the arc-length table and warm VTK's render pipeline.
 
         Idempotent: returns immediately (with ``True``) if the cache is
-        already in place. Otherwise the method does three things:
+        already in place. Otherwise the method does four things:
 
         1. Builds the cumulative arc-length table (mechanism (d) in the
            design doc — fast, always done, drives uniform visual speed).
-        2. Calls :meth:`_set_visible_points` at the trajectory endpoints
+        2. Oversamples the trajectory ``smooth_factor`` times via
+           centripetal Catmull-Rom (default 4×) so the polyline body
+           reads as a C^1-smooth curve instead of straight-line
+           segments between integration samples.
+        3. Calls :meth:`_set_visible_points` at the trajectory endpoints
            to ensure VTK has observed the full and empty polyline
            configurations (mechanism (a)).
-        3. Calls :meth:`seek_arc_length` at five evenly spaced
+        4. Calls :meth:`seek_arc_length` at five evenly spaced
            arc-length positions, each followed by a redraw, so the VTK
            shader cache for the polyline mapper and the head-sphere
            actor pipeline are populated before the user-visible
@@ -640,6 +981,12 @@ class Renderer3D:
             stands (it was computed in step 1 and is cheap to recompute
             anyway), but ``has_prerender_cache`` returns ``False`` so
             the GUI can decide whether to retry or fall back.
+        smooth_factor:
+            Override the Catmull-Rom oversampling factor. ``None``
+            uses :attr:`SMOOTH_OVERSAMPLE_FACTOR` (4); set to ``1`` to
+            disable the dense-curve geometry entirely (the renderer
+            falls back to drawing the polyline against the raw
+            integration samples — this is the legacy behavior).
 
         Returns
         -------
@@ -652,7 +999,20 @@ class Renderer3D:
             return True
         # Step 1 — arc-length table. Cheap, always done.
         self._build_arc_length_table()
-        # Step 2 & 3 — VTK pipeline warm-up. Only meaningful when a
+        # Step 2 — Catmull-Rom oversampling. Done before any VTK warm-up
+        # so the shader cache is built against the *final* geometry.
+        factor = int(
+            self.SMOOTH_OVERSAMPLE_FACTOR if smooth_factor is None else smooth_factor
+        )
+        had_smooth_before = self._smooth_points is not None
+        if factor > 1 and self._smooth_points is None:
+            self._build_smooth_points(factor)
+        # If we just installed the smooth geometry, swap the PolyData
+        # to render against it (needs bigger buffers).
+        if self._smooth_points is not None and not had_smooth_before:
+            self._install_smooth_geometry()
+
+        # Step 3 & 4 — VTK pipeline warm-up. Only meaningful when a
         # plotter is attached; if not, we still expose the arc-length
         # table for headless callers (tests use this path).
         if self._plotter is None or self._polyline is None:
@@ -686,6 +1046,55 @@ class Renderer3D:
         self._prerender_built = True
         return True
 
+    def _install_smooth_geometry(self) -> None:
+        """Rebuild the PolyData against ``_smooth_points``.
+
+        Resizes the points / scalar / connectivity buffers and re-adds
+        the line actor against the denser PolyData. The head actor and
+        plotter handle are left untouched.
+
+        Called from :meth:`build_prerender_cache` once the Catmull-Rom
+        oversampler has produced its dense array. The cost is a one-shot
+        VTK re-mesh — a few ms on a 16k-point polyline.
+        """
+
+        import pyvista as pv
+
+        if self._smooth_points is None:
+            return
+        # Reallocate the per-frame buffers against the dense array.
+        self._allocate_render_buffers(self._smooth_points)
+        # When there's no plotter attached (headless callers, tests),
+        # we still keep the dense buffer state — the polyline gets
+        # populated lazily on the next :meth:`attach`.
+        if self._plotter is None:
+            return
+        # Remove the existing line actor before swapping the PolyData.
+        try:
+            self._plotter.remove_actor(self._line_actor, render=False)
+        except (AttributeError, RuntimeError, TypeError):  # pragma: no cover
+            pass
+        polyline = pv.PolyData(self._points_buffer)
+        polyline.verts = np.empty(0, dtype=np.int64)
+        polyline.lines = self._make_integer_connectivity(
+            self._smooth_points.shape[0]
+        )
+        polyline.point_data[self.color_by] = self._scalar_buffer
+        self._polyline = polyline
+        line_kwargs: dict[str, Any] = {
+            "line_width": self._line_width,
+            "render_lines_as_tubes": True,
+        }
+        cmap_enabled = getattr(self, "_color_by_progress_enabled", True)
+        new_cmap = self.cmap if cmap_enabled else None
+        if new_cmap is not None:
+            line_kwargs["scalars"] = self.color_by
+            line_kwargs["cmap"] = new_cmap
+            line_kwargs["show_scalar_bar"] = False
+        else:
+            line_kwargs["color"] = self.line_color
+        self._line_actor = self._plotter.add_mesh(self._polyline, **line_kwargs)
+
     def seek_arc_length(self, s: float) -> None:
         """Move the playhead to arc-length position ``s``.
 
@@ -712,6 +1121,19 @@ class Renderer3D:
         n_total = self.points.shape[0]
         if n_total <= 1 or self._total_arc <= 0.0:
             return
+
+        # Smooth-geometry path. When the Catmull-Rom oversampler has
+        # run, drive the playhead off the *dense* arc-length table so
+        # both the polyline tip and the head sphere land on the smooth
+        # curve (C^1 continuous through every sample).
+        if (
+            self._smooth_points is not None
+            and self._smooth_arc_lengths is not None
+            and self._smooth_total_arc > 0.0
+        ):
+            self._seek_arc_length_smooth(s)
+            return
+
         s_clamped = float(np.clip(s, 0.0, self._total_arc))
         # ``np.searchsorted`` finds the index where ``arc[idx-1] <= s < arc[idx]``
         # with ``side="right"``; subtract 1 to get the floor sample.
@@ -745,6 +1167,83 @@ class Renderer3D:
                 self._move_head_actor(head_pos)
         self._head_world_pos = head_pos
 
+    def _seek_arc_length_smooth(self, s: float) -> None:
+        """Arc-length seek against the Catmull-Rom dense curve.
+
+        Drives the playhead off ``_smooth_arc_lengths`` so the head
+        sphere and polyline tip both glide along the C^1-continuous
+        spline. Updates ``_current_n`` against the *integration-sample*
+        index so the GUI's scrubber / time-label bookkeeping still
+        works (``current_frame`` semantics unchanged).
+        """
+
+        assert self._smooth_points is not None  # noqa: S101
+        assert self._smooth_arc_lengths is not None  # noqa: S101
+        smooth = self._smooth_points
+        smooth_arc = self._smooth_arc_lengths
+        total = self._smooth_total_arc
+        # Map ``s`` from the linear arc-length parameterization (what
+        # the GUI hands us, computed against the integration polyline)
+        # to the smooth arc-length parameterization. The two scales
+        # differ slightly because the smooth curve is a hair longer
+        # than the linear chord. A linear remap is exact at the
+        # endpoints and close enough in between for our purposes (sub-
+        # frame error doesn't matter visually).
+        if self._total_arc > 0.0:
+            s_smooth = (
+                float(np.clip(s, 0.0, self._total_arc))
+                / self._total_arc
+                * total
+            )
+        else:
+            s_smooth = 0.0
+        s_smooth = float(np.clip(s_smooth, 0.0, total))
+        m = smooth.shape[0]
+        # Binary search the dense arc-length table.
+        idx = int(np.searchsorted(smooth_arc, s_smooth, side="right")) - 1
+        idx = int(np.clip(idx, 0, m - 2))
+        seg_len = float(smooth_arc[idx + 1] - smooth_arc[idx])
+        if seg_len <= 0.0:
+            frac = 0.0
+        else:
+            frac = float(
+                np.clip((s_smooth - smooth_arc[idx]) / seg_len, 0.0, 1.0)
+            )
+        # Head position on the smooth curve. The dense array is itself
+        # the centripetal spline, so a linear interp between two dense
+        # samples is already very close to the underlying spline.
+        p0 = smooth[idx]
+        p1 = smooth[idx + 1]
+        head_pos = (p0 + frac * (p1 - p0)).astype(float, copy=True)
+
+        # Map back to integration-sample units for the GUI scrubber.
+        stride = max(1, int(self._smooth_stride))
+        sample_idx = int(idx // stride)
+        sample_idx = int(np.clip(sample_idx, 0, self.points.shape[0] - 1))
+        self._current_n = sample_idx + 1
+
+        # Update VTK geometry. The polyline body grows along the dense
+        # array, and the tail slot carries the spline-evaluated head.
+        if self._polyline is not None:
+            n_prefix = idx + 1
+            poly_pts = self._polyline.points
+            poly_pts[self._tail_index] = head_pos
+            scalar_top = float(sample_idx + frac) / max(
+                1.0, float(self.points.shape[0] - 1)
+            )
+            poly_scalar = self._polyline.point_data[self.color_by]
+            poly_scalar[self._tail_index] = scalar_top
+            if frac == 0.0:
+                self._polyline.lines = self._make_integer_connectivity(n_prefix)
+            else:
+                self._polyline.lines = self._make_fractional_connectivity(
+                    n_prefix - 1
+                )
+        if self._head_actor is not None:
+            self._move_head_actor(head_pos)
+        self._head_world_pos = head_pos
+        self._request_redraw()
+
     def _invalidate_cache(self) -> None:
         """Drop the prerender cache.
 
@@ -754,6 +1253,11 @@ class Renderer3D:
         trajectory will need a different one; the ``_prerender_built``
         flag is cleared so the GUI re-runs the warm-up. Calling this on
         an already-clean cache is a no-op.
+
+        The Catmull-Rom dense-points buffer is *not* dropped — it's
+        geometry-only and survives changes that only affect the VTK
+        actor (line width, colormap toggle). Code paths that change
+        the trajectory itself rebuild a fresh ``Renderer3D`` instance.
         """
 
         self._arc_lengths = None

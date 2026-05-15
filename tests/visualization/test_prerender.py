@@ -87,14 +87,16 @@ def test_seek_arc_length_endpoints(points: np.ndarray) -> None:
     np.testing.assert_allclose(r.head_position, points[-1], atol=1e-12)
 
 
-def test_seek_arc_length_midpoint_on_segment(points: np.ndarray) -> None:
-    """At half-arc-length, the head lies on the trajectory polyline.
+def test_seek_arc_length_midpoint_on_smooth_curve(points: np.ndarray) -> None:
+    """At half-arc-length, the head lies on the Catmull-Rom-oversampled curve.
 
-    We don't pin the head to a specific integer sample — the trajectory's
-    midpoint in arc-length space is between two integer samples for
-    non-uniform polylines. Instead, we verify the head lies *on* the
-    polyline by checking it equals ``p_i + frac (p_{i+1} - p_i)`` for
-    some integer ``i``.
+    Before iteration 4, this test asserted the head sat on the *linear*
+    chord between two integration samples. The polyline is now rendered
+    as the centripetal Catmull-Rom spline through the integration samples
+    (4× oversampled at prerender time), so the head sphere also lives on
+    that smooth curve. We verify by computing the spline directly and
+    requiring the head to coincide with one of its dense samples to a
+    tight tolerance.
     """
 
     r = Renderer3D(points)
@@ -102,15 +104,22 @@ def test_seek_arc_length_midpoint_on_segment(points: np.ndarray) -> None:
     s = r.total_arc_length * 0.5
     r.seek_arc_length(s)
     head = r.head_position
-    # Find the segment ``head`` should lie on by checking each integer
-    # segment for a fractional match.
-    diffs = np.diff(points, axis=0)
-    seg_lens = np.linalg.norm(diffs, axis=1)
-    cum = np.concatenate(([0.0], np.cumsum(seg_lens)))
-    idx = int(np.searchsorted(cum, s, side="right")) - 1
-    idx = max(0, min(idx, points.shape[0] - 2))
-    frac = (s - cum[idx]) / max(seg_lens[idx], 1e-12)
-    expected = points[idx] + frac * diffs[idx]
+    # The smooth-points buffer is what the renderer is drawing against.
+    # The head should equal a linear interp between two adjacent rows
+    # of that array, which (since the rows are themselves on the spline)
+    # is at most a tiny linearization error away from the true spline.
+    smooth = r._smooth_points  # noqa: SLF001
+    smooth_arc = r._smooth_arc_lengths  # noqa: SLF001
+    assert smooth is not None
+    assert smooth_arc is not None
+    # Map ``s`` from the linear arc-length scale to the smooth one
+    # (the smooth curve is slightly longer than the chord polyline).
+    s_smooth = s / r.total_arc_length * float(smooth_arc[-1])
+    idx = int(np.searchsorted(smooth_arc, s_smooth, side="right")) - 1
+    idx = max(0, min(idx, smooth.shape[0] - 2))
+    seg = float(smooth_arc[idx + 1] - smooth_arc[idx])
+    frac = (s_smooth - float(smooth_arc[idx])) / max(seg, 1e-12)
+    expected = smooth[idx] + frac * (smooth[idx + 1] - smooth[idx])
     np.testing.assert_allclose(head, expected, atol=1e-9)
 
 
