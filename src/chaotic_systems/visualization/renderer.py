@@ -116,7 +116,10 @@ class Renderer3D:
         *,
         title: str = "chaotic-systems-dynamics",
         line_color: str = "#1f77b4",
-        head_color: str = "#d62728",
+        # Tokyo Night palette accent — keeps the head sphere coherent with
+        # the rest of the UI chrome rather than dropping a matplotlib
+        # tab10 red into the scene.
+        head_color: str = "#7aa2f7",
         background: str = "white",
         cmap: str | None = "viridis",
         projection: tuple[int, int, int] | None = None,
@@ -189,8 +192,8 @@ class Renderer3D:
         self._polyline = polyline
 
         line_kwargs: dict[str, Any] = {
-            "line_width": 2.0,
-            "render_lines_as_tubes": False,
+            "line_width": 3.5,
+            "render_lines_as_tubes": True,
         }
         if self.cmap is not None:
             line_kwargs["scalars"] = self.color_by
@@ -202,7 +205,9 @@ class Renderer3D:
         self._line_actor = plotter.add_mesh(polyline, **line_kwargs)
 
         # Head sphere — allocate once, move with a transform on the actor.
-        radius = self._bbox_diag * 0.01 if self._bbox_diag > 0 else 0.05
+        # Slightly larger relative radius (1.5%) than before so the head
+        # reads as the focal point even on a 4 px tube polyline.
+        radius = self._bbox_diag * 0.015 if self._bbox_diag > 0 else 0.07
         radius = float(np.clip(radius, 1e-3, 1e6))
         self._head_radius = radius
         # Build the sphere at the origin; we'll translate the actor to
@@ -210,7 +215,15 @@ class Renderer3D:
         # rebuild the mesh.
         head_sphere = pv.Sphere(radius=radius, center=(0.0, 0.0, 0.0))
         self._head_sphere = head_sphere
-        self._head_actor = plotter.add_mesh(head_sphere, color=self.head_color)
+        # Slight ambient lift so the accent-colored sphere glows against
+        # the dark Tokyo Night viewport background.
+        self._head_actor = plotter.add_mesh(
+            head_sphere,
+            color=self.head_color,
+            ambient=0.35,
+            specular=0.6,
+            specular_power=20.0,
+        )
         self._head_center0 = np.zeros(3, dtype=float)
         self._move_head_actor(self.points[-1])
 
@@ -407,8 +420,8 @@ class Renderer3D:
         except (AttributeError, RuntimeError, TypeError):  # pragma: no cover
             pass
         line_kwargs: dict[str, Any] = {
-            "line_width": 2.0,
-            "render_lines_as_tubes": False,
+            "line_width": 3.5,
+            "render_lines_as_tubes": True,
         }
         if new_cmap is not None:
             line_kwargs["scalars"] = self.color_by
