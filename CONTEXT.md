@@ -123,6 +123,24 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-15, iteration 4 smoothness)
+
+- **Catmull-Rom polyline + wall-clock pacing.** The animation now
+  renders against a 4x-oversampled centripetal Catmull-Rom spline
+  through the integration samples (built at prerender time, stored on
+  ``Renderer3D._smooth_points``). The polyline body reads as a
+  C^1-smooth curve instead of a chain of line segments — max
+  per-segment angle drops from ~20 deg (visibly faceted) to ~5 deg
+  on a default Lorenz playback. The GUI's animation tick is now
+  *wall-clock paced*: each tick computes the target arc-length from
+  ``time.perf_counter() - play_start``, so missed/dropped frames
+  catch up on the next render instead of accumulating drift. See
+  ``docs/animation_smoothness_iter4.md`` for the full investigation
+  and ``tools/validate_smoothness.py`` for the A/B validator. New
+  tests in ``tests/visualization/test_smoothness.py`` pin the
+  spline math, the dense-buffer contract, and the 5 ms per-frame
+  seek budget.
+
 ## Recently shipped (2026-05-15, after the param-form fix)
 
 - **Prerender pipeline + loading bar.** A new ``_PrerenderWorker``
