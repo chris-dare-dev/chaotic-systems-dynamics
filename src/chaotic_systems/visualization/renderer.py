@@ -757,6 +757,12 @@ class Renderer3D:
             )
         if self._head_actor is not None:
             self._move_head_actor(head_pos)
+        # Cache the spline-evaluated head position so :prop:`head_position`
+        # returns the smooth-curve point. Only when the smooth path ran;
+        # the legacy linear path keeps the polyline-end fallback so the
+        # pre-existing transport-scrubber contract is unchanged.
+        if self._smooth_points is not None:
+            self._head_world_pos = np.asarray(head_pos, dtype=float).copy()
         self._request_redraw()
 
     def _smooth_subframe(
