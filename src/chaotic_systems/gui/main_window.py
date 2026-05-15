@@ -129,6 +129,7 @@ class _FallbackLorenz:
         *,
         integrator: str = "RK45",
         dt: float | None = 0.01,
+        n_points: int | None = None,
         **_kwargs: Any,
     ) -> Any:
         from scipy.integrate import solve_ivp
@@ -139,8 +140,14 @@ class _FallbackLorenz:
         if y0 is None:
             y0 = self.initial_state.copy()
         t0, t1 = t_span
-        step = float(dt) if dt else 0.01
-        n = max(2, int(round((t1 - t0) / step)) + 1)
+        # Honor an explicit ``n_points`` request (the GUI wants dense
+        # uniform sampling for smooth playback); otherwise derive from
+        # ``dt`` for headless / scripted use.
+        if n_points is not None and int(n_points) >= 2:
+            n = int(n_points)
+        else:
+            step = float(dt) if dt else 0.01
+            n = max(2, int(round((t1 - t0) / step)) + 1)
         t_eval = np.linspace(t0, t1, n)
         sol = solve_ivp(
             lambda t, y: self.rhs(t, y, **merged),
@@ -845,6 +852,7 @@ def _build_window_class() -> type:
             params: dict[str, float],
             integrator: str,
             dt: float,
+            n_points: int | None = None,
         ) -> None:
             super().__init__()
             self._system = system
@@ -853,15 +861,25 @@ def _build_window_class() -> type:
             self._params = params
             self._integrator = integrator
             self._dt = dt
+            self._n_points = n_points
 
         def run(self) -> None:
             try:
+                # Pass ``n_points`` only when the system accepts it — the
+                # GUI's fallback Lorenz takes ``**kwargs`` but real
+                # backend systems take ``n_points`` explicitly. Passing
+                # the keyword is harmless either way.
+                kwargs: dict[str, Any] = {
+                    "integrator": self._integrator,
+                    "dt": self._dt,
+                }
+                if self._n_points is not None:
+                    kwargs["n_points"] = int(self._n_points)
                 traj = self._system.simulate(
                     self._t_span,
                     self._y0,
                     self._params,
-                    integrator=self._integrator,
-                    dt=self._dt,
+                    **kwargs,
                 )
             except KeyError as exc:
                 self.error.emit("KeyError", str(exc))
@@ -1685,6 +1703,12 @@ def _build_window_class() -> type:
                 params=params,
                 integrator=integrator,
                 dt=float(self.dt.value()),
+                # Request a dense uniform sampling so the playback is
+                # smooth regardless of integrator step size. ~38 samples
+                # per simulated second matches a 15 s playback at the
+                # 60 Hz GUI tick with stride ≤ 4. Cap at 4000 so very
+                # long t_end doesn't blow memory.
+                n_points=int(min(4000, max(800, round(38.0 * t_end)))),
             )
             thread = QThread(self)
             worker.moveToThread(thread)
