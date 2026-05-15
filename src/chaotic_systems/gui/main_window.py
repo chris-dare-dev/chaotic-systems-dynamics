@@ -218,6 +218,7 @@ def _build_window_class() -> type:
     )
     from PySide6.QtGui import (
         QAction,
+        QIcon,
         QImage,
         QKeySequence,
         QPalette,
@@ -243,7 +244,6 @@ def _build_window_class() -> type:
         QSlider,
         QSplitter,
         QStatusBar,
-        QStyle,
         QToolBar,
         QVBoxLayout,
         QWidget,
@@ -439,12 +439,19 @@ def _build_window_class() -> type:
                     insert_at = max(0, self._layout.count() - 1)
                     self._layout.insertWidget(insert_at, row_widget)
                     self._rows.append(row_widget)
-            except Exception as exc:  # noqa: BLE001 — surfaced as a fallback label
-                self._install_fallback(f"<LaTeX render failed: {exc}>")
+            except Exception:  # noqa: BLE001 — surfaced as a clean fallback label
+                # The mathtext layer already attempts a sanitised retry and
+                # a fallback message before raising. Reaching this branch
+                # means the renderer itself is broken (no fonts, etc.).
+                self._install_fallback(
+                    "renderer cannot display this expression — see docs"
+                )
                 return
 
             if not self._rows:
-                self._install_fallback("<LaTeX produced no rows>")
+                self._install_fallback(
+                    "renderer cannot display this expression — see docs"
+                )
 
         def rerender_at(self, *, color: str, dpr: float) -> None:
             """Re-render with the previously-set LaTeX but a new color/DPI ratio."""
@@ -593,7 +600,8 @@ def _build_window_class() -> type:
             self._toggle.setStyleSheet(
                 "QPushButton[variant=\"section-toggle\"] {"
                 " text-align: left; padding: 4px 6px;"
-                " font-weight: 600; border: none; background: transparent; }"
+                " font-weight: 600; border: none; background: transparent;"
+                " color: #c0caf5; font-size: 12pt; }"
             )
             self._toggle.toggled.connect(self._on_toggled)
             self._title = title
@@ -603,19 +611,53 @@ def _build_window_class() -> type:
             layout.setSpacing(4)
             layout.addWidget(self._toggle)
             layout.addWidget(self._body, 1)
+            # Expanded sections fill their parent; collapsed sections shrink
+            # to the header's natural height so a collapsed Lagrangian
+            # doesn't leave a void in the Mathematics panel.
+            self.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
             self._toggle.setChecked(expanded)
             self._refresh_label(expanded)
+            self._apply_collapsed_policy(expanded)
 
         def _refresh_label(self, expanded: bool) -> None:
-            arrow = "v" if expanded else ">"
+            # Unicode chevrons render in the system font on every modern
+            # platform and avoid the bare lowercase ``v`` that earlier
+            # builds shipped. The visual weight matches the SVG chevron
+            # the QComboBox dropdown uses.
+            arrow = "▾" if expanded else "▸"  # ▾ / ▸
             self._toggle.setText(f"  {arrow}  {self._title}")
 
         def _on_toggled(self, checked: bool) -> None:
             self._body.setVisible(checked)
             self._refresh_label(checked)
+            self._apply_collapsed_policy(checked)
+
+        def _apply_collapsed_policy(self, expanded: bool) -> None:
+            """Shrink the section when collapsed so siblings can claim the space."""
+
+            if expanded:
+                self.setSizePolicy(
+                    QSizePolicy.Policy.Expanding,
+                    QSizePolicy.Policy.Expanding,
+                )
+                self.setMaximumHeight(16777215)
+            else:
+                self.setSizePolicy(
+                    QSizePolicy.Policy.Expanding,
+                    QSizePolicy.Policy.Fixed,
+                )
+                # Force the layout to recompute the header-only height.
+                self.setMaximumHeight(self._toggle.sizeHint().height() + 8)
 
         def setExpanded(self, expanded: bool) -> None:  # noqa: N802 - Qt-style
             self._toggle.setChecked(expanded)
+            # ``setChecked`` only emits ``toggled`` when the state actually
+            # changes; force the policy refresh in case we set it to the
+            # current value.
+            self._apply_collapsed_policy(expanded)
 
     # -----------------------------------------------------------------------
     # Viewport title overlay — a translucent QLabel pinned to the top-left
@@ -634,12 +676,29 @@ def _build_window_class() -> type:
             self.hide()
 
         def set_system_name(self, name: str) -> None:
+            # Belt-and-braces defence against the "LorenzPendulum" overlap
+            # in the critique:
+            #   1. Resize self to 0×0 first so QLabel discards its cached
+            #      glyph bitmap.
+            #   2. Hide so the parent can reclaim the previous rectangle.
+            #   3. Force the parent to repaint the previously-occupied
+            #      rectangle so a wider name shrinking to a shorter one
+            #      doesn't leave stale glyphs behind.
+            #   4. Set the new text, size, and re-show.
+            previous_geometry = self.geometry()
+            self.resize(0, 0)
+            self.hide()
+            parent = self.parentWidget()
+            if parent is not None and previous_geometry.isValid():
+                parent.repaint(previous_geometry)
+            self.clear()
             if not name:
-                self.hide()
                 return
             self.setText(name)
             self.adjustSize()
             self.show()
+            self.raise_()
+            self.update()
 
     # -----------------------------------------------------------------------
     # Parameter widget — spinbox + slider, optional log scale.
@@ -946,9 +1005,12 @@ def _build_window_class() -> type:
             cards_layout.setContentsMargins(0, 0, 0, 0)
             cards_layout.setSpacing(16)
 
-            # --- card: System ---
-            system_card, system_layout = _make_card("System", left_inner)
-            self.system_box = QComboBox(system_card)
+            # The System picker lives in the toolbar (a top-level mode
+            # switch, not a side-panel form field). We allocate the
+            # combobox here, before the toolbar build, so other cards can
+            # depend on it; the toolbar builder takes ownership of layout.
+            self.system_box = QComboBox(self)
+            self.system_box.setObjectName("system_picker")
             self.system_box.setToolTip("Switch to a different dynamical system")
             for sys_obj in self._systems:
                 self.system_box.addItem(getattr(sys_obj, "name", repr(sys_obj)))
@@ -957,8 +1019,6 @@ def _build_window_class() -> type:
                 if idx >= 0:
                     self.system_box.setCurrentIndex(idx)
             self.system_box.currentIndexChanged.connect(self._on_system_changed)
-            system_layout.addWidget(self.system_box)
-            cards_layout.addWidget(system_card)
 
             # --- card: Parameters ---
             params_card, params_layout = _make_card("Parameters", left_inner)
@@ -1011,50 +1071,40 @@ def _build_window_class() -> type:
             time_form.addRow(QLabel("dt (s)", time_card), self.dt)
             time_layout.addLayout(time_form)
 
-            # Run / Reset live inside the Time range card so they're the
-            # last things the user sees scrolling top-to-bottom.
-            run_row = QHBoxLayout()
-            run_row.setContentsMargins(0, 0, 0, 0)
-            run_row.setSpacing(8)
-            self.run_button = QPushButton("Run", time_card)
-            self.run_button.setProperty("variant", "primary")
-            self.run_button.setToolTip("Integrate the system (Ctrl-R)")
-            self.run_button.setObjectName("button_run")
-            self.run_button.clicked.connect(self._on_run)
-            self.reset_view_button = QPushButton("Reset view", time_card)
-            self.reset_view_button.setToolTip("Re-center the 3D camera (R)")
-            self.reset_view_button.setObjectName("button_reset_view")
-            self.reset_view_button.clicked.connect(self._on_reset_view)
-            run_row.addWidget(self.run_button, 1)
-            run_row.addWidget(self.reset_view_button, 1)
-            time_layout.addLayout(run_row)
             cards_layout.addWidget(time_card)
 
-            # --- card: Export ---
-            export_card, export_layout = _make_card("Export", left_inner)
-            export_row = QHBoxLayout()
-            export_row.setContentsMargins(0, 0, 0, 0)
-            export_row.setSpacing(8)
-            self.export_button = QPushButton("Export MP4", export_card)
+            # Run / Export / Cancel buttons all live in the toolbar now,
+            # but we keep hidden Q* widgets here so internal slots can
+            # depend on a stable surface (button enable/disable mirrors
+            # the toolbar QActions). These are never shown in the UI.
+            self.run_button = QPushButton("Run", left_inner)
+            self.run_button.setProperty("variant", "primary")
+            self.run_button.setObjectName("button_run")
+            self.run_button.clicked.connect(self._on_run)
+            self.run_button.setVisible(False)
+            self.reset_view_button = QPushButton("Reset view", left_inner)
+            self.reset_view_button.setObjectName("button_reset_view")
+            self.reset_view_button.clicked.connect(self._on_reset_view)
+            self.reset_view_button.setVisible(False)
+            self.export_button = QPushButton("Export MP4", left_inner)
             self.export_button.setObjectName("button_export")
-            self.export_button.setToolTip("Render the current trajectory to an MP4 file (Ctrl-E)")
             self.export_button.clicked.connect(self._on_export)
-            self.cancel_button = QPushButton("Cancel", export_card)
+            self.export_button.setVisible(False)
+            self.cancel_button = QPushButton("Cancel", left_inner)
             self.cancel_button.setProperty("variant", "danger")
             self.cancel_button.setObjectName("button_cancel")
-            self.cancel_button.setToolTip("Cancel an in-flight export (Esc)")
             self.cancel_button.clicked.connect(self._on_cancel)
             self.cancel_button.setEnabled(False)
-            export_row.addWidget(self.export_button, 1)
-            export_row.addWidget(self.cancel_button, 1)
-            export_layout.addLayout(export_row)
-            self.progress_bar = QProgressBar(export_card)
+            self.cancel_button.setVisible(False)
+            # Status-bar progress widget — built later in
+            # ``_build_status_bar``. We stage a hidden QProgressBar on the
+            # left panel only as a back-compat hook for the export pipeline,
+            # which used to live in an Export card.
+            self.progress_bar = QProgressBar(left_inner)
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
             self.progress_bar.setVisible(False)
             self.progress_bar.setTextVisible(False)
-            export_layout.addWidget(self.progress_bar)
-            cards_layout.addWidget(export_card)
 
             # Inline status line (kept for back-compat; the real status
             # surface is the QStatusBar at the bottom of the window).
@@ -1088,6 +1138,24 @@ def _build_window_class() -> type:
                     self.viewer = QtInteractor(self)
                     self.viewer.set_background(viewport_background())
                     inner_viewer_widget = self.viewer.interactor
+                    # Force a render on resize so the QOpenGLWidget never
+                    # leaves stale-framebuffer streaks. We hook the
+                    # interactor's ``resizeEvent`` non-invasively via a
+                    # QTimer single-shot to keep VTK happy across versions.
+                    original_resize = inner_viewer_widget.resizeEvent
+
+                    def _resize_with_repaint(event: Any) -> None:
+                        original_resize(event)
+                        try:
+                            self.viewer.GetRenderWindow().Render()
+                        except (AttributeError, RuntimeError):
+                            pass
+                        inner_viewer_widget.update()
+                        QTimer.singleShot(0, lambda: self._force_viewport_render())
+
+                    inner_viewer_widget.resizeEvent = (  # type: ignore[method-assign]
+                        _resize_with_repaint
+                    )
                 except Exception as exc:  # pragma: no cover - depends on display
                     label = QLabel(
                         "3D viewport unavailable on this display\n"
@@ -1126,6 +1194,15 @@ def _build_window_class() -> type:
             # Lives as a child of the viewport frame so it draws on top of
             # the QtInteractor without affecting layout.
             self.viewport_overlay = _ViewportOverlay(viewport_frame)
+            self.viewport_hint = QLabel(
+                "Press Ctrl-R to simulate", viewport_frame
+            )
+            self.viewport_hint.setProperty("role", "hint")
+            self.viewport_hint.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+            )
+            self.viewport_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.viewport_hint.show()
             self._viewport_frame = viewport_frame
             viewport_frame.installEventFilter(self)
 
@@ -1177,7 +1254,7 @@ def _build_window_class() -> type:
 
             # --- assemble ---------------------------------------------------
             splitter = QSplitter(Qt.Orientation.Horizontal, self)
-            splitter.setHandleWidth(1)
+            splitter.setHandleWidth(4)
             splitter.setChildrenCollapsible(False)
             splitter.addWidget(left)
             splitter.addWidget(viewer_widget)
@@ -1206,6 +1283,15 @@ def _build_window_class() -> type:
             self._set_transport_enabled(False)
             self._rebuild_for_current_system()
             self._sync_overlay_to_current_system()
+            # Position the hint at bottom-center of the viewport as soon
+            # as the frame's geometry settles. ``_reposition_overlay`` is
+            # also called from the viewport-frame ``resizeEvent`` filter
+            # for subsequent layout changes.
+            QTimer.singleShot(0, self._reposition_overlay)
+            # Draw the welcome state once the viewer's OpenGL context is up.
+            # Deferring to the event loop avoids racing the QtInteractor's
+            # first paint on macOS.
+            QTimer.singleShot(50, self._render_vector_field_preview)
 
         # ------------------------------------------------------------------
 
@@ -1223,6 +1309,131 @@ def _build_window_class() -> type:
         def _on_system_changed(self, _idx: int) -> None:
             self._rebuild_for_current_system()
             self._sync_overlay_to_current_system()
+            self._render_vector_field_preview()
+
+        # --- viewport welcome state ----------------------------------------
+
+        def _force_viewport_render(self) -> None:
+            """Force a fresh repaint of the QtInteractor viewport.
+
+            Wraps the VTK render-window call with the defensive try/except
+            shape we use everywhere PyVista is consumed so a transient
+            teardown error never propagates to the GUI thread.
+            """
+
+            if self.viewer is None:
+                return
+            try:
+                self.viewer.GetRenderWindow().Render()
+            except (AttributeError, RuntimeError):
+                pass
+            try:
+                self.viewer.update()
+            except (AttributeError, RuntimeError):
+                pass
+
+        def _render_vector_field_preview(self) -> None:
+            """Sketch a sparse vector-field preview of the current system.
+
+            Sampled on a 12³ grid for 3D systems (20² for 2D). The preview is
+            cleared the moment a real trajectory lands via ``_on_sim_finished``.
+            Failures are swallowed silently — the welcome state is a "nice
+            to have", not load-bearing.
+            """
+
+            if self.viewer is None:
+                return
+            try:
+                import pyvista as pv
+
+                from chaotic_systems.gui.theme import (
+                    PALETTE,
+                    viewport_background,
+                )
+
+                # Discard whatever was previously drawn (last trajectory
+                # or last preview).
+                self.viewer.clear()
+                self.viewer.set_background(viewport_background())
+                system = self.current_system
+                params = default_params(system) or {}
+                rhs = getattr(system, "rhs", None)
+                if rhs is None:
+                    return
+                state_dim = int(getattr(system, "state_dim", 3) or 3)
+
+                # Sample around the system's initial state so the preview
+                # lives in a region that's actually visited by the dynamics.
+                y0 = np.asarray(
+                    getattr(system, "initial_state", np.zeros(state_dim)),
+                    dtype=float,
+                ).copy()
+                if y0.size < 3:
+                    y0 = np.concatenate(
+                        [y0, np.zeros(3 - y0.size)]
+                    )
+
+                # Spatial extent — generous enough to look interesting.
+                radius = 2.0 + 0.5 * float(np.linalg.norm(y0[:3]))
+                if state_dim >= 3:
+                    n = 6
+                    xs = np.linspace(y0[0] - radius, y0[0] + radius, n)
+                    ys = np.linspace(y0[1] - radius, y0[1] + radius, n)
+                    zs = np.linspace(y0[2] - radius, y0[2] + radius, n)
+                    XX, YY, ZZ = np.meshgrid(xs, ys, zs, indexing="ij")
+                    pts = np.column_stack(
+                        [XX.ravel(), YY.ravel(), ZZ.ravel()]
+                    )
+                else:
+                    n = 12
+                    xs = np.linspace(y0[0] - radius, y0[0] + radius, n)
+                    ys = np.linspace(y0[1] - radius, y0[1] + radius, n)
+                    XX, YY = np.meshgrid(xs, ys, indexing="ij")
+                    pts = np.column_stack(
+                        [XX.ravel(), YY.ravel(), np.zeros(XX.size)]
+                    )
+
+                # Evaluate the RHS at each sample. Use the system's own
+                # state_dim — pad/truncate to feed into rhs and project the
+                # vector to 3D for visualization.
+                vecs = np.zeros((pts.shape[0], 3), dtype=float)
+                for i, p in enumerate(pts):
+                    y = np.zeros(max(state_dim, 3), dtype=float)
+                    y[: min(3, state_dim)] = p[: min(3, state_dim)]
+                    try:
+                        v = np.asarray(rhs(0.0, y, **params), dtype=float)
+                    except Exception:  # noqa: BLE001 - preview is best-effort
+                        continue
+                    vecs[i, : min(3, v.size)] = v[: min(3, v.size)]
+
+                magnitudes = np.linalg.norm(vecs, axis=1)
+                m = float(magnitudes.max()) if magnitudes.size else 0.0
+                if m <= 0:
+                    return
+                # Normalize so the arrows are all visually present.
+                scale = float(radius) / max(8.0, float(m))
+
+                cloud = pv.PolyData(pts)
+                cloud["vectors"] = vecs * scale
+                cloud["magnitude"] = magnitudes
+                glyphs = cloud.glyph(
+                    orient="vectors",
+                    scale="magnitude",
+                    factor=0.7,
+                    geom=pv.Arrow(),
+                )
+                self.viewer.add_mesh(
+                    glyphs,
+                    color=PALETTE.text_secondary,
+                    opacity=0.25,
+                    show_scalar_bar=False,
+                )
+                self.viewer.reset_camera()
+                self._force_viewport_render()
+            except Exception:  # noqa: BLE001 - preview never blocks the GUI
+                return
+
+        # ------------------------------------------------------------------
 
         def _clear_param_form(self) -> None:
             """Empty the parameter form.
@@ -1265,9 +1476,11 @@ def _build_window_class() -> type:
                 lagr or r"\text{(not derived from a Lagrangian)}",
             )
 
-            # Refresh status-bar lyapunov chip — clear when system changes.
+            # Refresh status-bar lyapunov chip — hide on system change
+            # until/unless a value is computed.
             if hasattr(self, "lyapunov_chip"):
-                self.lyapunov_chip.setText("lambda1 = -")
+                self.lyapunov_chip.setText("λ₁ = —")
+                self.lyapunov_chip.setVisible(False)
 
         def _render_latex_into(self, widget: Any, latex: str) -> None:
             """Render ``latex`` into a flowing widget (or fall back to QLabel).
@@ -1345,6 +1558,14 @@ def _build_window_class() -> type:
             self.progress_bar.setVisible(True)
             # Indeterminate progress for live sim.
             self.progress_bar.setRange(0, 0)
+            # Welcome-state cleanup — the viewport is about to hold a real
+            # trajectory; the hint and the vector-field preview are done.
+            if hasattr(self, "viewport_hint") and self.viewport_hint is not None:
+                self.viewport_hint.hide()
+            # Mirror the toolbar QAction state for run.
+            run_action = self._transport_actions.get("transport_run")
+            if run_action is not None:
+                run_action.setEnabled(False)
 
             worker = _SimulateWorker(
                 system=system,
@@ -1426,6 +1647,9 @@ def _build_window_class() -> type:
             self.progress_bar.setVisible(self._export_thread is not None)
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
+            run_action = self._transport_actions.get("transport_run")
+            if run_action is not None:
+                run_action.setEnabled(True)
 
         # ----------------------------------------------------- export pipeline
 
@@ -1522,17 +1746,17 @@ def _build_window_class() -> type:
 
         # ------------------------------------------------------------ toolbar
 
-        # Toolbar action specs: (object_name, label, QStyle pixmap enum,
-        # tooltip, slot, starts_enabled). Kept as data so the structure is
+        # Toolbar action specs: (object_name, label, icon-stem, tooltip,
+        # slot, starts_enabled). ``icon_stem`` resolves to
+        # ``assets/icons/<stem>.svg``. Kept as data so the structure is
         # readable and external agents can introspect it via
         # ``MainWindow.transport_actions()``.
-        def _toolbar_action_specs(self) -> list[tuple[str, str, Any, str, Any, bool]]:
-            sp = QStyle.StandardPixmap
+        def _toolbar_action_specs(self) -> list[tuple[str, str, str, str, Any, bool]]:
             return [
                 (
                     "transport_run",
                     "Run",
-                    sp.SP_MediaPlay,
+                    "run",
                     "Integrate and start animated playback (Ctrl-R)",
                     self._on_run,
                     True,
@@ -1540,7 +1764,7 @@ def _build_window_class() -> type:
                 (
                     "transport_pause",
                     "Pause",
-                    sp.SP_MediaPause,
+                    "pause",
                     "Pause / resume playback (Space)",
                     self._on_toggle_play,
                     False,
@@ -1548,7 +1772,7 @@ def _build_window_class() -> type:
                 (
                     "transport_stop",
                     "Stop",
-                    sp.SP_MediaStop,
+                    "stop",
                     "Stop playback and rewind to start (Ctrl-.)",
                     self._on_stop,
                     False,
@@ -1556,7 +1780,7 @@ def _build_window_class() -> type:
                 (
                     "transport_jump_end",
                     "Jump to end",
-                    sp.SP_MediaSkipForward,
+                    "jump-end",
                     "Jump to the last frame of the trajectory (End)",
                     self._on_jump_to_end,
                     False,
@@ -1564,7 +1788,7 @@ def _build_window_class() -> type:
                 (
                     "action_export",
                     "Export MP4",
-                    sp.SP_DialogSaveButton,
+                    "export",
                     "Render the current trajectory to an MP4 file (Ctrl-E)",
                     self._on_export,
                     False,
@@ -1572,7 +1796,7 @@ def _build_window_class() -> type:
                 (
                     "action_reset_view",
                     "Reset view",
-                    sp.SP_BrowserReload,
+                    "reset-view",
                     "Re-center the 3D camera (R)",
                     self._on_reset_view,
                     True,
@@ -1580,7 +1804,7 @@ def _build_window_class() -> type:
                 (
                     "action_toggle_theme",
                     "Toggle theme",
-                    sp.SP_DesktopIcon,
+                    "theme",
                     "Switch between dark and light themes",
                     self._on_toggle_theme,
                     True,
@@ -1594,6 +1818,10 @@ def _build_window_class() -> type:
             ``objectName``s so they're addressable by name; parallel agents
             wiring animation hooks can look them up without re-creating
             anything.
+
+            Toolbar layout (left to right):
+
+                [System ▾]  Run  Pause  Stop  Jump-to-end  |  Export  |  Reset view  Theme
             """
 
             toolbar = QToolBar("main", self)
@@ -1604,29 +1832,38 @@ def _build_window_class() -> type:
             toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
-            style = self.style()
+            # System picker first — the most common "pick a system, then
+            # hit Run" flow is now a two-click motion in the same row.
+            self.system_box.setMinimumWidth(160)
+            toolbar.addWidget(self.system_box)
+            toolbar.addSeparator()
+
+            icons_dir = (
+                Path(__file__).resolve().parent / "assets" / "icons"
+            )
+
             for i, spec in enumerate(self._toolbar_action_specs()):
-                obj_name, label, pix_enum, tip, slot, enabled = spec
+                obj_name, label, icon_stem, tip, slot, enabled = spec
                 # Separators before Export and Toggle-theme group related
                 # actions visually.
-                if obj_name in {"action_export", "action_toggle_theme"} and i > 0:
+                if obj_name in {"action_export", "action_reset_view"} and i > 0:
                     toolbar.addSeparator()
                 action = QAction(label, self)
                 action.setObjectName(obj_name)
                 action.setToolTip(tip)
-                action.setIcon(style.standardIcon(pix_enum))
+                icon_path = icons_dir / f"{icon_stem}.svg"
+                if icon_path.exists():
+                    action.setIcon(QIcon(str(icon_path)))
                 action.setEnabled(enabled)
                 action.triggered.connect(slot)
+                toolbar.addAction(action)
                 if obj_name == "transport_run":
                     # Mark "Run" as the primary action via QSS variant.
-                    toolbar.addAction(action)
                     btn = toolbar.widgetForAction(action)
                     if btn is not None:
                         btn.setProperty("variant", "primary")
                         btn.style().unpolish(btn)
                         btn.style().polish(btn)
-                else:
-                    toolbar.addAction(action)
                 self._transport_actions[obj_name] = action
 
             self._toolbar = toolbar
@@ -1681,31 +1918,44 @@ def _build_window_class() -> type:
             bar = QStatusBar(self)
             self.setStatusBar(bar)
 
-            # State chip — Idle / Running / Exporting / Error.
+            # State chip — Idle / Running / Playing / Exporting / Error.
             self.state_chip = QLabel("Idle", bar)
             self.state_chip.setProperty("role", "chip")
             self.state_chip.setProperty("state", "idle")
             self.state_chip.setToolTip("Current run state")
 
-            # Frame chip — i / N.
+            # Frame chip — i / N. Hidden until a trajectory exists so the
+            # idle status bar isn't dominated by decorative zeros.
             self.frame_chip = QLabel("frame 0 / 0", bar)
             self.frame_chip.setProperty("role", "chip")
             self.frame_chip.setToolTip("Animated frame index / total frames")
+            self.frame_chip.setVisible(False)
 
             # Time chip — t = ...
             self.time_chip = QLabel("t = 0.000", bar)
             self.time_chip.setProperty("role", "chip")
             self.time_chip.setToolTip("Current simulation time")
+            self.time_chip.setVisible(False)
 
-            # Lyapunov chip — lambda1 = ... when computed.
-            self.lyapunov_chip = QLabel("lambda1 = -", bar)
+            # Lyapunov chip — λ₁ = ... when computed.
+            self.lyapunov_chip = QLabel("λ₁ = —", bar)
             self.lyapunov_chip.setProperty("role", "chip")
             self.lyapunov_chip.setProperty("highlight", "lyapunov")
             self.lyapunov_chip.setToolTip(
                 "Largest Lyapunov exponent (positive = chaotic)"
             )
+            self.lyapunov_chip.setVisible(False)
+
+            # In-line progress bar for live simulation feedback.
+            self.status_progress = QProgressBar(bar)
+            self.status_progress.setRange(0, 0)
+            self.status_progress.setTextVisible(False)
+            self.status_progress.setFixedHeight(12)
+            self.status_progress.setMaximumWidth(160)
+            self.status_progress.setVisible(False)
 
             bar.addWidget(self.state_chip)
+            bar.addWidget(self.status_progress)
             bar.addPermanentWidget(self.frame_chip)
             bar.addPermanentWidget(self.time_chip)
             bar.addPermanentWidget(self.lyapunov_chip)
@@ -1727,10 +1977,25 @@ def _build_window_class() -> type:
             n = self._renderer_total_frames()
             self.frame_chip.setText(f"frame {max(0, frame_index)} / {max(0, n - 1)}")
             t_now = self._trajectory_t_value(frame_index)
+            t_end = self._trajectory_t_value(max(0, n - 1))
             if t_now is None:
                 self.time_chip.setText("t = 0.000")
-            else:
+            elif t_end is None:
                 self.time_chip.setText(f"t = {t_now:.3f}")
+            else:
+                self.time_chip.setText(f"t = {t_now:.3f} / {t_end:.3f}")
+            # Reveal the frame/time chips once a trajectory exists.
+            self.frame_chip.setVisible(n > 0)
+            self.time_chip.setVisible(n > 0)
+            # The Lyapunov chip stays hidden until a value is actually
+            # computed; we don't have an estimator wired in here, so we
+            # leave it hidden but available for callers that want to set
+            # it after the fact.
+            if hasattr(self, "_is_playing") and self._is_playing:
+                self._set_state_chip(
+                    f"Playing: t = {t_now or 0.0:.1f} / {(t_end or 0.0):.1f} s",
+                    "running",
+                )
 
         # ------------------------------------------------------------ overlay
 
@@ -1744,9 +2009,16 @@ def _build_window_class() -> type:
             if hasattr(self, "viewport_overlay") and self.viewport_overlay is not None:
                 self.viewport_overlay.set_system_name(name)
                 self._reposition_overlay()
+                # Force the entire viewport frame to repaint AND the
+                # QtInteractor to clear its framebuffer so the previous
+                # overlay's pixels don't bleed through under the new
+                # (potentially narrower) chip.
+                if hasattr(self, "_viewport_frame"):
+                    self._viewport_frame.repaint()
+                self._force_viewport_render()
 
         def _reposition_overlay(self) -> None:
-            """Pin the overlay to the top-left of the viewport frame."""
+            """Pin the overlay to the top-left and the hint to bottom-center."""
 
             if (
                 not hasattr(self, "viewport_overlay")
@@ -1757,6 +2029,19 @@ def _build_window_class() -> type:
             margin = 12
             self.viewport_overlay.move(margin, margin)
             self.viewport_overlay.raise_()
+            if (
+                hasattr(self, "viewport_hint")
+                and self.viewport_hint is not None
+                and self.viewport_hint.isVisible()
+            ):
+                self.viewport_hint.adjustSize()
+                fw = self._viewport_frame.width()
+                fh = self._viewport_frame.height()
+                self.viewport_hint.move(
+                    (fw - self.viewport_hint.width()) // 2,
+                    fh - self.viewport_hint.height() - 14,
+                )
+                self.viewport_hint.raise_()
 
         def eventFilter(self, watched: Any, event: Any) -> bool:  # type: ignore[override]
             # Re-anchor the overlay whenever the viewport frame resizes so it
@@ -1780,11 +2065,17 @@ def _build_window_class() -> type:
         _SPEED_PRESETS: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 
         def _build_transport_panel(self, parent: QWidget) -> QWidget:
-            """Build the bottom transport-control strip under the viewport.
+            """Build the scrubber strip under the viewport.
 
             Layout::
 
-                [Play] [Stop] [End]  Speed: [1× v]   [=====O==========] t = 12.3 / 40.0
+                Speed: [1× v]   [=====O==========] t = 12.3 / 40.0
+
+            Run / Pause / Stop / Jump-to-end live in the top toolbar — this
+            strip is for *time scrubbing during/after a simulation*, not
+            for triggering one. Play / Stop / Jump-end QPushButton handles
+            are kept as hidden widgets so internal slots and tests keep
+            working without per-call ``hasattr`` checks.
             """
 
             host = QWidget(parent)
@@ -1792,22 +2083,24 @@ def _build_window_class() -> type:
             row.setContentsMargins(6, 2, 6, 2)
             row.setSpacing(6)
 
+            # Hidden compatibility shims. These keep the playback state
+            # machine and the existing test fixtures wired against a
+            # single set of widgets — they're just never shown.
             self.play_button = QPushButton("Play", host)
-            self.play_button.setToolTip("Play / Pause (Space)")
             self.play_button.setCheckable(True)
             self.play_button.clicked.connect(self._on_toggle_play)
-
+            self.play_button.setVisible(False)
             self.stop_button = QPushButton("Stop", host)
-            self.stop_button.setToolTip("Stop and rewind to start (Ctrl-.)")
             self.stop_button.clicked.connect(self._on_stop)
-
+            self.stop_button.setVisible(False)
             self.jump_end_button = QPushButton("End", host)
-            self.jump_end_button.setToolTip("Jump to the end of the trajectory (End)")
             self.jump_end_button.clicked.connect(self._on_jump_to_end)
+            self.jump_end_button.setVisible(False)
 
             self.speed_box = QComboBox(host)
+            self.speed_box.setToolTip("Playback speed (relative to real-time)")
             for s in self._SPEED_PRESETS:
-                label = f"{s:g}×"  # narrow space + multiplication sign
+                label = f"{s:g}×"  # multiplication sign
                 self.speed_box.addItem(label, s)
             default_idx = self.speed_box.findData(1.0)
             if default_idx >= 0:
@@ -1819,17 +2112,18 @@ def _build_window_class() -> type:
             self.frame_scrubber.setSingleStep(1)
             self.frame_scrubber.setPageStep(10)
             self.frame_scrubber.setTracking(True)
+            self.frame_scrubber.setToolTip("Scrub through trajectory frames")
             self.frame_scrubber.sliderPressed.connect(self._on_scrubber_press)
             self.frame_scrubber.sliderReleased.connect(self._on_scrubber_release)
             self.frame_scrubber.valueChanged.connect(self._on_scrubber_value)
 
             self.time_label = QLabel("t = 0.000 / 0.000", host)
             self.time_label.setMinimumWidth(140)
+            self.time_label.setToolTip("Current playback time / trajectory length")
 
-            row.addWidget(self.play_button)
-            row.addWidget(self.stop_button)
-            row.addWidget(self.jump_end_button)
-            row.addWidget(QLabel("Speed:", host))
+            speed_label = QLabel("Speed:", host)
+            speed_label.setProperty("role", "caption")
+            row.addWidget(speed_label)
             row.addWidget(self.speed_box)
             row.addWidget(self.frame_scrubber, 1)
             row.addWidget(self.time_label)
@@ -2059,14 +2353,25 @@ def _build_window_class() -> type:
                 inferred = state
             label_map = {
                 "idle": "Idle",
-                "running": "Running",
+                "running": "Simulating...",
+                "playing": "Playing",
                 "exporting": "Exporting",
                 "error": "Error",
-                "done": "Done",
+                "done": "Ready",
             }
             chip_label = label_map.get(inferred, inferred.capitalize())
-            chip_state = inferred if inferred != "done" else "idle"
+            chip_state = inferred if inferred not in ("done", "playing") else (
+                "idle" if inferred == "done" else "running"
+            )
             self._set_state_chip(chip_label, chip_state)
+            # Show the indeterminate status-bar progress chunk while the
+            # background work is running (simulate or export).
+            if hasattr(self, "status_progress"):
+                if inferred in ("running", "exporting"):
+                    self.status_progress.setRange(0, 0)
+                    self.status_progress.setVisible(True)
+                else:
+                    self.status_progress.setVisible(False)
 
         def _show_error(self, title: str, message: str) -> None:
             self._set_status(message, state="error")
