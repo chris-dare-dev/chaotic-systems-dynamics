@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chaotic-systems-dynamics"
-version = "0.0.0"
+version = "0.1.0"
 description = "Simulation and visualization of chaotic dynamical systems with a native desktop GUI."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,7 +25,7 @@ keywords = [
     "visualization",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -43,18 +43,20 @@ classifiers = [
 # Math stack:
 #   - numpy, scipy: numerical work
 #   - sympy: symbolic Lagrangians / Hamiltonians and LaTeX prettification
-#   - numba: JIT-compiled inner loops for integrators
 #
 # Visualization + GUI stack:
 #   - PySide6 / Qt: native desktop window
 #   - PyVista + pyvistaqt: embedded 3D viewport (VTK underneath)
 #   - matplotlib: LaTeX (mathtext) rendering and 2D phase-space panels
 #   - imageio + imageio-ffmpeg: offline video export
+#
+# Numba is an *optional* JIT for users who want to compile their own
+# RHS; the integrators ship with a pure-NumPy fallback. See the
+# ``performance`` extra below.
 dependencies = [
     "numpy>=2.0",
     "scipy>=1.14",
     "sympy>=1.13",
-    "numba>=0.60",
     "matplotlib>=3.9",
     "PySide6>=6.7",
     "pyvista>=0.44",
@@ -67,21 +69,22 @@ dependencies = [
 chaotic-systems-gui = "chaotic_systems.gui.__main__:main"
 
 [project.optional-dependencies]
-# Development tooling.
-dev = [
-    "pytest>=8.0",
-    "pytest-benchmark>=5.0",
-    "pytest-qt>=4.4",
-    "hypothesis>=6.100",
-    "ruff>=0.5",
-    "mypy>=1.10",
-]
 # Test-only extras.
 test = [
     "pytest>=8.0",
     "pytest-benchmark>=5.0",
     "pytest-qt>=4.4",
     "hypothesis>=6.100",
+]
+# Development tooling extends `test` with linters / type-checkers.
+dev = [
+    "chaotic-systems-dynamics[test]",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+# Optional numba JIT for users who want to compile their own RHS.
+performance = [
+    "numba>=0.60",
 ]
 
 [project.urls]
@@ -107,17 +110,37 @@ include = [
 ]
 
 # ---------------------------------------------------------------------------
-# Tool configuration scaffolding. Concrete settings land when the toolchain
-# is wired up (ruff, mypy, pytest).
+# Tool configuration.
 # ---------------------------------------------------------------------------
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
 
+[tool.ruff.lint]
+# Conservative starting set. `E` + `W` (pycodestyle), `F` (pyflakes), `I`
+# (isort), `B` (bugbear), `UP` (pyupgrade for 3.12+). We deliberately do
+# not enable `D` (pydocstyle) yet — the codebase has good docstrings but
+# they don't all match a single style.
+select = ["E", "F", "I", "W", "B", "UP"]
+ignore = [
+    "E501",  # line length — let the formatter handle long lines
+    "B008",  # function call in default arg — common with np.array defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use `assert` extensively and aren't shipped to end-users.
+"tests/*" = ["B011", "B018"]
+
 [tool.mypy]
 python_version = "3.12"
-strict = true
+# Pragmatic: the visualization + GUI layers do a lot of duck-typing
+# against PyVista / PySide6 (which have weak stubs). `strict = true` would
+# require either widespread `# type: ignore`s or wholesale `Any` typing.
+# We keep mypy lenient and rely on the test suite as the safety net.
+strict = false
+warn_return_any = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

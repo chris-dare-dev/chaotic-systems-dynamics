@@ -40,11 +40,12 @@ For pedagogical baselines and for problems where you want bit-for-bit reproducib
 - **`RK4`** — Classical 4th-order Runge-Kutta. Global error :math:`O(h^4)`. With `dt=1e-3` on the harmonic oscillator it stays within `1e-7` of the analytic cosine over 10 periods.
 - **`Euler`** — Explicit Euler (1st order). Included to make the order-vs.-error point in tests and examples. Diverges visibly from RK4 on the harmonic oscillator at the same step size.
 
-Numba JIT is available via the `_NUMBA_AVAILABLE` flag in `chaotic_systems.core._numba`. Numba can't JIT through arbitrary Python `rhs` callables, so we don't blanket-decorate the integrator loops. If you want maximum throughput, JIT your RHS yourself and call the lower-level steppers directly:
+Numba JIT is available via the `NUMBA_AVAILABLE` flag in `chaotic_systems.core._numba`. Numba can't JIT through arbitrary Python `rhs` callables, so we don't blanket-decorate the integrator loops. If you want maximum throughput, JIT your RHS yourself and call the lower-level stepper directly:
 
 ```python
 import numba
-from chaotic_systems.integrators.fixed_step import _rk4_step
+import numpy as np
+from chaotic_systems.integrators.fixed_step import rk4_step
 
 @numba.njit(cache=True)
 def lorenz_rhs(t, y):
@@ -53,7 +54,7 @@ def lorenz_rhs(t, y):
                      y[0] * (rho - y[2]) - y[1],
                      y[0] * y[1] - beta * y[2]])
 
-# call _rk4_step in a numba-jitted outer loop for full speed
+# call rk4_step in a numba-jitted outer loop for full speed
 ```
 
 ## Symplectic integrators

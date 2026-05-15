@@ -44,10 +44,13 @@ src/chaotic_systems/gui/
 The visualization and GUI layers depend on a small, duck-typed surface
 from `chaotic_systems.systems.registry`:
 
-- `list_systems() -> list[SystemLike]`
-- `get_system(name: str) -> SystemLike`
+- `list_systems() -> list[DynamicalSystem]` — returns ready-to-use
+  *instances*, not classes. The registry constructs each system once at
+  import time and hands out singletons (concrete systems are stateless
+  w.r.t. simulation, so sharing is safe).
+- `get_system(name: str) -> DynamicalSystem`
 
-Each `SystemLike` has:
+Each instance has:
 
 - `name: str`
 - `latex: str` (mathtext-compatible body; `\begin{aligned}` blocks are
@@ -129,11 +132,19 @@ combo changes. `Run` simulates and replaces the viewport content;
 ## Fallback Lorenz
 
 `main_window.py` ships a tiny in-GUI Lorenz placeholder
-(`_FallbackLorenz`) so the window is always launchable, even before the
-math agent's registry exists. The placeholder uses
-`scipy.integrate.solve_ivp` and is intentionally *not* a real
-implementation — the registered Lorenz takes priority as soon as the
+(`_FallbackLorenz`) so the window is always launchable, even if a
+broken installation knocks out the registry. The placeholder uses
+`scipy.integrate.solve_ivp` and mirrors the real backend's `simulate`
+signature exactly — the registered Lorenz takes priority whenever the
 backend is available.
+
+## Threading model
+
+Both simulation and video export run on background `QThread` workers
+(`_SimulateWorker`, `_ExportWorker` in `main_window.py`) so the Qt main
+loop stays responsive. Workers emit `progress(current, total)` and
+`finished(...)` / `error(kind, message)` signals; the export worker also
+honors a `cancel()` poll so the user can abort a long render.
 
 ## Headless / CI behavior
 

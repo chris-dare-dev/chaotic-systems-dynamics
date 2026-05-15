@@ -4,7 +4,7 @@ A mathematically rigorous Python application for simulating and visualizing chao
 
 ## Status
 
-Early scaffolding stage. The directory layout, governance files, and package skeleton are in place; the systems, integrators, visualization, and GUI implementations have not been written yet. See `CONTEXT.md` for the current state and roadmap.
+Functional. The full pipeline — backend (systems, integrators, Lyapunov, Poincare), visualization (PyVista 3D, LaTeX rendering, MP4 export), and native GUI (PySide6) — is implemented and exercised by 50+ tests. See `CONTEXT.md` for the current state, design decisions, and roadmap.
 
 ## Goals
 
@@ -13,42 +13,43 @@ Early scaffolding stage. The directory layout, governance files, and package ske
 - Keep the math visible. Every system advertises its Lagrangian/Hamiltonian/ODE form in rendered LaTeX alongside the simulation.
 - Stay native. The frontend is a desktop window, not a browser tab.
 
-## Planned features
+## Features
 
 ### Systems library
 - Lorenz attractor
 - Rössler attractor
-- Double pendulum (Lagrangian-derived)
+- Double pendulum (symbolic Lagrangian)
 - Chua's circuit
-- Duffing oscillator
-- Henon-Heiles
-- (extensible — adding a new system is a single file)
+- Duffing oscillator (driven)
+- Hénon-Heiles (separable Hamiltonian)
+- Extensible — adding a new system is a single file + a registry entry.
 
 ### Numerical integration
-- Classical RK4
-- Adaptive RK45 (Dormand-Prince)
-- Symplectic integrators (Verlet, leapfrog) for Hamiltonian systems
-- User-selectable step size and tolerance
+- Adaptive (scipy wrappers): RK45, RK23, DOP853, Radau, BDF, LSODA.
+- Fixed-step: classical RK4, explicit Euler.
+- Symplectic (separable Hamiltonians): leapfrog, velocity Verlet, Yoshida-4.
+
+### Diagnostics
+- Largest Lyapunov exponent (Benettin's two-trajectory method).
+- Full Lyapunov spectrum (variational + continuous QR).
+- Poincaré sections via scipy event detection.
 
 ### Visualization
-- Real-time 3D trajectory animation
-- Phase-space projections
-- Offline video / GIF export
-- Lyapunov exponent estimation and display
-- LaTeX rendering of system equations
+- Live 3D trajectory rendering (PyVista / VTK, embedded in Qt).
+- Off-screen MP4 export (imageio + bundled ffmpeg) with progress + cancel.
+- Color-by-time scalar shading on the polyline.
+- LaTeX equations of motion rendered into the side panel (matplotlib mathtext).
 
 ### GUI
-- Native desktop window (no Electron, no browser)
-- System picker, parameter sliders, initial-condition controls
-- Integrator selection
-- Play/pause/scrub timeline
-- Export to MP4/GIF
+- Native desktop window (no Electron, no browser).
+- System picker, parameter sliders + spinboxes (with log scale for parameters spanning orders of magnitude).
+- Integrator selection from the full registry (including symplectic methods).
+- Simulation and export run on worker threads — the window stays responsive.
+- Keyboard shortcuts: Ctrl-R (Run), Ctrl-E (Export), R (Reset view), Esc (Cancel).
 
 ## Installation
 
-Python 3.12 (pinned in `.python-version`). PySide6 and PyVista ship
-binary wheels on macOS / Linux / Windows, so no system-level Qt or VTK
-install is needed.
+Python 3.12 (pinned in `.python-version`). PySide6 and PyVista ship binary wheels on macOS / Linux / Windows, so no system-level Qt or VTK install is needed.
 
 ```bash
 python -m venv .venv
@@ -76,10 +77,7 @@ python -m chaotic_systems.gui
 chaotic-systems-gui
 ```
 
-The left panel lets you pick a system, tweak its parameters and
-integrator, and run a simulation. The center is a live 3D viewport. The
-right panel shows the system's ODE system (and Lagrangian, if any) in
-rendered LaTeX. `Export video` writes an MP4 of the trajectory.
+The left panel lets you pick a system, tweak its parameters and integrator, and run a simulation. The center is a live 3D viewport. The right panel shows the system's ODE system (and Lagrangian, if any) in rendered LaTeX. `Export video` writes an MP4 of the trajectory.
 
 ### Render a video without launching the GUI
 
@@ -87,7 +85,7 @@ rendered LaTeX. `Export video` writes an MP4 of the trajectory.
 python examples/lorenz_video.py /tmp/lorenz.mp4
 ```
 
-See `docs/visualization.md` for the full architecture.
+See `docs/visualization.md` for the full architecture and `docs/numerics.md` for the integrator zoo.
 
 ## Project layout
 

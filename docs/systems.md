@@ -61,7 +61,9 @@ Separable Hamiltonian on :math:`\mathbb{R}^4`:
 
 $$H = \tfrac{1}{2}(p_x^2 + p_y^2) + \tfrac{1}{2}(x^2 + y^2) + x^2 y - \tfrac{1}{3} y^3.$$
 
-State `[x, y, px, py]`. The system exhibits the mixed regular/chaotic phase space that motivates the Poincaré section diagnostic. Bounded for `E < 1/6`. The `.hamiltonian` property exposes the symbolic `HamiltonianSystem` so `yoshida4` can drive it; see `examples/double_pendulum_energy.py`.
+State `[x, y, px, py]`. The system exhibits the mixed regular/chaotic phase space that motivates the Poincaré section diagnostic. Bounded for `E < 1/6`. The `.hamiltonian` property exposes the symbolic `HamiltonianSystem` so `yoshida4` can drive it.
+
+Hénon-Heiles ships **parameter-free** — its standard form has no tunable constants, only the initial condition (which sets the energy). The GUI's parameter panel will be empty for this system; that's expected. See `examples/double_pendulum_energy.py` for an energy-conservation demo of the symplectic integrator on this system.
 
 Reference: M. Hénon, C. Heiles, *The applicability of the third integral of motion: some numerical experiments*, Astron. J. 69 (1964), 73-79.
 

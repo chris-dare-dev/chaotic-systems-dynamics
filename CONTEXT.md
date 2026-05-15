@@ -86,17 +86,15 @@ matplotlib, PySide6, pyvista, pyvistaqt, imageio, imageio-ffmpeg. Dev
 extras: pytest, pytest-qt, pytest-benchmark, hypothesis, ruff, mypy.
 
 **Tests**: 38 math/integrator tests under `tests/core`,
-`tests/integrators`, `tests/systems`; 13 visualization tests (contract
+`tests/integrators`, `tests/systems`; 13+ visualization tests (contract
 adapter, LaTeX rendering, end-to-end off-screen video export); 3 GUI
 smoke tests (window builds, parameter widgets generate from registry,
 LaTeX panel populates). GUI tests are gated behind
 `CHAOTIC_GUI_TESTS_USE_DISPLAY=1` because `pyvistaqt.QtInteractor`
-needs a real OpenGL context. Note: the GUI conftest hook currently
-skips *all* collected items rather than only the gui/ subset — that's
-a known papercut on the GUI side and means `pytest tests/` from the
-repo root yields a misleading "everything skipped" result; run
-`pytest tests/core tests/integrators tests/systems
-tests/visualization` for the non-GUI portion.
+needs a real OpenGL context. The `tests/gui/conftest.py` hook now
+filters strictly to items under `tests/gui/`, so a plain
+`pytest tests/` from the repo root runs the 51 backend/visualization
+tests and only skips the GUI smoke tests.
 
 ## What's next
 
@@ -120,17 +118,12 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
 6. **CI for the GUI smoke tests.** Today the GUI tests are skipped
    without a display. A `xvfb` job (Linux) or a macOS runner with a
    logged-in user could turn them back on.
-7. **Fix the gui/ conftest hook scope.** The `pytest_collection_modifyitems`
-   in `tests/gui/conftest.py` currently marks every collected item as
-   skipped (it doesn't filter to items under `tests/gui/`). Tighten the
-   filter so the global `pytest` invocation runs the math + viz tests
-   and only skips the GUI ones.
-8. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
+7. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
    integrators don't JIT the outer loop because numba can't infer
    arbitrary Python `rhs` types. A future pass could expose a
    `compile_rhs(system)` helper that returns a numba-typed RHS and an
-   inner loop matching, e.g., the `_rk4_step` API.
-9. **Pre-rendered intros (manim).** Out-of-scope today but a nice
+   inner loop matching, e.g., the `rk4_step` API.
+8. **Pre-rendered intros (manim).** Out-of-scope today but a nice
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
