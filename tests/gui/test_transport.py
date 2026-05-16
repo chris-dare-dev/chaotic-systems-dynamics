@@ -104,41 +104,62 @@ def test_scrubber_value_seeks_renderer(qtbot) -> None:  # type: ignore[no-untype
 
 
 def test_anim_tick_advances_frame(qtbot) -> None:  # type: ignore[no-untyped-def]
-    window = _make_window(qtbot)
-    window._on_sim_finished(_synthetic_trajectory(200))  # noqa: SLF001
-    window._pause()  # noqa: SLF001
+    """Wall-clock pacing advances the playhead by elapsed * rate.
 
-    window._seek_to(0)  # noqa: SLF001
-    start = window._current_frame_index  # noqa: SLF001
-    # Force a non-trivial stride EQUAL TO the per-tick cap so the test
-    # is deterministic regardless of how the cap is configured. (The
-    # cap exists so dense trajectories never teleport — see
-    # ``_MAX_STRIDE``; the previous version of this test pinned a
-    # stride > cap, but the cap shrank as sub-frame interpolation
-    # landed.)
-    window._frames_per_tick_base = float(window._MAX_STRIDE)  # noqa: SLF001
-    window._speed_multiplier = 1.0  # noqa: SLF001
-    window._is_playing = True  # noqa: SLF001
-    window._on_anim_tick()  # noqa: SLF001
-    assert window._current_frame_index == start + window._MAX_STRIDE  # noqa: SLF001
-    window._is_playing = False  # noqa: SLF001
+    Under the iteration-4 wall-clock pacing, the per-tick advance is
+    derived from ``elapsed = now - _play_wall_start`` rather than from
+    a fixed stride. Synthetic 200-frame trajectory is below the
+    prerender threshold (500), so the legacy integer-frame branch runs.
+    """
 
-
-def test_anim_tick_caps_stride(qtbot) -> None:  # type: ignore[no-untyped-def]
-    """Per-tick stride is clamped to ``_MAX_STRIDE`` regardless of base."""
+    import time
 
     window = _make_window(qtbot)
     window._on_sim_finished(_synthetic_trajectory(200))  # noqa: SLF001
     window._pause()  # noqa: SLF001
     window._seek_to(0)  # noqa: SLF001
-    start = window._current_frame_index  # noqa: SLF001
-    window._frames_per_tick_base = 1000.0  # absurd; should be capped  # noqa: SLF001
+
+    # Simulate that playback started 100 ms ago. At the default
+    # ``_frames_per_tick_base`` cadence, 100 ms of wall time should
+    # advance the playhead by a measurable, deterministic amount.
     window._speed_multiplier = 1.0  # noqa: SLF001
+    window._play_position_start = 0.0  # noqa: SLF001
+    window._play_wall_start = time.perf_counter() - 0.1  # noqa: SLF001
     window._is_playing = True  # noqa: SLF001
+
     window._on_anim_tick()  # noqa: SLF001
-    cap = window._MAX_STRIDE  # noqa: SLF001
-    assert window._current_frame_index == start + cap  # noqa: SLF001
+    # Position advanced past start, didn't snap to the end.
+    assert 0 < window._current_frame_index < 199  # noqa: SLF001
     window._is_playing = False  # noqa: SLF001
+
+
+def test_anim_tick_snaps_to_end_after_full_playback(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Wall-clock pacing self-corrects: elapsed > playback duration snaps to end.
+
+    Replaces the legacy ``test_anim_tick_caps_stride`` from the
+    stride-based model. Under wall-clock pacing there is no
+    per-tick stride cap; instead, an elapsed time greater than
+    ``target_playback_seconds`` lands the playhead at the final
+    frame and pauses.
+    """
+
+    import time
+
+    window = _make_window(qtbot)
+    window._on_sim_finished(_synthetic_trajectory(200))  # noqa: SLF001
+    window._pause()  # noqa: SLF001
+    window._seek_to(0)  # noqa: SLF001
+    window._speed_multiplier = 1.0  # noqa: SLF001
+    # Pretend playback started before the dawn of time — elapsed is
+    # effectively infinite, so the tick should snap to the last frame
+    # and stop the timer.
+    window._play_position_start = 0.0  # noqa: SLF001
+    window._play_wall_start = time.perf_counter() - 1e6  # noqa: SLF001
+    window._is_playing = True  # noqa: SLF001
+
+    window._on_anim_tick()  # noqa: SLF001
+    assert window._current_frame_index == 199  # noqa: SLF001
+    assert not window._is_playing  # noqa: SLF001 - auto-paused at end
 
 
 def test_speed_change_changes_multiplier(qtbot) -> None:  # type: ignore[no-untyped-def]

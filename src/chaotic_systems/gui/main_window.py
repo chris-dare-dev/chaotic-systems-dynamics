@@ -868,6 +868,13 @@ def _build_window_class() -> type:
             self._n_points = n_points
 
         def run(self) -> None:
+            # Local import so this module stays import-safe even if the
+            # integrators package fails to load (the generic ImportError
+            # path below handles that).
+            try:
+                from chaotic_systems.integrators import IntegratorDivergedError
+            except ImportError:  # pragma: no cover - integrators always ship
+                IntegratorDivergedError = ()  # type: ignore[assignment, misc]
             try:
                 # Pass ``n_points`` only when the system accepts it — the
                 # GUI's fallback Lorenz takes ``**kwargs`` but real
@@ -885,6 +892,12 @@ def _build_window_class() -> type:
                     self._params,
                     **kwargs,
                 )
+            except IntegratorDivergedError as exc:
+                # Distinct kind so the GUI can show a targeted hint
+                # instead of the generic "RuntimeError" path. Must come
+                # before the RuntimeError branch (it subclasses it).
+                self.error.emit("IntegratorDivergedError", str(exc))
+                return
             except KeyError as exc:
                 self.error.emit("KeyError", str(exc))
                 return
@@ -1271,8 +1284,28 @@ def _build_window_class() -> type:
             self.integrator_box.setToolTip(
                 "ODE solver. RK45 is the default; pick LSODA/DOP853 for stiffer problems."
             )
+            # Per-item tooltips highlight integrators with known stability
+            # caveats. Euler is a 1st-order baseline and reliably blows
+            # up on chaotic / stiff systems (Lorenz at dt=0.01 is the
+            # canonical example) — flag it at the point of selection
+            # rather than letting users hit the divergence error first.
+            _per_item_tooltips = {
+                "Euler": (
+                    "Euler — 1st-order baseline. Unstable on chaotic / "
+                    "stiff systems: Lorenz at dt=0.01 diverges. Use only "
+                    "for very small dt (≲ 1e-3) or as a pedagogical "
+                    "reference. Prefer RK4 / RK45 for real runs."
+                ),
+            }
             for name in self._integrators:
                 self.integrator_box.addItem(name)
+                tip = _per_item_tooltips.get(name)
+                if tip is not None:
+                    self.integrator_box.setItemData(
+                        self.integrator_box.count() - 1,
+                        tip,
+                        Qt.ItemDataRole.ToolTipRole,
+                    )
             # Default to RK45 if present.
             default_idx = self.integrator_box.findText("RK45")
             if default_idx >= 0:
@@ -3090,66 +3123,15 @@ def _build_window_class() -> type:
             now = time.perf_counter()
             elapsed = max(0.0, now - self._play_wall_start)
             speed = float(self._speed_multiplier)
-            # Branch on whether the renderer has a warm prerender cache.
-            # If it does, drive playback by *arc-length* (Manim-style
-            # ``point_from_proportion``) so chaotic stretches advance
-            # slowly visually and calm regions zip past at uniform
-            # visual speed. If not (short trajectories, or the user
-            # cancelled prerender), fall back to the legacy
-            # integer-frame stride path — also recomputed off wall
-            # clock for vsync independence.
-            if getattr(r, "has_prerender_cache", False) and r.total_arc_length > 0.0:
-                total_arc = float(r.total_arc_length)
-                arc_per_second = total_arc / max(
-                    0.05, float(self.target_playback_seconds)
-                )
-                target_arc = self._play_arc_start + elapsed * arc_per_second * speed
-                if target_arc >= total_arc:
-                    # Snap to the end and pause.
-                    self._anim_arc_position = total_arc
-                    r.seek_arc_length(total_arc)
-                    self._anim_position = float(n - 1)
-                    self._current_frame_index = n - 1
-                    self._record_trace(now, r)
-                    block = self.frame_scrubber.blockSignals(True)
-                    try:
-                        self.frame_scrubber.setValue(n - 1)
-                    finally:
-                        self.frame_scrubber.blockSignals(block)
-                    self._update_time_label(n - 1)
-                    self._update_status_frame(n - 1)
-                    self._pause()
-                    return
-                self._anim_arc_position = target_arc
-                r.seek_arc_length(target_arc)
-                self._record_trace(now, r)
-                # Map back to integer-frame index for the scrubber and
-                # time-label, so all existing UI bindings keep working.
-                arc = r._arc_lengths  # noqa: SLF001
-                if arc is not None:
-                    idx_int = int(np.searchsorted(arc, target_arc, side="right")) - 1
-                    idx_int = max(0, min(idx_int, n - 1))
-                else:
-                    idx_int = 0
-                self._anim_position = float(idx_int)
-                self._current_frame_index = idx_int
-                block = self.frame_scrubber.blockSignals(True)
-                try:
-                    self.frame_scrubber.setValue(idx_int)
-                finally:
-                    self.frame_scrubber.blockSignals(block)
-                self._update_time_label(idx_int)
-                self._update_status_frame(idx_int)
-                return
-
-            # Legacy integer-frame path. Compute the target position
-            # from wall-clock elapsed time and the configured
-            # samples-per-second rate, NOT from accumulated per-tick
-            # strides. The ``_frames_per_tick_base`` value is still
-            # the canonical rate; we just multiply it by the elapsed
-            # tick count instead of the integer tick counter, which
-            # makes the loop self-correcting under variable frame
-            # rate.
+            # Single time-based pacing path. Earlier iterations branched
+            # to arc-length pacing when a prerender cache was warm; that
+            # gave Manim-style uniform visual speed but made the
+            # displayed integration time ``t`` advance non-linearly with
+            # wall-clock (fast in slow regions, slow in fast regions),
+            # which read as broken. Now we pace by integration time —
+            # ``t`` grows linearly with wall-clock — and rely on the
+            # Catmull-Rom + 4x oversample path inside
+            # ``seek_interpolated`` to keep the geometry smooth.
             ticks_elapsed = elapsed * 1000.0 / max(1.0, float(self._base_tick_ms))
             samples_per_tick = float(self._frames_per_tick_base) * speed
             target_pos = self._play_position_start + ticks_elapsed * samples_per_tick
@@ -3235,6 +3217,18 @@ def _build_window_class() -> type:
 
         @staticmethod
         def _hinted(kind: str, message: str) -> str:
+            if kind == "IntegratorDivergedError":
+                # Euler on Lorenz at dt=0.01 is the canonical trigger; the
+                # exception message already carries the integrator name and
+                # the t at which it blew up, so the hint just nudges
+                # toward the two real fixes.
+                return (
+                    message
+                    + "\n\nHint: pick a higher-order integrator (RK4, RK45, "
+                    "DOP853) or shrink dt by ~10×. Explicit Euler is a 1st-"
+                    "order baseline and is unstable on chaotic / stiff "
+                    "systems like Lorenz at dt above ~1e-3."
+                )
             if kind == "RuntimeError" and "solve_ivp" in message.lower():
                 return (
                     message
