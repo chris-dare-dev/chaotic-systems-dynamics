@@ -6,6 +6,7 @@ All systems live under `src/chaotic_systems/systems/`, one module per system. Th
 |----------------|-----------|-----------------------|-----------|---------------------------------------|
 | `Lorenz`       | 3         | ODE                   | none      | sigma=10, rho=28, beta=8/3            |
 | `Rossler`      | 3         | ODE                   | none      | a=0.2, b=0.2, c=5.7                   |
+| `RosslerHyper` | 4         | ODE (hyperchaotic)    | none      | a=0.25, b=3, c=0.5, d=0.05            |
 | `DoublePendulum` | 4       | Lagrangian -> ODE     | energy    | typical IC: (theta1=2.0, theta2=2.5)  |
 | `Chua`         | 3         | Piecewise-linear ODE  | none      | alpha=15.6, beta=28, m0=-1.143, m1=-0.714 |
 | `HenonHeiles`  | 4         | Hamiltonian (separable) | energy  | E ~ 0.125                              |
@@ -26,6 +27,14 @@ $$\dot x = -y - z, \quad \dot y = x + ay, \quad \dot z = b + z(x - c).$$
 Simpler than Lorenz (only one nonlinearity), with a banded-spiral attractor. Largest Lyapunov exponent ~0.071. Default IC `[0.1, 0, 0]`.
 
 Reference: O. E. Rössler, *An equation for continuous chaos*, Phys. Lett. A 57 (1976), 397-398.
+
+## 4D Rössler hyperchaos (`rossler_hyper.py`)
+
+$$\dot x = -y - z, \quad \dot y = x + ay + w, \quad \dot z = b + xz, \quad \dot w = -cz + dw.$$
+
+Rössler's 1979 four-dimensional extension. The added `w` coordinate and the linear `-cz + dw` feedback produce **two positive Lyapunov exponents** — the defining feature of hyperchaos. At canonical parameters `(a, b, c, d) = (0.25, 3, 0.5, 0.05)` the measured spectrum is approximately `(+0.119, +0.017, 0.000, -21.15)`. Pair with the Diagnostics card to see the `(+, +, 0, -)` signature directly. Default IC `[-10, -6, 0, 10]`.
+
+References: O. E. Rössler, *An equation for hyperchaos*, Phys. Lett. A 71 (1979), 155-157; T. Stankevich & D. Wilczak, *Computer-assisted proofs of existence of hyperchaotic dynamics*, Phys. Lett. A 379 (2015).
 
 ## Double pendulum (`double_pendulum.py`)
 

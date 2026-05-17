@@ -16,6 +16,7 @@ from chaotic_systems.systems.registry import (
     list_systems,
 )
 from chaotic_systems.systems.rossler import Rossler
+from chaotic_systems.systems.rossler_hyper import RosslerHyper
 
 __all__ = [
     "Chua",
@@ -24,6 +25,7 @@ __all__ = [
     "HenonHeiles",
     "Lorenz",
     "Rossler",
+    "RosslerHyper",
     "get_system",
     "list_system_names",
     "list_systems",

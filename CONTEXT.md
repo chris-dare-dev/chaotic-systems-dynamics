@@ -123,6 +123,28 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-16, capability roadmap rollout)
+
+- **D1 — full Lyapunov spectrum in the GUI Diagnostics card.** The
+  Benettin / continuous-QR ``lyapunov_spectrum`` compute existed in
+  ``core/lyapunov.py`` since the initial implementation but was never
+  surfaced. Now a "Diagnostics" card on the left panel runs the
+  spectrum on a ``_LyapunovWorker`` thread and classifies the regime
+  (Regular / Chaotic / Hyperchaotic). Verified on default Lorenz at
+  +0.9032 / -0.0056 / -14.5643 (canonical: +0.9056 / 0 / -14.5723).
+  Status-bar ``lyapunov_chip`` now mirrors λ_1. Commit ``b9780dd``.
+- **N2 — 4D Rössler hyperchaos.** First system in the project with
+  *two* positive Lyapunov exponents. Pairs with D1: select it, click
+  Compute, and the GUI shows the canonical hyperchaotic (+, +, 0, -)
+  signature directly. Measured spectrum
+  ``+0.1188 / +0.0171 / -0.0019 / -21.1464`` matches Rössler 1979 and
+  Stankevich & Wilczak 2015 within ~10% on the leading exponents.
+- **Project-local scout agents + first capability roadmap.** Added
+  ``.claude/agents/{ui-upgrade-scout,capability-research-scout}.md`` and
+  the ``/milestone-pipeline`` slash command. First roadmap landed at
+  ``docs/proposals/capability-roadmap-2026-05-17.md``; D1 and N2 are
+  the first two items shipped from it.
+
 ## Recently shipped (2026-05-15, iteration 4 smoothness)
 
 - **Catmull-Rom polyline + wall-clock pacing.** The animation now

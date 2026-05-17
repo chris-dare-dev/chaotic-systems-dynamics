@@ -39,11 +39,13 @@ from chaotic_systems.systems.duffing import Duffing
 from chaotic_systems.systems.henon_heiles import HenonHeiles
 from chaotic_systems.systems.lorenz import Lorenz
 from chaotic_systems.systems.rossler import Rossler
+from chaotic_systems.systems.rossler_hyper import RosslerHyper
 
 # Ordered tuple of classes — defines the GUI display order.
 _SYSTEM_CLASSES: tuple[type[DynamicalSystem], ...] = (
     Lorenz,
     Rossler,
+    RosslerHyper,
     DoublePendulum,
     Chua,
     HenonHeiles,
