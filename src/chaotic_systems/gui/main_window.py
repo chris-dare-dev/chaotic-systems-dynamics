@@ -188,6 +188,42 @@ def _integrator_names() -> list[str]:
         return ["RK45", "RK23", "DOP853", "LSODA"]
 
 
+# Classification tolerance: |lambda| <= this is treated as "zero" in the
+# regime classifier below. Continuous-flow systems always have at least
+# one near-zero exponent (the trivial flow-direction mode), but real
+# hyperchaotic systems can have small-but-real positive exponents (4D
+# Rossler's lambda_2 ~ 0.03-0.05 per Stankevich & Wilczak 2015), so the
+# tolerance has to stay below that range. 1e-2 is the practical floor
+# for the Benettin/QR estimator at typical (t_total=500, dt=1) settings.
+_LYAPUNOV_ZERO_TOL: float = 1e-2
+
+
+def _format_lyapunov_spectrum(spectrum: np.ndarray) -> tuple[str, float]:
+    """Format a Lyapunov spectrum for the GUI Diagnostics card.
+
+    Returns ``(display_text, leading_exponent)``. The display text lists
+    every exponent with two decimal places of precision, plus a regime
+    classification (``Regular`` / ``Chaotic`` / ``Hyperchaotic``) and
+    the sum-of-positive-exponents Kaplan-Yorke proxy.
+    """
+
+    arr = np.asarray(spectrum, dtype=float)
+    if arr.size == 0:
+        return ("(empty spectrum)", 0.0)
+    sorted_desc = np.sort(arr)[::-1]
+    n_positive = int(np.sum(sorted_desc > _LYAPUNOV_ZERO_TOL))
+    if n_positive == 0:
+        regime = "Regular (no positive exponent)"
+    elif n_positive == 1:
+        regime = "Chaotic (1 positive exponent)"
+    else:
+        regime = f"Hyperchaotic ({n_positive} positive exponents)"
+    exponent_lines = "\n".join(
+        f"  λ{i + 1} = {lam:+.4f}" for i, lam in enumerate(sorted_desc)
+    )
+    return (f"{regime}\n{exponent_lines}", float(sorted_desc[0]))
+
+
 # ---------------------------------------------------------------------------
 # Module-level window-class cache so isinstance checks across import paths
 # match. Without this, `__getattr__("MainWindow")` in this module and the one
@@ -1028,6 +1064,73 @@ def _build_window_class() -> type:
             self.finished.emit()
 
     # -----------------------------------------------------------------------
+    # Lyapunov worker — computes the full spectrum off the GUI thread.
+    # The compute uses the variational equations + continuous QR
+    # re-orthonormalization (Benettin et al., Meccanica 15, 1980),
+    # already implemented in ``core/lyapunov.py``. Typical wall-clock
+    # for default Lorenz at canonical settings is ~5 s on Apple Silicon
+    # — too long for the GUI thread, hence the worker.
+    # -----------------------------------------------------------------------
+
+    class _LyapunovWorker(QObject):
+        """Run ``lyapunov_spectrum(system, ...)`` on a worker thread.
+
+        The Benettin / continuous-QR algorithm integrates the variational
+        equations over ``t_total - t_transient`` time units, periodically
+        QR-decomposing the perturbation matrix to extract local stretch
+        rates. Default settings (``t_transient=50``, ``t_total=500``,
+        ``dt=1.0``) match the canonical reference and yield ~0.7% error
+        on Lorenz's largest exponent (0.9072 vs canonical 0.9056).
+        """
+
+        finished = Signal(object)  # ndarray of exponents, sorted descending
+        error = Signal(str, str)  # (kind, message)
+
+        def __init__(
+            self,
+            system: SystemLike,
+            params: dict[str, float],
+            y0: np.ndarray,
+            t_transient: float = 50.0,
+            t_total: float = 500.0,
+            dt: float = 1.0,
+        ) -> None:
+            super().__init__()
+            self._system = system
+            self._params = params
+            self._y0 = y0
+            self._t_transient = t_transient
+            self._t_total = t_total
+            self._dt = dt
+
+        def run(self) -> None:
+            try:
+                from chaotic_systems.core.lyapunov import lyapunov_spectrum
+            except ImportError as exc:  # pragma: no cover - core always ships
+                self.error.emit("ImportError", str(exc))
+                return
+            try:
+                spectrum = lyapunov_spectrum(
+                    self._system,
+                    y0=self._y0,
+                    params=self._params,
+                    t_transient=self._t_transient,
+                    t_total=self._t_total,
+                    dt=self._dt,
+                )
+            except (RuntimeError, ValueError) as exc:
+                self.error.emit(type(exc).__name__, str(exc))
+                return
+            except Exception as exc:  # pragma: no cover - last-resort guard
+                self.error.emit("Exception", f"{type(exc).__name__}: {exc}")
+                return
+            # Sort descending so λ_1 is the leading entry — the compute
+            # routine returns them in array order; visually we want the
+            # largest first.
+            spectrum_sorted = np.sort(np.asarray(spectrum, dtype=float))[::-1]
+            self.finished.emit(spectrum_sorted)
+
+    # -----------------------------------------------------------------------
     # Busy spinner — a tiny rotating-arc widget for indeterminate work.
     # Mounted in the bottom status bar; visible during simulation or during
     # export warm-up. Once the export emits its first determinate progress
@@ -1152,6 +1255,12 @@ def _build_window_class() -> type:
             # ``_PRERENDER_MIN_FRAMES``). See ``docs/prerender_design.md``.
             self._prerender_thread: QThread | None = None
             self._prerender_worker: _PrerenderWorker | None = None
+            # Lyapunov worker — computes the full spectrum off the GUI
+            # thread when the user clicks the Diagnostics card's
+            # "Compute Lyapunov spectrum" button. See
+            # ``docs/proposals/capability-roadmap-2026-05-17.md`` D1.
+            self._lyapunov_thread: QThread | None = None
+            self._lyapunov_worker: _LyapunovWorker | None = None
 
             # Transport / animation state. The animation timer ticks on the
             # GUI thread; each tick advances the renderer's visible polyline
@@ -1337,6 +1446,33 @@ def _build_window_class() -> type:
             time_layout.addLayout(time_form)
 
             cards_layout.addWidget(time_card)
+
+            # --- card: Diagnostics (Lyapunov spectrum) ---
+            # The full Lyapunov spectrum has been computable since the
+            # initial implementation (see ``core/lyapunov.py``), but was
+            # never surfaced in the GUI — this card closes that gap per
+            # docs/proposals/capability-roadmap-2026-05-17.md (D1).
+            diag_card, diag_layout = _make_card("Diagnostics", left_inner)
+            self.lyapunov_button = QPushButton(
+                "Compute Lyapunov spectrum", diag_card
+            )
+            self.lyapunov_button.setObjectName("button_lyapunov")
+            self.lyapunov_button.setToolTip(
+                "Compute the full Lyapunov spectrum (Benettin / continuous "
+                "QR). Takes ~5 seconds for default Lorenz on a modern "
+                "laptop. Runs on a worker thread; the GUI stays responsive."
+            )
+            self.lyapunov_button.clicked.connect(self._on_compute_lyapunov)
+            diag_layout.addWidget(self.lyapunov_button)
+            self.lyapunov_result_label = QLabel(
+                "Click to compute. λ₁ > 0 ⇒ chaos; two positive exponents "
+                "⇒ hyperchaos.",
+                diag_card,
+            )
+            self.lyapunov_result_label.setWordWrap(True)
+            self.lyapunov_result_label.setProperty("role", "caption")
+            diag_layout.addWidget(self.lyapunov_result_label)
+            cards_layout.addWidget(diag_card)
 
             # Run / Export / Cancel buttons all live in the toolbar now,
             # but we keep hidden Q* widgets here so internal slots can
@@ -1750,11 +1886,17 @@ def _build_window_class() -> type:
                 lagr or r"\text{(not derived from a Lagrangian)}",
             )
 
-            # Refresh status-bar lyapunov chip — hide on system change
-            # until/unless a value is computed.
+            # Refresh status-bar lyapunov chip + Diagnostics card —
+            # hide / reset on system change until/unless a value is
+            # computed for the new system.
             if hasattr(self, "lyapunov_chip"):
                 self.lyapunov_chip.setText("λ₁ = —")
                 self.lyapunov_chip.setVisible(False)
+            if hasattr(self, "lyapunov_result_label"):
+                self.lyapunov_result_label.setText(
+                    "Click to compute. λ₁ > 0 ⇒ chaos; two positive "
+                    "exponents ⇒ hyperchaos."
+                )
             # The pre-export estimate is trajectory-derived; clear it
             # when the system flips so we never show a stale value.
             if hasattr(self, "export_estimate_chip"):
@@ -2217,6 +2359,82 @@ def _build_window_class() -> type:
                 self._prerender_thread.deleteLater()
             self._prerender_thread = None
             self._prerender_worker = None
+
+        # ------------------------------------------------------------------ Lyapunov
+
+        def _on_compute_lyapunov(self) -> None:
+            """Kick off the Lyapunov-spectrum worker for the current system.
+
+            Reads parameters and initial state from the current widget
+            state so users see the spectrum of whatever they have
+            dialled in, not just the system defaults. Disables the
+            button while the worker runs and re-enables on
+            finished / error.
+            """
+
+            if self._lyapunov_thread is not None:
+                # Already computing.
+                return
+            try:
+                system = self.current_system
+            except IndexError:
+                return
+            params = self._params() or default_params(system)
+            try:
+                y0 = np.asarray(system.initial_state, dtype=float).copy()
+            except (AttributeError, ValueError):
+                self.lyapunov_result_label.setText(
+                    "Could not read initial state from the system."
+                )
+                return
+            if not np.isfinite(y0).all():
+                self.lyapunov_result_label.setText(
+                    "Initial state has non-finite entries; cannot compute spectrum."
+                )
+                return
+
+            self.lyapunov_button.setEnabled(False)
+            self.lyapunov_result_label.setText("Computing spectrum…")
+            self._set_status(
+                "Computing Lyapunov spectrum (~5 s)…", busy=True
+            )
+
+            worker = _LyapunovWorker(system, params, y0)
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_lyapunov_finished)
+            worker.error.connect(self._on_lyapunov_error)
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_lyapunov_thread)
+            self._lyapunov_thread = thread
+            self._lyapunov_worker = worker
+            thread.start()
+
+        def _on_lyapunov_finished(self, spectrum: np.ndarray) -> None:
+            text, leading = _format_lyapunov_spectrum(spectrum)
+            self.lyapunov_result_label.setText(text)
+            self.lyapunov_button.setEnabled(True)
+            self._set_status("Lyapunov spectrum ready.", state="done")
+            if hasattr(self, "lyapunov_chip"):
+                self.lyapunov_chip.setText(f"λ₁ = {leading:+.4f}")
+                self.lyapunov_chip.setVisible(True)
+
+        def _on_lyapunov_error(self, kind: str, message: str) -> None:
+            self.lyapunov_result_label.setText(
+                f"{kind}: {message}"
+            )
+            self.lyapunov_button.setEnabled(True)
+            self._set_status("Lyapunov compute failed.", state="error")
+
+        def _cleanup_lyapunov_thread(self) -> None:
+            if self._lyapunov_worker is not None:
+                self._lyapunov_worker.deleteLater()
+            if self._lyapunov_thread is not None:
+                self._lyapunov_thread.deleteLater()
+            self._lyapunov_thread = None
+            self._lyapunov_worker = None
 
         # ------------------------------------------------------------------
 
