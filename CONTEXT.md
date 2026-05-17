@@ -141,7 +141,7 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
   Ikeda Jacobian determinant equals ``u²`` everywhere (the
   ``t(x,y)`` dependence drops out); Chirikov ``det J = 1`` at
   every interior point and ``p`` is exactly conserved at K=0.
-  33 new tests, all green.
+  33 new tests, all green. Commit ``e82d955``.
 
 ## Recently shipped (2026-05-16, capability roadmap rollout)
 
