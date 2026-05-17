@@ -93,6 +93,21 @@ To be filled in when dev dependencies land. The expected stack is:
 
 Until those are configured, follow PEP 8 and use type hints on every public function signature.
 
+## Project-local agents
+
+`.claude/agents/` ships reusable Claude Code agents scoped to this
+project. Two today:
+
+- `ui-upgrade-scout` — outside-in evaluation of the GUI plus 2025-2026
+  web research; writes a proposal to `docs/proposals/ui-upgrade-<date>.md`.
+- `capability-research-scout` — catalog of current systems / integrators
+  / diagnostics plus SOTA research; writes
+  `docs/proposals/capability-roadmap-<date>.md`.
+
+Both are read-only — they propose, they don't ship. See
+`.claude/agents/README.md` for invocation and the convention for adding
+new agents.
+
 ## Mathematical correctness
 
 This is a math project. Get the math right.
