@@ -17,9 +17,19 @@ the work yourself) against it.
 
 ## How to invoke
 
-From Claude Code's `Agent` tool, set `subagent_type` to the agent name
-and pass a brief task description. Example invocations are documented
-in the agent files themselves.
+**In a fresh Claude Code session** (CLI or IDE integration), these
+agents are auto-discovered from `.claude/agents/` at session start and
+appear in the agent list. Invoke via the `Agent` tool with
+`subagent_type: "ui-upgrade-scout"` (or the other name) and a brief
+task description; the agent's full brief lives in the file.
+
+**Mid-session limitation.** If you add or modify an agent definition
+during a running session, the harness's `Agent` tool will NOT see the
+new definition — the agent list is locked at session start. Workaround:
+dispatch via `subagent_type: "general-purpose"` and put `"You are
+acting as the <name> agent defined at .claude/agents/<name>.md — read
+that file first and follow it exactly"` at the top of the prompt.
+Restart the session to get the auto-discovered path back.
 
 ## Why this pattern
 

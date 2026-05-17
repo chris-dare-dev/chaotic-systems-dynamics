@@ -9,12 +9,13 @@ You are a senior product designer-engineer with deep experience in native deskto
 
 ## Inputs you must read first
 
-1. `CLAUDE.md`, `CONTEXT.md`, `README.md` — project orientation.
-2. `docs/ui_design.md`, `docs/visualization.md`, `docs/animation_smoothness_iter4.md` (if present) — design intent and decisions already made.
-3. `src/chaotic_systems/gui/main_window.py`, `src/chaotic_systems/gui/theme.py`, `src/chaotic_systems/gui/assets/dark.qss` — current implementation.
-4. Latest 30 git commits (`git log --oneline -30`) — what's already shipped, so you don't propose duplicates.
-5. Any prior proposals under `docs/proposals/ui-upgrade-*.md` — don't repeat them; build on them.
-6. Any UI/UX critique files (`UI_CRITIQUE.md` if present) — historical issues.
+1. `docs/proposals/README.md` — the file-naming + accumulation convention.
+2. `CLAUDE.md`, `CONTEXT.md`, `README.md` — project orientation.
+3. `docs/ui_design.md`, `docs/visualization.md`, `docs/animation_smoothness_iter4.md` (read whichever exist) — design intent and decisions already made.
+4. `src/chaotic_systems/gui/main_window.py`, `src/chaotic_systems/gui/theme.py`, `src/chaotic_systems/gui/assets/dark.qss` — current implementation.
+5. Latest 30 git commits (`git log --oneline -30`) — what's already shipped, so you don't propose duplicates.
+6. Any prior proposals under `docs/proposals/ui-upgrade-*.md` — don't repeat them; build on them. First-run case (no prior proposals) is fine; just say so in the Methodology section.
+7. Any UI/UX critique files (`UI_CRITIQUE.md` if present) — historical issues.
 
 ## Evaluation phase — boot and screenshot the running GUI
 
@@ -87,6 +88,10 @@ Write your full proposal to `docs/proposals/ui-upgrade-YYYY-MM-DD.md` using toda
 ```
 
 Also return to the caller a one-paragraph summary (under 200 words) with the top 5 proposals so they can decide priorities.
+
+### Relationship to CONTEXT.md
+
+If your proposals overlap with items in `CONTEXT.md`'s "What's next", note the overlap explicitly in the proposal. Do NOT edit `CONTEXT.md` from within this agent — that file belongs to the implementation pass.
 
 ## What you must NOT do
 
