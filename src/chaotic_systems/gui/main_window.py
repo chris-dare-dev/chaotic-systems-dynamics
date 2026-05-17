@@ -1761,6 +1761,89 @@ def _build_window_class() -> type:
                 self._last_trajectory = None
                 self._refresh_export_estimate()
 
+            # Gate symplectic integrators against the current system.
+            # leapfrog / velocity_verlet / yoshida4 only apply to
+            # separable Hamiltonian systems; for everything else
+            # (Lorenz, Rossler, Chua, Duffing, double pendulum, ...)
+            # they would raise a cryptic "grad_t_fn missing" error
+            # mid-Run. Disable + tooltip them instead.
+            self._update_integrator_availability(system)
+
+        def _update_integrator_availability(self, system: SystemLike) -> None:
+            """Disable symplectic integrators when the system isn't Hamiltonian.
+
+            Hamiltonian systems advertise a separable ``.hamiltonian``
+            (an instance of ``HamiltonianSystem`` with ``.separable``
+            true). For those, every integrator stays enabled. For
+            anything else, we mark the symplectic options as disabled
+            via the combo's underlying model so the user can see the
+            option exists but can't pick it. If the currently-selected
+            integrator just got disabled, fall back to ``RK45``.
+            """
+
+            try:
+                from chaotic_systems.integrators import SYMPLECTIC_INTEGRATORS
+            except ImportError:  # pragma: no cover - integrators always present
+                return
+
+            ham = getattr(system, "hamiltonian", None)
+            is_hamiltonian = ham is not None and bool(
+                getattr(ham, "separable", False)
+            )
+
+            model = self.integrator_box.model()
+            disabled_tip = (
+                "Disabled — "
+                + getattr(system, "name", "this system")
+                + " is not a separable Hamiltonian system. Symplectic "
+                "integrators (leapfrog / velocity_verlet / yoshida4) "
+                "only apply when H(q, p) = T(p) + V(q). Pick RK45 / "
+                "DOP853 / LSODA instead."
+            )
+            current_disabled = False
+            current_text = self.integrator_box.currentText()
+            for row in range(self.integrator_box.count()):
+                name = self.integrator_box.itemText(row)
+                if name not in SYMPLECTIC_INTEGRATORS:
+                    continue
+                item = model.item(row) if hasattr(model, "item") else None
+                if item is None:
+                    continue
+                flags = item.flags()
+                if is_hamiltonian:
+                    item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled)
+                    # Restore the default tooltip for symplectic items
+                    # — short and informative on a Hamiltonian system.
+                    item.setData(
+                        "Symplectic — exactly preserves the symplectic "
+                        "2-form; pair with a separable Hamiltonian.",
+                        Qt.ItemDataRole.ToolTipRole,
+                    )
+                else:
+                    item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
+                    item.setData(disabled_tip, Qt.ItemDataRole.ToolTipRole)
+                    if name == current_text:
+                        current_disabled = True
+
+            if current_disabled:
+                # Fall back to RK45 (or the first non-symplectic option).
+                fallback_idx = self.integrator_box.findText("RK45")
+                if fallback_idx < 0:
+                    for row in range(self.integrator_box.count()):
+                        if (
+                            self.integrator_box.itemText(row)
+                            not in SYMPLECTIC_INTEGRATORS
+                        ):
+                            fallback_idx = row
+                            break
+                if fallback_idx >= 0:
+                    self.integrator_box.setCurrentIndex(fallback_idx)
+                    self._set_status(
+                        "Switched to RK45 — "
+                        + getattr(system, "name", "this system")
+                        + " is not a Hamiltonian system."
+                    )
+
         def _render_latex_into(self, widget: Any, latex: str) -> None:
             """Render ``latex`` into a flowing widget (or fall back to QLabel).
 

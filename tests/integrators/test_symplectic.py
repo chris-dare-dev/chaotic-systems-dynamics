@@ -117,14 +117,20 @@ def test_rk4_energy_drifts_linearly() -> None:
 
 
 def test_symplectic_requires_grad_fns() -> None:
+    """Missing grad fns must produce a message that explains why and
+    suggests a remediation, not a bare ``grad_t_fn missing`` line."""
+
     y0 = np.array([1.0, 0.0])
-    with pytest.raises(ValueError, match="require `grad_t_fn`"):
+    with pytest.raises(ValueError) as excinfo:
         velocity_verlet.integrate(
             rhs=None,  # type: ignore[arg-type]
             t_span=(0.0, 1.0),
             y0=y0,
             dt=0.1,
         )
+    msg = str(excinfo.value)
+    assert "separable Hamiltonian" in msg
+    assert "RK45" in msg or "DOP853" in msg
 
 
 def test_symplectic_requires_dt() -> None:

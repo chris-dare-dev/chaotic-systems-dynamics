@@ -10,7 +10,11 @@ case-sensitive and match the scipy methods one-to-one
 
 from __future__ import annotations
 
-from chaotic_systems.integrators._protocol import RHS, Integrator
+from chaotic_systems.integrators._protocol import (
+    RHS,
+    Integrator,
+    IntegratorDivergedError,
+)
 from chaotic_systems.integrators.adaptive import (
     BDF,
     DOP853,
@@ -63,17 +67,30 @@ def list_integrators() -> list[str]:
     return sorted(_REGISTRY)
 
 
+#: Registry-key set for integrators that require a separable Hamiltonian
+#: (i.e. ``grad_T(p)`` and ``grad_V(q)`` callbacks). Consumers like the
+#: GUI use this to gate the integrator picker — for a non-Hamiltonian
+#: system (Lorenz, Rossler, Chua, Duffing, ...) these methods cannot be
+#: applied and the picker should disable them rather than letting the
+#: user trigger a cryptic ``grad_t_fn`` / ``grad_v_fn`` error mid-Run.
+SYMPLECTIC_INTEGRATORS: frozenset[str] = frozenset(
+    {"leapfrog", "velocity_verlet", "yoshida4"}
+)
+
+
 __all__ = [
     "BDF",
     "DOP853",
     "Euler",
     "Integrator",
+    "IntegratorDivergedError",
     "LSODA",
     "RHS",
     "RK23",
     "RK4",
     "RK45",
     "Radau",
+    "SYMPLECTIC_INTEGRATORS",
     "from_hamiltonian",
     "get_integrator",
     "leapfrog",

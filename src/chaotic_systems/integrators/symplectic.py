@@ -123,8 +123,13 @@ def _grad_fns_from_kwargs(kwargs: dict[str, Any]) -> tuple[GradFn, GradFn]:
         grad_V = kwargs.pop("grad_v_fn")
     except KeyError as exc:
         raise ValueError(
-            "Symplectic integrators require `grad_t_fn` and `grad_v_fn` keyword "
-            "arguments (or use `from_hamiltonian` to build them)."
+            "Symplectic integrators (leapfrog, velocity_verlet, yoshida4) "
+            "only apply to separable Hamiltonian systems H(q, p) = T(p) + V(q). "
+            "The current system either is not Hamiltonian (e.g. Lorenz, "
+            "Rossler, Chua, and Duffing are dissipative or non-conservative) "
+            "or has not declared a separable `.hamiltonian`. Pick an adaptive "
+            "integrator instead: RK45 is a good default; DOP853 or LSODA "
+            "handle stiffer problems."
         ) from exc
     return grad_T, grad_V
 
