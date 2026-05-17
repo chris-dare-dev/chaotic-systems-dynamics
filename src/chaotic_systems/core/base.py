@@ -140,6 +140,13 @@ class DynamicalSystem(abc.ABC):
     4. Set :attr:`default_initial_state` — a ``(state_dim,)`` array.
     """
 
+    # ``kind`` is the discriminator the registry / GUI uses to decide
+    # whether to show an integrator picker. Continuous-time ODE systems
+    # carry ``"ode"``; discrete-time maps (see
+    # :class:`chaotic_systems.core.discrete.DiscreteSystem`) carry
+    # ``"map"``. Subclasses do not need to override this.
+    kind: str = "ode"
+
     # Class-level metadata (override in subclasses). The defaults are
     # deliberately frozen / zero-sized so an accidental write would be loud.
     name: str = "unnamed"

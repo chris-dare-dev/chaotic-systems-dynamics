@@ -123,6 +123,26 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
+
+- **N1 — discrete-maps subsystem with logistic / Hénon / Ikeda /
+  Chirikov standard map.** New ``DiscreteSystem`` base class lives
+  alongside ``DynamicalSystem`` in ``core/discrete.py``; both expose
+  a ``kind`` class attribute (``"ode"`` / ``"map"``) so the GUI can
+  switch on the integrator-picker affordance. Four concrete maps
+  ship under ``systems/{logistic,henon_map,ikeda,standard_map}.py``,
+  each citing its canonical source (May 1976, Hénon 1976,
+  Ikeda 1979, Chirikov 1979). Registry gains ``list_maps`` /
+  ``get_map`` / ``list_all_systems`` / ``get_any_system``; the
+  existing ``list_systems`` surface continues to return only
+  ODE flows. Numerical observables pinned: logistic period-2 cycle
+  at r=3.2 hits the analytic ``((r+1) ± √((r-3)(r+1)))/(2r)``
+  points; Hénon Jacobian determinant equals ``-b`` to 1e-6;
+  Ikeda Jacobian determinant equals ``u²`` everywhere (the
+  ``t(x,y)`` dependence drops out); Chirikov ``det J = 1`` at
+  every interior point and ``p`` is exactly conserved at K=0.
+  33 new tests, all green.
+
 ## Recently shipped (2026-05-16, capability roadmap rollout)
 
 - **D1 — full Lyapunov spectrum in the GUI Diagnostics card.** The

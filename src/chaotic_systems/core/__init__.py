@@ -11,6 +11,7 @@ from chaotic_systems.core.base import (
     Parameter,
     Trajectory,
 )
+from chaotic_systems.core.discrete import DiscreteSystem
 from chaotic_systems.core.hamiltonian import HamiltonianSystem
 from chaotic_systems.core.lagrangian import LagrangianSystem
 from chaotic_systems.core.lyapunov import (
@@ -20,6 +21,7 @@ from chaotic_systems.core.lyapunov import (
 from chaotic_systems.core.poincare import poincare_section
 
 __all__ = [
+    "DiscreteSystem",
     "DynamicalSystem",
     "FloatArray",
     "HamiltonianSystem",
