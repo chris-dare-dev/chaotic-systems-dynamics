@@ -2147,6 +2147,19 @@ def _build_window_class() -> type:
                 act = self._transport_actions.get(key)
                 if act is not None:
                     act.setEnabled(True)
+            # V1: enable the phase-portrait action iff the trajectory has
+            # at least 2 state components (the phase-plot routine requires
+            # two distinct axes). 1-D maps wouldn't have a meaningful
+            # portrait; 2-D-and-up always do.
+            phase_act = self._transport_actions.get("action_phase_portrait")
+            if phase_act is not None:
+                try:
+                    state_dim = int(getattr(traj, "state_dim", 0)) or int(
+                        np.asarray(traj.y).shape[1]
+                    )
+                except (AttributeError, IndexError, ValueError):
+                    state_dim = 0
+                phase_act.setEnabled(state_dim >= 2)
             # Surface the pre-export size estimate now that a trajectory
             # exists. The chip + Export tooltip both update.
             self._refresh_export_estimate()
@@ -2496,6 +2509,66 @@ def _build_window_class() -> type:
             self._bifurcation_window = dialog
             dialog.show()
 
+        def _on_open_phase_portrait(self) -> None:
+            """Open the 2D phase-portrait explorer on the most recent trajectory.
+
+            The dialog is a single-trajectory snapshot — to refresh
+            against a newer simulation, the user re-opens it after
+            re-running. See
+            ``docs/proposals/capability-roadmap-2026-05-17.md`` V1.
+            """
+            traj = self._last_trajectory
+            if traj is None:
+                self._set_status(
+                    "Run a simulation first — the phase portrait reads the "
+                    "most recent trajectory.",
+                    state="error",
+                )
+                return
+            state_dim = int(
+                getattr(traj, "state_dim", 0)
+                or getattr(traj, "y", np.zeros((1, 0))).shape[1]
+            )
+            if state_dim < 2:
+                self._set_status(
+                    "Phase portrait requires a system with state_dim >= 2.",
+                    state="error",
+                )
+                return
+            try:
+                from chaotic_systems.gui.phase_panel import build_phase_dialog
+            except ImportError as exc:  # pragma: no cover
+                self._set_status(
+                    f"Phase-portrait explorer unavailable: {exc}",
+                    state="error",
+                )
+                return
+            from chaotic_systems.gui.theme import viewport_background
+
+            system = None
+            try:
+                system = self.current_system
+            except (AttributeError, IndexError):
+                pass
+            axes_labels = (
+                self._axes_labels_for(system) if system is not None else None
+            )
+            try:
+                dialog = build_phase_dialog(
+                    traj,
+                    axes_labels=axes_labels,
+                    system_name=getattr(system, "name", None),
+                    facecolor=viewport_background(),
+                    parent=self,
+                )
+            except (TypeError, ValueError) as exc:
+                self._set_status(
+                    f"Phase portrait failed: {exc}", state="error"
+                )
+                return
+            self._phase_window = dialog
+            dialog.show()
+
         # ------------------------------------------------------------ toolbar
 
         # Toolbar action specs: (object_name, label, icon-stem, tooltip,
@@ -2562,6 +2635,17 @@ def _build_window_class() -> type:
                     "See docs/proposals/capability-roadmap-2026-05-17.md D2.",
                     self._on_open_bifurcation,
                     True,
+                ),
+                (
+                    "action_phase_portrait",
+                    "Phase portrait…",
+                    "phase-portrait",
+                    "Open the 2D phase-portrait explorer on the most recent "
+                    "trajectory. Pick any two state-vector components to plot "
+                    "y[i] vs y[j]. Disabled until you've run a simulation. "
+                    "See docs/proposals/capability-roadmap-2026-05-17.md V1.",
+                    self._on_open_phase_portrait,
+                    False,
                 ),
                 (
                     "action_toggle_theme",

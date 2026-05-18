@@ -98,33 +98,48 @@ tests and only skips the GUI smoke tests.
 
 ## What's next
 
-The scaffolding and the visualization MVP are done. Open follow-ups:
+The scaffolding and the visualization MVP are done. The first two
+items on this list (2D phase-space panels and a Lyapunov display)
+shipped via roadmap proposals V1 and D1 respectively; see the
+``Recently shipped`` sections below. Remaining open follow-ups:
 
-1. **2D phase-space panels.** Add a second tab (or a docked widget)
-   showing Poincare sections and arbitrary 2D projections via
-   matplotlib or PyQtGraph.
-2. **Lyapunov display.** Surface the largest Lyapunov exponent
-   (already implemented in `core/lyapunov.py`) somewhere in the GUI —
-   probably a status-bar widget that updates after each Run.
-3. **Persistent settings.** Remember the last-used system, parameters,
+1. **Persistent settings.** Remember the last-used system, parameters,
    and integrator across launches (`QSettings`).
-4. **Real-time parameter rebinding.** Today, changing a slider doesn't
+2. **Real-time parameter rebinding.** Today, changing a slider doesn't
    re-simulate until you press Run. A "live" mode that re-integrates
    a short window on every change would be nice for exploration.
-5. **CI for the GUI smoke tests.** Today the GUI tests are skipped
+   (Roadmap proposal E2.)
+3. **CI for the GUI smoke tests.** Today the GUI tests are skipped
    without a display. A `xvfb` job (Linux) or a macOS runner with a
    logged-in user could turn them back on.
-6. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
+4. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
    integrators don't JIT the outer loop because numba can't infer
    arbitrary Python `rhs` types. A future pass could expose a
    `compile_rhs(system)` helper that returns a numba-typed RHS and an
-   inner loop matching, e.g., the `rk4_step` API.
-7. **Pre-rendered intros (manim).** Out-of-scope today but a nice
+   inner loop matching, e.g., the `rk4_step` API. (Roadmap proposal P2.)
+5. **Pre-rendered intros (manim).** Out-of-scope today but a nice
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **V1 — 2D phase-portrait panel.** Closes the longest-standing item
+  on ``CONTEXT.md`` "What's next" (formerly #1). New
+  ``visualization/phase_plot.py`` ships ``plot_phase_portrait(
+  trajectory, ix, iy, ...)`` returning a matplotlib Figure with the
+  ``y[:, ix]`` vs ``y[:, iy]`` projection (Agg-safe; Tokyo-Night
+  facecolor aware; supports any ``state_dim >= 2``). New
+  ``gui/phase_panel.py`` wraps that in ``PhasePanel`` with two
+  axis combos, an "Equal aspect" toggle, a Plot button, and an
+  embedded ``FigureCanvasQTAgg``; ``build_phase_dialog()`` packages
+  it as a top-level window. Main window grows one
+  ``action_phase_portrait`` toolbar action that grabs the current
+  ``_last_trajectory`` and opens the dialog — gated on
+  ``state_dim >= 2`` and on a simulation having run. Reference
+  observable: harmonic oscillator (omega=1, IC (1, 0)) integrated
+  with RK45 over 2 periods, ``max|sqrt(x^2 + v^2) - 1| < 5e-4`` —
+  a unit circle to integrator tolerance, exactly Strogatz Fig 6.1.1.
+  25 new tests. Commit ``<TBD>``.
 - **D2 — bifurcation-diagram tool (discrete-map v1).** Three new
   modules, the headline pedagogical diagnostic added to the project.
   ``core/bifurcation.py`` ships ``bifurcation_diagram(system,
