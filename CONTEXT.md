@@ -98,31 +98,43 @@ tests and only skips the GUI smoke tests.
 
 ## What's next
 
-The scaffolding and the visualization MVP are done. The first two
-items on this list (2D phase-space panels and a Lyapunov display)
-shipped via roadmap proposals V1 and D1 respectively; see the
-``Recently shipped`` sections below. Remaining open follow-ups:
+The scaffolding and the visualization MVP are done. Items #1, #2, and
+#4 from earlier revisions of this list have all shipped — see the
+``Recently shipped`` sections below for V1 (2D phase-space panels),
+D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
+(numba-JIT'd RHS). Remaining open follow-ups:
 
 1. **Persistent settings.** Remember the last-used system, parameters,
    and integrator across launches (`QSettings`).
-2. **Real-time parameter rebinding.** Today, changing a slider doesn't
-   re-simulate until you press Run. A "live" mode that re-integrates
-   a short window on every change would be nice for exploration.
-   (Roadmap proposal E2.)
-3. **CI for the GUI smoke tests.** Today the GUI tests are skipped
+2. **CI for the GUI smoke tests.** Today the GUI tests are skipped
    without a display. A `xvfb` job (Linux) or a macOS runner with a
    logged-in user could turn them back on.
-4. **Numba-JIT'd hot loops for production runs.** Today the fixed-step
-   integrators don't JIT the outer loop because numba can't infer
-   arbitrary Python `rhs` types. A future pass could expose a
-   `compile_rhs(system)` helper that returns a numba-typed RHS and an
-   inner loop matching, e.g., the `rk4_step` API. (Roadmap proposal P2.)
-5. **Pre-rendered intros (manim).** Out-of-scope today but a nice
+3. **Pre-rendered intros (manim).** Out-of-scope today but a nice
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **P2 — AOT-compile sympy ``_rhs`` via numba.** Closes the
+  open ``CONTEXT.md`` "What's next" #4 item (and matches the P2
+  proposal in the roadmap). ``chaotic_systems.core._numba`` grows
+  ``compile_rhs(system) -> CompiledRHS``: detects whether a system
+  is backed by a ``LagrangianSystem`` (DoublePendulum's ``_lsys``)
+  or a ``HamiltonianSystem`` (HenonHeiles's ``hamiltonian``) and
+  ``numba.njit``\\s the inner ``sp.lambdify`` callable, returning
+  a uniform ``(t, y, params) -> dy/dt`` adapter. Pure-numpy systems
+  (Lorenz / Rossler / Kuramoto / ...) go through a passthrough
+  wrapper. Numba unavailable or JIT compile failure → silent
+  fallback to ``system.rhs``; the contract holds in every
+  environment. Reference observable: ``compile_rhs(dp)(t, y, params)
+  == dp.rhs(t, y, **params)`` to machine precision (max
+  absolute error = 0.0) at the canonical IC and over a 20-point
+  random grid of (state, parameter) pairs; same for HenonHeiles.
+  Pure-numpy passthrough: exact bitwise equality with ``sys.rhs``.
+  Performance: ~1.2× speedup on the double pendulum's RHS (the
+  array-assembly Python overhead bounds further gains; the bulk of
+  the win comes from numba inlining the CSE'd algebraic expressions
+  in the lambdified body). 15 new tests, all green. Commit ``<TBD>``.
 - **N4 — Kuramoto N-oscillator network.** First *network* dynamical
   system in the project — fills the "network dynamics" slot the
   brief calls out as a target phenomenology. Single new module

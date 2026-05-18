@@ -5,6 +5,12 @@ consume. Importing from submodules is fine, but the symbols re-exported
 at this package level are the supported ones.
 """
 
+from chaotic_systems.core._numba import (
+    NUMBA_AVAILABLE,
+    CompiledRHS,
+    compile_rhs,
+    maybe_njit,
+)
 from chaotic_systems.core.base import (
     DynamicalSystem,
     FloatArray,
@@ -40,11 +46,13 @@ from chaotic_systems.core.recurrence import (
 __all__ = [
     "BasinDiagram",
     "BifurcationDiagram",
+    "CompiledRHS",
     "DiscreteSystem",
     "DynamicalSystem",
     "FloatArray",
     "HamiltonianSystem",
     "LagrangianSystem",
+    "NUMBA_AVAILABLE",
     "Parameter",
     "RQAStats",
     "Trajectory",
@@ -52,9 +60,11 @@ __all__ = [
     "as_scatter",
     "basin_diagram",
     "bifurcation_diagram",
+    "compile_rhs",
     "double_well_rhs",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
+    "maybe_njit",
     "poincare_section",
     "recurrence_matrix",
     "rqa",
