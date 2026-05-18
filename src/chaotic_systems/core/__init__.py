@@ -11,6 +11,11 @@ from chaotic_systems.core.base import (
     Parameter,
     Trajectory,
 )
+from chaotic_systems.core.bifurcation import (
+    BifurcationDiagram,
+    as_scatter,
+    bifurcation_diagram,
+)
 from chaotic_systems.core.discrete import DiscreteSystem
 from chaotic_systems.core.hamiltonian import HamiltonianSystem
 from chaotic_systems.core.lagrangian import LagrangianSystem
@@ -21,6 +26,7 @@ from chaotic_systems.core.lyapunov import (
 from chaotic_systems.core.poincare import poincare_section
 
 __all__ = [
+    "BifurcationDiagram",
     "DiscreteSystem",
     "DynamicalSystem",
     "FloatArray",
@@ -28,6 +34,8 @@ __all__ = [
     "LagrangianSystem",
     "Parameter",
     "Trajectory",
+    "as_scatter",
+    "bifurcation_diagram",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
     "poincare_section",

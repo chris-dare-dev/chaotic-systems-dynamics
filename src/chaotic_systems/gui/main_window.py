@@ -2466,6 +2466,36 @@ def _build_window_class() -> type:
             if self._current_renderer is not None:
                 self._current_renderer.reset_camera()
 
+        def _on_open_bifurcation(self) -> None:
+            """Open the bifurcation-diagram explorer in a top-level window.
+
+            The dialog has its own picker over the registered discrete
+            maps (Logistic / HenonMap / Ikeda / StandardMap) so it
+            does not depend on the main window's ODE-only system picker.
+            See ``docs/proposals/capability-roadmap-2026-05-17.md`` D2.
+            """
+            try:
+                from chaotic_systems.gui.bifurcation_panel import (
+                    build_bifurcation_dialog,
+                )
+            except ImportError as exc:  # pragma: no cover
+                self._set_status(
+                    f"Bifurcation explorer unavailable: {exc}",
+                    state="error",
+                )
+                return
+            try:
+                dialog = build_bifurcation_dialog(parent=self)
+            except ValueError as exc:
+                self._set_status(
+                    f"No discrete maps registered: {exc}", state="error"
+                )
+                return
+            # Hold a reference so the window isn't GC'd before it's shown;
+            # WA_DeleteOnClose handles cleanup once the user closes it.
+            self._bifurcation_window = dialog
+            dialog.show()
+
         # ------------------------------------------------------------ toolbar
 
         # Toolbar action specs: (object_name, label, icon-stem, tooltip,
@@ -2521,6 +2551,16 @@ def _build_window_class() -> type:
                     "reset-view",
                     "Re-center the 3D camera (R)",
                     self._on_reset_view,
+                    True,
+                ),
+                (
+                    "action_bifurcation",
+                    "Bifurcation…",
+                    "bifurcation",
+                    "Open the bifurcation-diagram explorer for the registered "
+                    "discrete maps (logistic / Hénon / Ikeda / standard map). "
+                    "See docs/proposals/capability-roadmap-2026-05-17.md D2.",
+                    self._on_open_bifurcation,
                     True,
                 ),
                 (

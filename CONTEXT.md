@@ -125,6 +125,25 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **D2 — bifurcation-diagram tool (discrete-map v1).** Three new
+  modules, the headline pedagogical diagnostic added to the project.
+  ``core/bifurcation.py`` ships ``bifurcation_diagram(system,
+  param_name, param_values, n_record, n_transient, ...)`` returning a
+  ``BifurcationDiagram`` dataclass; ``visualization/bifurcation_plot.py``
+  renders it as a dense Feigenbaum-style scatter via matplotlib
+  (Agg-safe for worker threads, Tokyo-Night palette aware); and
+  ``gui/bifurcation_panel.py`` exposes ``BifurcationPanel`` (embedded
+  ``FigureCanvasQTAgg`` + ``QThread`` worker with progress + cancel)
+  plus ``build_bifurcation_dialog()`` that bundles a map picker over
+  the four N1 maps. Main window grows a single ``action_bifurcation``
+  toolbar QAction that opens the dialog. Numerical observables
+  pinned: logistic fixed point ``1 - 1/r = 0.6`` at r=2.5 to 1e-10;
+  period-2 cycle at r=3.2 hits Strogatz eq. 10.3.3 to 1e-6;
+  period-4 at r=3.5; period-3 window at r=3.835; chaotic regime at
+  r=3.9 has >50 distinct iterates. 29 new tests across core / viz /
+  GUI. ODE-flow bifurcation via Poincaré sampling is documented as
+  future work (it needs a separate "which plane / which projection"
+  control surface). Commit ``<TBD>``.
 - **N1 — discrete-maps subsystem with logistic / Hénon / Ikeda /
   Chirikov standard map.** New ``DiscreteSystem`` base class lives
   alongside ``DynamicalSystem`` in ``core/discrete.py``; both expose
