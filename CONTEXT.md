@@ -143,7 +143,7 @@ The scaffolding and the visualization MVP are done. Open follow-ups:
   r=3.9 has >50 distinct iterates. 29 new tests across core / viz /
   GUI. ODE-flow bifurcation via Poincaré sampling is documented as
   future work (it needs a separate "which plane / which projection"
-  control surface). Commit ``<TBD>``.
+  control surface). Commit ``73ce5e3``.
 - **N1 — discrete-maps subsystem with logistic / Hénon / Ikeda /
   Chirikov standard map.** New ``DiscreteSystem`` base class lives
   alongside ``DynamicalSystem`` in ``core/discrete.py``; both expose
