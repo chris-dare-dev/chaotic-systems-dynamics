@@ -141,7 +141,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   canonical author from a literature whitelist, panel widget
   exists / is read-only / opens external links externally,
   panel refreshes on system change, markdown round-trips through
-  ``setMarkdown`` into the plain-text view. Commit ``<TBD>``.
+  ``setMarkdown`` into the plain-text view. Commit ``4a2a883``.
 - **V1 — 2D phase-portrait panel.** Closes the longest-standing item
   on ``CONTEXT.md`` "What's next" (formerly #1). New
   ``visualization/phase_plot.py`` ships ``plot_phase_portrait(
