@@ -2274,6 +2274,12 @@ def _build_window_class() -> type:
                 except (AttributeError, IndexError, ValueError):
                     state_dim = 0
                 phase_act.setEnabled(state_dim >= 2)
+            # D5: the recurrence plot works on any-dimensional trajectory
+            # (the plot is in *time* space, not state space), so we
+            # gate it only on having a trajectory at all.
+            recurrence_act = self._transport_actions.get("action_recurrence")
+            if recurrence_act is not None:
+                recurrence_act.setEnabled(True)
             # Surface the pre-export size estimate now that a trajectory
             # exists. The chip + Export tooltip both update.
             self._refresh_export_estimate()
@@ -2752,6 +2758,47 @@ def _build_window_class() -> type:
             self._bifurcation_window = dialog
             dialog.show()
 
+        def _on_open_recurrence(self) -> None:
+            """Open the recurrence-plot / RQA explorer on the most recent trajectory.
+
+            See ``docs/proposals/capability-roadmap-2026-05-17.md`` D5.
+            """
+            traj = self._last_trajectory
+            if traj is None:
+                self._set_status(
+                    "Run a simulation first — the recurrence plot reads "
+                    "the most recent trajectory.",
+                    state="error",
+                )
+                return
+            try:
+                from chaotic_systems.gui.recurrence_panel import (
+                    build_recurrence_dialog,
+                )
+            except ImportError as exc:  # pragma: no cover
+                self._set_status(
+                    f"Recurrence explorer unavailable: {exc}", state="error"
+                )
+                return
+            system = None
+            try:
+                system = self.current_system
+            except (AttributeError, IndexError):
+                pass
+            try:
+                dialog = build_recurrence_dialog(
+                    traj,
+                    system_name=getattr(system, "name", None),
+                    parent=self,
+                )
+            except (TypeError, ValueError) as exc:
+                self._set_status(
+                    f"Recurrence plot failed: {exc}", state="error"
+                )
+                return
+            self._recurrence_window = dialog
+            dialog.show()
+
         def _on_open_basins(self) -> None:
             """Open the basin-of-attraction explorer in a top-level window.
 
@@ -2913,6 +2960,18 @@ def _build_window_class() -> type:
                     "y[i] vs y[j]. Disabled until you've run a simulation. "
                     "See docs/proposals/capability-roadmap-2026-05-17.md V1.",
                     self._on_open_phase_portrait,
+                    False,
+                ),
+                (
+                    "action_recurrence",
+                    "Recurrence plot…",
+                    "recurrence",
+                    "Open the recurrence-plot + RQA explorer on the most "
+                    "recent trajectory. Reveals periodic / chaotic / laminar "
+                    "structure that the 3D render alone doesn't expose. "
+                    "Disabled until you've run a simulation. See "
+                    "docs/proposals/capability-roadmap-2026-05-17.md D5.",
+                    self._on_open_recurrence,
                     False,
                 ),
                 (

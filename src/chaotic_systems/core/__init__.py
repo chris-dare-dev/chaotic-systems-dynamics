@@ -30,6 +30,12 @@ from chaotic_systems.core.lyapunov import (
     lyapunov_spectrum,
 )
 from chaotic_systems.core.poincare import poincare_section
+from chaotic_systems.core.recurrence import (
+    RQAStats,
+    recurrence_matrix,
+    rqa,
+    suggest_epsilon,
+)
 
 __all__ = [
     "BasinDiagram",
@@ -40,6 +46,7 @@ __all__ = [
     "HamiltonianSystem",
     "LagrangianSystem",
     "Parameter",
+    "RQAStats",
     "Trajectory",
     "UNCLASSIFIED_LABEL",
     "as_scatter",
@@ -49,4 +56,7 @@ __all__ = [
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
     "poincare_section",
+    "recurrence_matrix",
+    "rqa",
+    "suggest_epsilon",
 ]

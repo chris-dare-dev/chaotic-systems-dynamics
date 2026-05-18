@@ -123,6 +123,31 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **D5 — recurrence plots + RQA scalars.** Three new modules, pure
+  numpy compute, zero new runtime deps. ``core/recurrence.py``
+  ships ``recurrence_matrix(trajectory, *, epsilon, norm, theiler)``
+  → boolean ``(N, N)`` matrix, ``rqa(matrix, *, l_min, v_min)`` →
+  ``RQAStats`` (RR / DET / LAM / L_max / V_max / L_mean / TT / ENTR
+  per Marwan et al. 2007 §3), and ``suggest_epsilon(trajectory,
+  fraction=0.1)`` — bbox-diagonal heuristic.
+  ``visualization/recurrence_plot.py`` renders the matrix as a
+  black-and-white image with an optional RQA-stats overlay
+  (Tokyo Night dark mode by default, paper-mode toggle). ``gui/
+  recurrence_panel.py`` wraps it in a ``RecurrencePanel`` (epsilon /
+  l_min / v_min spinboxes, embedded ``FigureCanvasQTAgg``, initial
+  render at suggested epsilon, recompute button) plus
+  ``build_recurrence_dialog()``. Long trajectories are subsampled
+  uniformly to ``_MAX_PLOT_N = 800`` so the panel stays interactive.
+  Main window grows a single ``action_recurrence`` toolbar action,
+  gated on having a trajectory (mirrors phase-portrait pattern).
+  Signature observables: periodic unit circle (2 periods, 200
+  samples) → DET > 0.95, LAM > 0.95, L_max > 150 (almost full
+  diagonal stripe); IID Gaussian noise → DET < 0.35, L_max < 10
+  (essentially no long structure). Exactly-periodic test
+  (200 samples on exactly 2 periods, sample[i] = sample[i+100])
+  → ENTR = 0 to machine precision (Marwan §3.5: "for periodic
+  dynamics ENTR = 0"). 39 new tests across core/viz/GUI. Commit
+  ``<TBD>``.
 - **D4 — basin-of-attraction map.** The headline missing diagnostic;
   three new modules + a toolbar action. ``core/basins.py`` ships
   ``BasinDiagram`` dataclass + ``basin_diagram(rhs, *, x_axis, y_axis,
