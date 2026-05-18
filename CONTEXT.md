@@ -139,7 +139,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   observable: harmonic oscillator (omega=1, IC (1, 0)) integrated
   with RK45 over 2 periods, ``max|sqrt(x^2 + v^2) - 1| < 5e-4`` —
   a unit circle to integrator tolerance, exactly Strogatz Fig 6.1.1.
-  25 new tests. Commit ``<TBD>``.
+  25 new tests. Commit ``f241284``.
 - **D2 — bifurcation-diagram tool (discrete-map v1).** Three new
   modules, the headline pedagogical diagnostic added to the project.
   ``core/bifurcation.py`` ships ``bifurcation_diagram(system,
