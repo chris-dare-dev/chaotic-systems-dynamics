@@ -18,6 +18,7 @@ from chaotic_systems.systems.henon_map import HenonMap
 from chaotic_systems.systems.ikeda import Ikeda
 from chaotic_systems.systems.logistic import Logistic
 from chaotic_systems.systems.lorenz import Lorenz
+from chaotic_systems.systems.mackey_glass import MackeyGlass
 from chaotic_systems.systems.registry import (
     get_any_system,
     get_map,
@@ -41,6 +42,7 @@ __all__ = [
     "Ikeda",
     "Logistic",
     "Lorenz",
+    "MackeyGlass",
     "Rossler",
     "RosslerHyper",
     "StandardMap",

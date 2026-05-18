@@ -23,6 +23,12 @@ from chaotic_systems.integrators.adaptive import (
     RK45,
     Radau,
 )
+
+# N3 — DDE integrator. Exposed at package level so callers can
+# instantiate / introspect it; *not* registered in ``_REGISTRY``
+# below because BellenRK4 has a non-Integrator-protocol signature
+# (the delay + history function don't fit the ODE shape).
+from chaotic_systems.integrators.dde import BellenRK4
 from chaotic_systems.integrators.fixed_step import RK4, Euler
 
 # I1 — JAX backend. The ``jax_backend`` module itself imports cleanly
@@ -93,6 +99,7 @@ SYMPLECTIC_INTEGRATORS: frozenset[str] = frozenset(
 __all__ = [
     "BDF",
     "DOP853",
+    "BellenRK4",
     "Euler",
     "Integrator",
     "IntegratorDivergedError",

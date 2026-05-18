@@ -123,6 +123,28 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **N3 — Mackey-Glass DDE + Bellen-style DDE integrator.** First
+  delay-differential equation in the project — adds an
+  architecturally new *kind* of system (infinite-dimensional
+  phase space; chaos lives on the history manifold).
+  ``integrators/dde.py`` ships ``BellenRK4`` — a single-delay
+  Bellen-Zennaro-style RK4 with a linearly-interpolated history
+  buffer. ``systems/mackey_glass.py`` ships ``MackeyGlass``
+  (canonical β=0.2, γ=0.1, n=10, τ=17 chaotic regime; default IC
+  x(0)=1.2), which overrides ``DynamicalSystem.simulate`` to
+  dispatch to BellenRK4 regardless of the GUI's integrator-picker
+  choice (no ODE integrator is applicable). ``_rhs`` is a
+  static-history-approximation shim so the existing parametrized
+  registry test and any other ODE-style probe see a finite, well-
+  defined return rather than an exception. Reference observables
+  (tests/integrators/test_dde.py + tests/systems/test_mackey_glass.py):
+  (1) linear DDE ``x'(t) = -x(t-1)`` with constant-1 history hits
+  the piecewise-analytic ``x(1) = 0``, ``x(2) = -1/2`` to 1e-6;
+  (2) MackeyGlass at τ=2 converges to the analytic fixed point
+  ``x* = (β/γ - 1)^(1/n) = 1`` to 1e-4; (3) canonical τ=17 stays
+  bounded in (0.1, 2.0) with non-trivial late-time spread
+  std/mean > 0.05 (chaotic). 26 new tests, all green. Commit
+  ``<TBD>``.
 - **E2 — live parameter-slider preview.** Settings dropdown gains a
   checkable "Live preview (slider drag re-simulates)" action;
   default off. When toggled on, every change to any parameter

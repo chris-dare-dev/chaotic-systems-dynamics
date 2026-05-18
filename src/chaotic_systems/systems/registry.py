@@ -58,11 +58,15 @@ from chaotic_systems.systems.henon_map import HenonMap
 from chaotic_systems.systems.ikeda import Ikeda
 from chaotic_systems.systems.logistic import Logistic
 from chaotic_systems.systems.lorenz import Lorenz
+from chaotic_systems.systems.mackey_glass import MackeyGlass
 from chaotic_systems.systems.rossler import Rossler
 from chaotic_systems.systems.rossler_hyper import RosslerHyper
 from chaotic_systems.systems.standard_map import StandardMap
 
 # Ordered tuple of ODE-flow classes — defines the GUI display order.
+# MackeyGlass is a DDE rather than an ODE but inherits DynamicalSystem
+# and overrides ``simulate`` to dispatch to BellenRK4 internally, so it
+# slots into the same registry surface the GUI consumes.
 _SYSTEM_CLASSES: tuple[type[DynamicalSystem], ...] = (
     Lorenz,
     Rossler,
@@ -71,6 +75,7 @@ _SYSTEM_CLASSES: tuple[type[DynamicalSystem], ...] = (
     Chua,
     HenonHeiles,
     Duffing,
+    MackeyGlass,
 )
 
 # Ordered tuple of discrete-map classes. Listed in pedagogical order
