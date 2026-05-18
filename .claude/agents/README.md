@@ -8,16 +8,22 @@ instead of re-typing a 600-line prompt every time.
 
 ### Standalone read-only scouts (proposal-only)
 
+The standalone `ui-upgrade-scout` has been superseded by the
+`/frontend-uplift` pipeline below — but the single-agent file is kept
+for users who want a fast, single-context UI evaluation without
+running a full 4-phase pipeline.
+
 | Agent | Purpose | Output |
 |---|---|---|
-| `ui-upgrade-scout` | Evaluate the current PySide6 GUI, research 2025-2026 desktop scientific tool patterns online, propose concrete improvements. | `docs/proposals/ui-upgrade-<date>.md` |
+| `ui-upgrade-scout` | Single-agent UI evaluation (deprecated — prefer `/frontend-uplift`). | `docs/proposals/ui-upgrade-<date>.md` |
 
 ### Multi-agent pipeline workers
 
-The `/capability-scout` slash command (see `.claude/commands/capability-scout.md`)
-fans out 4 parallel sub-agents + 1 challenger as a 4-phase pipeline.
-These agents are not invoked individually in normal use — the slash
-command dispatches them.
+Two slash commands orchestrate 4-phase parallel-agent pipelines (see
+`.claude/commands/`). These agents are not invoked individually in
+normal use — the slash commands dispatch them.
+
+**`/capability-scout`** — what capability should we build next?
 
 | Agent | Phase | Role |
 |---|---|---|
@@ -26,6 +32,16 @@ command dispatches them.
 | `capability-scout-oss` | 1 (parallel) | Surveys active Python OSS with strict last-release-date discipline. |
 | `capability-scout-internal-adversary` | 1 (parallel) | Reads the codebase to find "already built but un-exposed" capabilities (D1-class wins). |
 | `capability-scout-challenger` | 3 (sequential) | Argues against every candidate in the synthesis using a 10-axis checklist. |
+
+**`/frontend-uplift`** — where can the frontend become more modern?
+
+| Agent | Phase | Role |
+|---|---|---|
+| `frontend-uplift-visual` | 1 (parallel) | Boots the GUI, screenshots multiple states, identifies visual defects. |
+| `frontend-uplift-library` | 1 (parallel) | Surveys active PySide6/PyVista/theme libraries (qtawesome, qfluentwidgets, superqt, etc.). |
+| `frontend-uplift-inspiration` | 1 (parallel) | Studies napari / ParaView / Houdini / Logic Pro patterns to borrow. |
+| `frontend-uplift-current-state-critic` | 1 (parallel) | Reads GUI code + screenshots; surfaces token leaks, spec-vs-impl drift, dead code, reject list. |
+| `frontend-uplift-challenger` | 3 (sequential) | Argues against every candidate using a 10-axis checklist (native-only, worker-thread, token discipline, renderer pacing, hi-DPI, a11y, etc.). |
 
 The Phase 2 (synthesize) and Phase 4 (prioritize) phases run in the
 **main session**, not as sub-agents, because synthesis requires all
