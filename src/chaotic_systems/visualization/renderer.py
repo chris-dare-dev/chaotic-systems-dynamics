@@ -34,6 +34,8 @@ batch video) lightweight.
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -45,7 +47,44 @@ from .contract import Trajectory, as_points
 if TYPE_CHECKING:
     from pyvistaqt import QtInteractor
 
-__all__ = ["Renderer3D"]
+__all__ = ["Renderer3D", "render_lines_as_tubes_default"]
+
+
+def render_lines_as_tubes_default() -> bool:
+    """Whether to draw the trajectory polyline as tubes by default.
+
+    Why this exists: on macOS — especially macOS 26+ where Apple's
+    OpenGL implementation is the ``AppleMetalOpenGLRenderer`` shim —
+    VTK's polydata mapper has a shader-template substitution bug when
+    *tube rendering* is combined with *scalar-colored lines* (our
+    viridis colormap on the trajectory). The fragment shader is
+    emitted with ``colorTCoordVCGSOutput`` referenced but never
+    declared, the GLSL compile fails, and VTK then segfaults inside
+    ``vtkOpenGLPolyDataMapper::UpdateShaders`` when it tries to bind a
+    uniform on the broken program. See the crash report dated
+    2026-05-17 for the full trace.
+
+    The override knob is the ``CHAOTIC_RENDER_TUBES`` environment
+    variable:
+
+    - ``"1"`` / ``"true"`` / ``"yes"`` → force tubes on (regardless of OS)
+    - ``"0"`` / ``"false"`` / ``"no"`` → force tubes off
+    - unset (default) → tubes off on macOS, on elsewhere
+
+    Plain lines look thinner than tubes at the same ``line_width``,
+    but "thinner trajectory" beats "GUI segfaults during render."
+    """
+
+    override = os.environ.get("CHAOTIC_RENDER_TUBES")
+    if override is not None:
+        normalized = override.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        # Unknown value — fall through to the OS-based default rather
+        # than silently honoring a typo.
+    return sys.platform != "darwin"
 
 
 # Maximum length (in seconds) of an auto-duration video export. Pulled out so
@@ -432,9 +471,12 @@ class Renderer3D:
         self._polyline = polyline
         self._current_n = n
 
+        # ``render_lines_as_tubes`` is OS-gated: on macOS we leave it off
+        # by default because the VTK shader-template path crashes (see
+        # ``render_lines_as_tubes_default`` for the full rationale).
         line_kwargs: dict[str, Any] = {
             "line_width": self._line_width,
-            "render_lines_as_tubes": True,
+            "render_lines_as_tubes": render_lines_as_tubes_default(),
         }
         if self.cmap is not None:
             line_kwargs["scalars"] = self.color_by
@@ -760,40 +802,62 @@ class Renderer3D:
         if self._plotter is None:
             raise RuntimeError("call attach() or show() before animate()")
         # Probe up-front so we don't catch generic exceptions per-frame.
-        update_fn = (
-            self._plotter.update
-            if hasattr(self._plotter, "update")
-            else self._plotter.render
+        # ``render()`` is the right primary call here for the same reason
+        # as in ``_request_redraw`` — for a ``QtInteractor`` it's the
+        # only thing that triggers ``vtkRenderWindow::Render()``;
+        # ``update()`` would just schedule a no-op Qt paint. Fall back to
+        # ``update()`` only when the plotter lacks ``render()`` (a stub
+        # in some tests).
+        render_fn = (
+            self._plotter.render
+            if hasattr(self._plotter, "render")
+            else self._plotter.update
         )
         n_total = self.points.shape[0]
         for n in range(2, n_total + 1, max(1, int(frame_step))):
             self._set_visible_points(n)
-            update_fn()
+            render_fn()
 
     def _request_redraw(self) -> None:
         """Ask the attached plotter to repaint. Safe before initialization.
 
-        We prefer ``plotter.update()`` (the recommended PyVista API for
-        interactive plotters) but fall back to ``plotter.render()`` if the
-        interactor hasn't been initialized yet — which happens when callers
-        drive an off-screen plotter step-by-step before calling
-        ``plotter.show()``.
+        The order matters: we call ``plotter.render()`` first because for
+        a ``pyvistaqt.QtInteractor`` (the GUI's plotter), that is the
+        method that actually triggers ``vtkRenderWindow::Render()`` and
+        emits ``render_signal``. Then we follow up with ``update()`` as a
+        Qt paint-schedule nudge — the same "render then update" idiom
+        the GUI uses in ``_force_viewport_render`` (see
+        ``main_window.py``).
+
+        Why **not** the other way around: ``QtInteractor`` does not
+        override ``QWidget.update``, so calling ``update()`` only
+        schedules a Qt paint event. VTK widgets don't repaint on Qt
+        paint events — they repaint when ``Render()`` runs. The old
+        order ("update() first, render() only if update() raises")
+        therefore short-circuited every animation tick to a no-op once
+        the interactor was up, leaving PyVistaQt's internal
+        ``render_timer`` (default ``auto_update=5.0``, i.e. 5 Hz) as
+        the only thing actually painting at idle. With a 60 Hz
+        animation tick, that produced ~12× under-sampling and the
+        head-sphere "snapped" between integer-frame positions whenever
+        the user wasn't dragging the camera (the interactor's own
+        mouse-driven renders had been masking the bug). Crash report
+        dated 2026-05-17 traces it end-to-end.
         """
 
         if self._plotter is None:
             return
-        update_fn: Callable[[], Any] | None = getattr(self._plotter, "update", None)
         render_fn: Callable[[], Any] | None = getattr(self._plotter, "render", None)
-        if update_fn is not None:
-            try:
-                update_fn()
-                return
-            except RuntimeError:
-                pass
+        update_fn: Callable[[], Any] | None = getattr(self._plotter, "update", None)
         if render_fn is not None:
             try:
                 render_fn()
             except (RuntimeError, AttributeError):  # pragma: no cover - defensive
+                pass
+        if update_fn is not None:
+            try:
+                update_fn()
+            except RuntimeError:  # pragma: no cover - defensive
                 pass
 
     def step(self, n_visible: int) -> None:
@@ -1224,9 +1288,12 @@ class Renderer3D:
         )
         polyline.point_data[self.color_by] = self._scalar_buffer
         self._polyline = polyline
+        # ``render_lines_as_tubes`` is OS-gated: on macOS we leave it off
+        # by default because the VTK shader-template path crashes (see
+        # ``render_lines_as_tubes_default`` for the full rationale).
         line_kwargs: dict[str, Any] = {
             "line_width": self._line_width,
-            "render_lines_as_tubes": True,
+            "render_lines_as_tubes": render_lines_as_tubes_default(),
         }
         cmap_enabled = getattr(self, "_color_by_progress_enabled", True)
         new_cmap = self.cmap if cmap_enabled else None
@@ -1425,9 +1492,12 @@ class Renderer3D:
             self._plotter.remove_actor(self._line_actor, render=False)
         except (AttributeError, RuntimeError, TypeError):  # pragma: no cover
             pass
+        # ``render_lines_as_tubes`` is OS-gated: on macOS we leave it off
+        # by default because the VTK shader-template path crashes (see
+        # ``render_lines_as_tubes_default`` for the full rationale).
         line_kwargs: dict[str, Any] = {
             "line_width": self._line_width,
-            "render_lines_as_tubes": True,
+            "render_lines_as_tubes": render_lines_as_tubes_default(),
         }
         new_cmap = self.cmap if getattr(self, "_color_by_progress_enabled", True) else None
         if new_cmap is not None:
@@ -1470,9 +1540,12 @@ class Renderer3D:
             self._plotter.remove_actor(self._line_actor, render=False)
         except (AttributeError, RuntimeError, TypeError):  # pragma: no cover
             pass
+        # ``render_lines_as_tubes`` is OS-gated: on macOS we leave it off
+        # by default because the VTK shader-template path crashes (see
+        # ``render_lines_as_tubes_default`` for the full rationale).
         line_kwargs: dict[str, Any] = {
             "line_width": self._line_width,
-            "render_lines_as_tubes": True,
+            "render_lines_as_tubes": render_lines_as_tubes_default(),
         }
         if new_cmap is not None:
             line_kwargs["scalars"] = self.color_by

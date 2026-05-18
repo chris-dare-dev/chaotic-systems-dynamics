@@ -7,12 +7,16 @@ verify the integration end-to-end without spending time on a long animation.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from chaotic_systems.visualization.renderer import Renderer3D
+from chaotic_systems.visualization.renderer import (
+    Renderer3D,
+    render_lines_as_tubes_default,
+)
 
 
 @pytest.fixture()
@@ -64,3 +68,54 @@ def test_renderer_video_export(tmp_path: Path, lorenz_points: np.ndarray) -> Non
     written = r.render_to_video(out, fps=15, duration_seconds=1.0, size=(320, 240))
     assert written.exists()
     assert written.stat().st_size > 1024  # at least a kilobyte of video
+
+
+# --- render_lines_as_tubes_default --------------------------------------
+#
+# Background: on macOS 26+ the VTK polydata mapper crashes inside
+# ``vtkOpenGLPolyDataMapper::UpdateShaders`` when tube rendering is
+# combined with scalar-colored lines (our viridis-colored trajectory).
+# Tubes are off by default on darwin to dodge that path. These tests
+# pin the helper's contract.
+
+def test_tubes_default_off_on_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CHAOTIC_RENDER_TUBES", raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert render_lines_as_tubes_default() is False
+
+
+def test_tubes_default_on_for_non_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CHAOTIC_RENDER_TUBES", raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert render_lines_as_tubes_default() is True
+
+
+@pytest.mark.parametrize("on_value", ["1", "true", "TRUE", "yes", "on"])
+def test_tubes_env_force_on(monkeypatch: pytest.MonkeyPatch, on_value: str) -> None:
+    """Even on macOS, the env override forces tubes on."""
+
+    monkeypatch.setenv("CHAOTIC_RENDER_TUBES", on_value)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert render_lines_as_tubes_default() is True
+
+
+@pytest.mark.parametrize("off_value", ["0", "false", "FALSE", "no", "off"])
+def test_tubes_env_force_off(monkeypatch: pytest.MonkeyPatch, off_value: str) -> None:
+    """Even on non-macOS, the env override turns tubes off."""
+
+    monkeypatch.setenv("CHAOTIC_RENDER_TUBES", off_value)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert render_lines_as_tubes_default() is False
+
+
+def test_tubes_env_unknown_value_falls_back_to_os_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typo in CHAOTIC_RENDER_TUBES should not silently flip the
+    behavior — fall back to the OS default rather than guessing."""
+
+    monkeypatch.setenv("CHAOTIC_RENDER_TUBES", "maybe")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert render_lines_as_tubes_default() is False
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert render_lines_as_tubes_default() is True
