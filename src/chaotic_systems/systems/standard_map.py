@@ -76,6 +76,46 @@ class StandardMap(DiscreteSystem):
     }
     # State order is (theta, p) — angle first, action second.
     default_initial_state = np.array([0.5, 0.5], dtype=np.float64)
+    educational_notes = """\
+**The universal model for Hamiltonian chaos.** Chirikov (1979)
+showed that *any* smooth, near-integrable Hamiltonian system, near
+a resonance, looks locally like this map. The standard map is to
+Hamiltonian chaos what the logistic map is to dissipative chaos:
+the universal toy.
+
+**Where to read about it:** Chirikov, *A universal instability of
+many-dimensional oscillator systems*, Phys. Rep. 52 (1979); Greene,
+*A method for determining a stochastic transition*, J. Math. Phys.
+20 (1979); Lichtenberg & Lieberman, *Regular and Chaotic
+Dynamics* 2e, §4.
+
+**The KAM picture.** This map is area-preserving (det J ≡ 1) and
+twist-like. The Kolmogorov-Arnold-Moser theorem says most
+invariant tori survive small perturbations; numerical experiments
+on this map showed exactly *when* the last one breaks down. The
+*golden-mean torus* — the one with frequency ratio
+(1 + √5)/2 — is the most robust and dies at the critical value
+
+    K_c ≈ 0.971635 (Greene 1979).
+
+Above K_c every invariant torus is broken and global stochasticity
+sets in: an orbit can wander anywhere on the cylinder.
+
+**Try these excursions:**
+
+- K = 0: rigid rotation. p is exactly conserved (verified by the
+  test suite). All orbits are 1D invariant tori.
+- K = 0.5: mixed phase space — KAM tori coexisting with small
+  resonant chaotic regions.
+- K = 0.9716: *the critical value*. The last torus dies.
+- K = 1.5: the chaotic sea connects everywhere; tori survive only
+  in isolated islands.
+- K = 5.0: hard chaos almost everywhere; small periodic islands
+  remain.
+
+Iterate from a grid of initial conditions and plot the trajectory
+overlays — you'll see the *Poincaré sea* in action.
+"""
 
     def _step(self, y: FloatArray, params: Mapping[str, float]) -> FloatArray:
         theta, p = y[0], y[1]

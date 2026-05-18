@@ -52,6 +52,36 @@ class HenonMap(DiscreteSystem):
         "b": Parameter("b", _DEFAULT_B, -1.0, 1.0, "area contraction factor"),
     }
     default_initial_state = np.array([0.0, 0.0], dtype=np.float64)
+    educational_notes = """\
+**Stretch and fold, in 30 characters of code.** The Hénon map
+(1976) is the smallest interesting 2D map with a *strange
+attractor*. Its iterates trace out a thin Cantor-set-cross-arc
+that's the textbook illustration of how fractal structure arises
+from a smooth polynomial.
+
+**Where to read about it:** Hénon, *A two-dimensional mapping with
+a strange attractor*, Commun. Math. Phys. 50 (1976); Ott, *Chaos
+in Dynamical Systems* 2e, §4.
+
+**Area contraction.** The Jacobian determinant is identically −b,
+so every iterate shrinks the area by |b|. With b = 0.3 the orbit
+is dissipative; with b = 1 it would be area-preserving (and the
+attractor would not be strange — pick the standard map for that
+instead).
+
+**The route to chaos** (sweep a at fixed b = 0.3):
+
+- a = 0.5: period-1 fixed point.
+- a = 1.06: period-doubling begins.
+- a = 1.22: period-4.
+- a = 1.40: chaos (the canonical "Hénon attractor" figure).
+- a ≈ 1.06 to ≈ 1.40 in the Bifurcation explorer shows the
+  full cascade.
+
+Largest Lyapunov exponent at canonical (1.4, 0.3): λ₁ ≈ 0.42
+(Hénon 1976), λ₂ ≈ −1.62 — sum is ln|−b| = ln 0.3 ≈ −1.20
+(matches λ₁ + λ₂ within ~10⁻²).
+"""
 
     def _step(self, y: FloatArray, params: Mapping[str, float]) -> FloatArray:
         x, yv = y[0], y[1]

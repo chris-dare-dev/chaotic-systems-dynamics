@@ -88,6 +88,12 @@ class DiscreteSystem(abc.ABC):
     parameters: Mapping[str, Parameter] = _EMPTY_PARAMS
     default_initial_state: FloatArray = _EMPTY_INITIAL_STATE
 
+    # Optional markdown blob rendered by the GUI's notes panel under the
+    # LaTeX. Same convention as
+    # :class:`chaotic_systems.core.base.DynamicalSystem.educational_notes` —
+    # textbook references + parameter excursions worth trying.
+    educational_notes: str = ""
+
     # ----- public metadata --------------------------------------------------
 
     @property

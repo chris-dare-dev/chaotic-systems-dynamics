@@ -64,6 +64,35 @@ class RosslerHyper(DynamicalSystem):
     default_initial_state = np.array(
         [-10.0, -6.0, 0.0, 10.0], dtype=np.float64
     )
+    educational_notes = """\
+**The first hyperchaotic flow.** Rössler (1979) extended his 3D
+chaotic attractor with a fourth state variable and discovered
+something genuinely new: a system with *two* positive Lyapunov
+exponents. That had been considered impossible in low dimensions.
+
+**Where to read about it:** Stankevich & Wilczak, *Computer-assisted
+proofs of existence of hyperchaotic dynamics*, Phys. Lett. A 379
+(2015) — rigorous treatment; Scholarpedia "Hyperchaos" entry —
+intuition.
+
+**Why it matters:** hyperchaos is the qualitative regime past
+ordinary chaos. With two positive exponents the dynamics expand in
+two directions simultaneously; trajectories scatter on a
+*hyperchaotic attractor* (not a strange attractor in the strict
+3D sense). It's the simplest exemplar of how chaos scales with
+dimension.
+
+**Pair with the Diagnostics card.** Click *Compute Lyapunov
+spectrum* — you'll see the (+, +, 0, -) signature:
+
+- λ₁ ≈ +0.112  (chaotic stretching #1)
+- λ₂ ≈ +0.019  (chaotic stretching #2 — the hyperchaos signature)
+- λ₃ ≈  0      (flow direction)
+- λ₄ ≈ -25.59  (strong dissipation)
+
+The card classifies the system as *Hyperchaotic (2 positive
+exponents)*. No 3D-or-lower attractor can produce that label.
+"""
 
     def _rhs(
         self, t: float, y: FloatArray, params: Mapping[str, float]

@@ -48,6 +48,35 @@ class Chua(DynamicalSystem):
         "m1": Parameter("m1", -0.714, -2.0, 2.0, "outer slope of Chua diode"),
     }
     default_initial_state = np.array([0.7, 0.0, 0.0], dtype=np.float64)
+    educational_notes = """\
+**The chaos you can build on a breadboard.** Chua's circuit (1984)
+is the only chaotic system whose chaos has been independently
+confirmed in physical hardware *thousands of times* across labs
+worldwide. The piecewise-linear nonlinearity h(x) — the
+"Chua diode" — is what every textbook circuit is missing.
+
+**Where to read about it:** Matsumoto, Chua & Komuro, *The Double
+Scroll*, IEEE Trans. Circuits Syst. CAS-32 (1985); Madan (ed.),
+*Chua's Circuit: A Paradigm for Chaos*, World Scientific (1993);
+Sprott, *Chaos and Time-Series Analysis* (2003) §6.
+
+**Why it matters:** the *double-scroll attractor* — two
+interlocking spiral lobes joined by occasional jumps — is the
+qualitative signature. It's chaos in three dimensions but with
+a piecewise-linear vector field, which makes both rigorous proof
+*and* hardware realization tractable.
+
+**Try these excursions** (keep m₀ = -1.143, m₁ = -0.714):
+
+- α = 8.5: single-scroll periodic orbit.
+- α = 10.0: period-doubling into single-scroll chaos.
+- α = 13.0: just past the double-scroll bifurcation.
+- α = 15.6: canonical fully-developed double scroll.
+- α = 20.0: chaos plus periodic windows.
+
+Compute the Lyapunov spectrum — you should see one positive
+exponent (~0.3 at α = 15.6) and one strongly negative one.
+"""
 
     @staticmethod
     def _h(x: float, m0: float, m1: float) -> float:

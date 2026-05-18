@@ -289,6 +289,7 @@ def _build_window_class() -> type:
         QSlider,
         QSplitter,
         QStatusBar,
+        QTextBrowser,
         QToolBar,
         QToolButton,
         QVBoxLayout,
@@ -1646,8 +1647,42 @@ def _build_window_class() -> type:
                 math_card,
                 expanded=True,
             )
+            # E1 — educational notes panel.
+            #
+            # A ``QTextBrowser`` renders the markdown blob each system
+            # exposes via ``educational_notes``. We wrap it in the same
+            # ``_CollapsibleSection`` widget the LaTeX panels use so the
+            # user can fold it away when not needed. Qt 5.14+ /
+            # PySide6 ships ``setMarkdown`` natively, so no extra
+            # dependency is needed. See
+            # ``docs/proposals/capability-roadmap-2026-05-17.md`` E1.
+            self.notes_widget = QTextBrowser(math_card)
+            self.notes_widget.setObjectName("educational_notes")
+            self.notes_widget.setOpenExternalLinks(True)
+            self.notes_widget.setReadOnly(True)
+            self.notes_widget.setFrameShape(QFrame.Shape.NoFrame)
+            # Match the rest of the dark theme; the QSS sets a base
+            # background, but the document-side stylesheet controls
+            # link / heading colors so they stay legible.
+            self.notes_widget.document().setDefaultStyleSheet(
+                "h1,h2,h3{color:#c0caf5;margin:6px 0 4px 0;}"
+                "p{color:#a9b1d6;line-height:1.4;}"
+                "li{color:#a9b1d6;}"
+                "code{color:#9ece6a;background:#1a1b26;"
+                "padding:1px 4px;border-radius:3px;}"
+                "strong{color:#e0af68;}"
+                "em{color:#bb9af7;}"
+                "a{color:#7aa2f7;}"
+            )
+            self._notes_section = _CollapsibleSection(
+                "Notes",
+                self.notes_widget,
+                math_card,
+                expanded=True,
+            )
             math_layout.addWidget(self._ode_section, 1)
             math_layout.addWidget(self._lagr_section, 1)
+            math_layout.addWidget(self._notes_section, 2)
             right_layout.addWidget(math_card, 1)
 
             # --- assemble ---------------------------------------------------
@@ -1886,6 +1921,14 @@ def _build_window_class() -> type:
                 lagr or r"\text{(not derived from a Lagrangian)}",
             )
 
+            # E1: refresh the educational-notes panel. If the system
+            # didn't author any notes, fall back to a brief placeholder
+            # so the panel never goes empty in a way the user could read
+            # as broken.
+            self._set_educational_notes(
+                getattr(system, "educational_notes", "") or ""
+            )
+
             # Refresh status-bar lyapunov chip + Diagnostics card —
             # hide / reset on system change until/unless a value is
             # computed for the new system.
@@ -2019,6 +2062,30 @@ def _build_window_class() -> type:
             pixmap.setDevicePixelRatio(dpr)
             widget.setPixmap(pixmap)
             widget.setFixedSize(int(pixmap.width() / dpr), int(pixmap.height() / dpr))
+
+        def _set_educational_notes(self, notes: str) -> None:
+            """Render ``notes`` (markdown) into the notes panel.
+
+            Empty strings fall back to a brief placeholder so the panel
+            never reads as broken; non-empty strings are passed through
+            :meth:`QTextBrowser.setMarkdown` (Qt 5.14+ — no external
+            markdown dependency required).
+            """
+            if not hasattr(self, "notes_widget") or self.notes_widget is None:
+                return
+            stripped = (notes or "").strip()
+            if not stripped:
+                # Friendly placeholder so it's obvious the panel isn't
+                # broken — just no notes have been authored yet for the
+                # current system.
+                self.notes_widget.setMarkdown(
+                    "_No educational notes for this system yet._"
+                )
+                return
+            self.notes_widget.setMarkdown(stripped)
+            # Scroll to top in case the previous system's notes had been
+            # scrolled down.
+            self.notes_widget.verticalScrollBar().setValue(0)
 
         def _params(self) -> dict[str, float]:
             return {key: w.value() for key, w in self._param_widgets.items()}

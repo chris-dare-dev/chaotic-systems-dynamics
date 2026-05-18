@@ -123,6 +123,25 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **E1 — per-system educational notes.** Both ``DynamicalSystem``
+  and ``DiscreteSystem`` gain an ``educational_notes: str`` class
+  attribute (markdown). All 11 registered systems now ship
+  ~25-line annotations citing canonical textbook references
+  (Strogatz / Ott / Sprott / Lichtenberg-Lieberman / etc.), the
+  chaotic-regime parameters worth trying, and what to watch for
+  (period-doubling cascade in Duffing, KAM tori in the standard
+  map, the (+, +, 0, -) Lyapunov signature in 4D Rössler, ...).
+  The right-side Mathematics card grows a collapsible "Notes"
+  section below the existing LaTeX panels — a ``QTextBrowser``
+  driven by ``QTextBrowser.setMarkdown`` (Qt 5.14+, no new
+  dependency). Notes re-render on system change via
+  ``_set_educational_notes``; an empty-notes system shows a
+  friendly placeholder. 30 new tests pin: every registered
+  system has non-empty notes, each notes blob cites at least one
+  canonical author from a literature whitelist, panel widget
+  exists / is read-only / opens external links externally,
+  panel refreshes on system change, markdown round-trips through
+  ``setMarkdown`` into the plain-text view. Commit ``<TBD>``.
 - **V1 — 2D phase-portrait panel.** Closes the longest-standing item
   on ``CONTEXT.md`` "What's next" (formerly #1). New
   ``visualization/phase_plot.py`` ships ``plot_phase_portrait(

@@ -50,6 +50,36 @@ class HenonHeiles(DynamicalSystem):
     state_dim = 4
     parameters: dict[str, Parameter] = {}  # parameter-free in the standard formulation
     default_initial_state = np.array([0.0, 0.1, 0.45, 0.0], dtype=np.float64)
+    educational_notes = """\
+**Galactic chaos in 4D.** Hénon & Heiles (1964) introduced this
+2-DOF Hamiltonian as a toy for axisymmetric *galactic* potentials.
+It became the textbook example of how a *third integral of motion*
+fails to survive in a non-integrable system — chaos breaks the
+phase space into KAM tori (regular) and stochastic seas
+(chaotic), all on the same energy shell.
+
+**Where to read about it:** Hénon & Heiles, *Astron. J.* 69
+(1964); Ott, *Chaos in Dynamical Systems* 2e, §6.5; Lichtenberg &
+Lieberman, *Regular and Chaotic Dynamics* 2e, §1.4.
+
+**The energy story** (this is the key insight): energy E is the
+only conserved quantity that survives generically. As E increases:
+
+- E ≲ 1/12: phase space is mostly KAM tori — quasi-periodic.
+- E ≈ 1/8: mixed regime — large stochastic regions appear
+  among the surviving tori.
+- E ≈ 1/6: the *escape energy* — trajectories can leave the
+  potential well and run off to infinity. Past this, the system
+  isn't really bounded.
+
+The default IC sits at E ≈ 0.125 — squarely in the mixed regime
+where the Poincaré section (x=0, p_x>0) shows the famous
+"islands of stability in a chaotic sea" picture.
+
+**Pair with yoshida4.** This system is Hamiltonian → pick a
+symplectic integrator (leapfrog / velocity_verlet / yoshida4) so
+energy stays bounded forever. RK45 drifts.
+"""
 
     def _rhs(
         self, t: float, y: FloatArray, params: Mapping[str, float]

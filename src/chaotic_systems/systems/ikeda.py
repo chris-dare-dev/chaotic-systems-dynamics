@@ -69,6 +69,38 @@ class Ikeda(DiscreteSystem):
         ),
     }
     default_initial_state = np.array([0.1, 0.1], dtype=np.float64)
+    educational_notes = """\
+**Chaos in a laser.** Ikeda (1979) derived this map for the complex
+amplitude of a light pulse bouncing around a *nonlinear ring
+cavity*. The complex-valued original was reduced to two real
+coordinates by Hammel, Jones & Moloney (1985); that's the form
+shown here.
+
+**Where to read about it:** Ikeda, *Multiple-valued stationary
+state and its instability of the transmitted light by a ring
+cavity system*, Opt. Comm. 30 (1979); Hammel, Jones & Moloney,
+*Global dynamical behavior of the optical field in a ring
+cavity*, J. Opt. Soc. Am. B 2 (1985).
+
+**Why the picture is gorgeous.** The map is a state-dependent
+*rotation* composed with a uniform contraction (factor u). Iterating
+from a generic seed traces out a *spiral attractor* — a set of
+nested arcs that's self-similar on every scale. It's the
+"sea-shell" of dynamical-systems imagery.
+
+**Try these excursions:**
+
+- u = 0.4: contraction to a single fixed point.
+- u = 0.6: period-2 attractor appears.
+- u = 0.75: chaos begins.
+- u = 0.90: canonical strange attractor — the textbook spiral.
+- u → 1: rotation dominates, attractor expands; u = 1 is
+  area-preserving (the determinant of the Jacobian is u² = 1).
+
+**Open the Bifurcation explorer** with u ∈ [0.5, 1.0] — the
+spiral attractor's birth and growth is one of the prettier
+single-parameter pictures in chaos.
+"""
 
     def _step(self, y: FloatArray, params: Mapping[str, float]) -> FloatArray:
         x, yv = y[0], y[1]

@@ -34,6 +34,33 @@ class Rossler(DynamicalSystem):
         r"\dot z &= b + z(x - c)\end{aligned}"
     )
     state_dim = 3
+    educational_notes = """\
+**Lorenz with the math cleaned up.** Rössler (1976) deliberately
+constructed the simplest possible chaotic flow: three ODEs with one
+quadratic nonlinearity (versus Lorenz's two). The geometry of
+"stretch and fold" — the universal mechanism behind every chaotic
+attractor — is easier to read here than in any other system.
+
+**Where to read about it:** Strogatz, *Nonlinear Dynamics and Chaos*
+2e, §12.3 "Lorenz Maps"; Sprott, *Chaos and Time-Series Analysis*
+(2003), §6.
+
+**Why it matters:** the attractor lives almost entirely in a plane;
+the third dimension is used only briefly per orbit, when the
+trajectory swings up and folds back. That makes the
+*period-doubling cascade* visible in just the (x, z) projection as
+c varies.
+
+**Try these excursions:**
+
+- c = 4.0: simple period-1 limit cycle.
+- c = 6.0: period-2.
+- c = 8.5: period-4.
+- c = 8.7: period-8 — the cascade is in full swing.
+- c = 12.0 / 18.0: chaos with periodic windows interleaved.
+
+λ₁ ≈ 0.071 at the canonical (a, b, c) = (0.2, 0.2, 5.7).
+"""
     parameters = {
         "a": Parameter("a", 0.2, 0.0, 1.0, "coupling parameter"),
         "b": Parameter("b", 0.2, 0.0, 5.0, "drive parameter"),

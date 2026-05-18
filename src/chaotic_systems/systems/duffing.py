@@ -48,6 +48,34 @@ class Duffing(DynamicalSystem):
         "omega": Parameter("omega", 1.0, 0.1, 10.0, "drive angular frequency"),
     }
     default_initial_state = np.array([0.1, 0.0], dtype=np.float64)
+    educational_notes = """\
+**Chaos in a 1-DOF driven oscillator.** The Duffing equation (1918)
+is a textbook nonlinear oscillator with a double-well potential
+V(x) = ½αx² + ¼βx⁴, periodically driven. The 2D autonomous state
+*(x, v)* lifts to a 3D non-autonomous one once you fold in the
+driving phase ωt — and that's exactly where chaos lives (the
+Poincaré-Bendixson theorem rules it out in 2D autonomous).
+
+**Where to read about it:** Guckenheimer & Holmes, *Nonlinear
+Oscillations, Dynamical Systems, and Bifurcations of Vector
+Fields* (1983), §2.2; Strogatz §12.5; Moon, *Chaotic Vibrations*
+(1987), §3.
+
+**The route to chaos:** vary the drive amplitude γ at fixed
+ω = 1, δ = 0.2:
+
+- γ = 0.10: damped oscillation in one well, no jumps.
+- γ = 0.20: regular cross-well jumps every drive period.
+- γ = 0.28: period-doubled jumps.
+- γ = 0.30: chaotic cross-well jumps — the canonical regime.
+- γ = 0.50: period-1 again — chaos has a *finite* parameter
+  window.
+
+**Pair with the V1 phase portrait** on (y[0], y[1]) = (x, v) —
+the cross-well jumps are visually unmistakable, and the strange
+attractor in the Poincaré section (sampled once per drive period)
+is the chunky "Duffing fractal" Moon's 1987 book opens with.
+"""
 
     def _rhs(
         self, t: float, y: FloatArray, params: Mapping[str, float]

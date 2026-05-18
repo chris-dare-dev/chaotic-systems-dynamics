@@ -156,6 +156,14 @@ class DynamicalSystem(abc.ABC):
     parameters: Mapping[str, Parameter] = _EMPTY_PARAMS
     default_initial_state: FloatArray = _EMPTY_INITIAL_STATE
 
+    # Optional markdown blob rendered by the GUI's notes panel under the
+    # LaTeX. Subclasses are encouraged to fill this with textbook
+    # references (Strogatz / Ott / Sprott / Lichtenberg-Lieberman),
+    # the chaotic-regime parameters worth trying, and a one-paragraph
+    # summary of what the system is famous for. See
+    # ``docs/proposals/capability-roadmap-2026-05-17.md`` E1.
+    educational_notes: str = ""
+
     # ----- public API --------------------------------------------------
 
     @property

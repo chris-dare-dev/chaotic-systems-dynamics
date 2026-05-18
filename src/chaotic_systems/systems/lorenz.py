@@ -38,6 +38,34 @@ class Lorenz(DynamicalSystem):
     )
     lagrangian_latex: str | None = None
     state_dim = 3
+    educational_notes = """\
+**The original chaotic flow.** Lorenz (1963) derived this 3-mode
+truncation as a toy model of Rayleigh-Bénard convection — fluid
+heated from below. It's the system that put "sensitive dependence on
+initial conditions" on the map.
+
+**Where to read about it:** Strogatz, *Nonlinear Dynamics and Chaos*
+2e, §9.3–9.5; Sparrow, *The Lorenz Equations* (1982) for the full
+treatment.
+
+**Why it matters:** the *strange attractor* is here in its purest
+form — a fractal of Hausdorff dimension ≈ 2.06 living inside a 3D
+state space. The largest Lyapunov exponent at the canonical
+parameters is λ₁ ≈ 0.9056 (Wolf et al. 1985); the Diagnostics card
+recovers it to within 1%.
+
+**Try these excursions:**
+
+- ρ = 23: the two non-zero fixed points are stable; trajectories
+  spiral into them.
+- ρ = 24.06: just past the *homoclinic explosion*; the strange
+  invariant set appears but is not yet attracting.
+- ρ = 24.74: Hopf bifurcation — the fixed points lose stability.
+- ρ = 28: the canonical chaos.
+- ρ = 100.5 / 160 / 350: three different windows of stable
+  *periodic* orbits embedded in the chaotic regime (Strogatz §9.5,
+  Fig 9.5.5).
+"""
     parameters = {
         "sigma": Parameter("sigma", 10.0, 0.1, 50.0, "Prandtl number", ""),
         "rho": Parameter("rho", 28.0, 0.1, 100.0, "Rayleigh number", ""),

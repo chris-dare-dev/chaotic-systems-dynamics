@@ -84,6 +84,36 @@ class DoublePendulum(DynamicalSystem):
     default_initial_state = np.array(
         [2.0, 2.5, 0.0, 0.0], dtype=np.float64
     )
+    educational_notes = """\
+**The classroom poster of mechanical chaos.** Two coupled pendulums,
+no driving — pure Hamiltonian dynamics. Energy is conserved
+*exactly*; the chaos is entirely a phase-space-volume-conserving
+shuffle.
+
+**Where to read about it:** Landau & Lifshitz, *Mechanics* 3e
+(§5, §15) for the Lagrangian derivation; Strogatz §6.6
+"Conservative Systems"; Stachowiak & Okada, *A numerical analysis
+of chaos in the double pendulum*, Chaos, Solitons & Fractals 29
+(2006).
+
+**Two regimes, governed by total energy E:**
+
+- *Low-energy regime* (small displacements): quasi-periodic —
+  motion is the linear combination of two normal modes.
+- *High-energy regime* (the default IC θ₁=2.0, θ₂=2.5): genuine
+  chaos. The upper arm can flip over the pivot; small IC changes
+  diverge exponentially.
+
+**Pair with a symplectic integrator.** Pick *yoshida4* from the
+integrator dropdown — it preserves the symplectic 2-form
+exactly, so energy stays bounded for arbitrary integration time.
+Compare to RK45, which slowly leaks energy. (The choice doesn't
+matter on Lorenz / Rössler, but here it does.)
+
+**Try the V1 phase portrait** on (θ₁, θ₁_dot): the
+*Poincaré recurrences* are obvious as the orbit re-visits the
+same region of phase space.
+"""
 
     @cached_property
     def _lsys(self) -> LagrangianSystem:
