@@ -147,7 +147,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   unusable for chaotic-systems work at any meaningful tolerance.
   10 new tests, all gated on the ``[jax]`` extra so contributors
   without it see them as skips rather than failures. Commit
-  ``<TBD>``.
+  ``3703bfb``.
 - **V2 — side-by-side trajectory comparison (perturbed-IC overlay).**
   ``Renderer3D`` grows ``add_overlay_trajectory(traj, color, opacity)``
   and ``clear_overlays()`` — static secondary polylines that share
