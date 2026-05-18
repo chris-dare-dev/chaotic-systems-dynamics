@@ -147,7 +147,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   — every test grid point passes. JAX-backend parity test (gated on
   [jax] extra): scipy and jax classifications agree on > 95% of
   pixels for a 16×16 grid. 27 new tests across core/viz/GUI.
-  Commit ``<TBD>``.
+  Commit ``ae79478``.
 - **I1 — optional JAX / diffrax integrator backend.** New
   ``chaotic_systems.integrators.jax_backend`` module ships two
   ``Integrator``-protocol classes (``JaxRK45`` = diffrax Dopri5;
