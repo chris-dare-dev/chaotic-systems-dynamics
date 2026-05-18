@@ -1340,6 +1340,26 @@ def _build_window_class() -> type:
             from chaotic_systems.gui.theme import viewport_background
             self._setting_bg_color: str = viewport_background()
 
+            # V2 — perturbed-IC comparison.
+            #
+            # When ``_setting_compare_perturbed_ic`` is True, every Run
+            # chains a second simulation with ``y0[0] += epsilon`` and
+            # overlays its trajectory in a distinct color. Epsilon is
+            # held as a per-window setting (defaults to 1e-3 which is
+            # large enough to be visually obvious on Lorenz within
+            # ~20 time units but small enough that early-time orbits
+            # are visually indistinguishable). The bookkeeping state
+            # for the in-flight secondary sim lives in
+            # ``_compare_thread`` / ``_compare_worker``.
+            self._setting_compare_perturbed_ic: bool = False
+            self._setting_compare_epsilon: float = 1e-3
+            self._compare_thread: QThread | None = None
+            self._compare_worker: _SimulateWorker | None = None
+            # Snapshot the most recent Run's primary configuration so
+            # the secondary sim (fired in ``_on_sim_finished``) uses
+            # identical params + integrator + dt + t_end.
+            self._compare_primary_config: dict[str, Any] | None = None
+
             # --- left panel (card-style group boxes) -----------------------
             left = QWidget(self)
             left.setMinimumWidth(300)
@@ -2138,6 +2158,33 @@ def _build_window_class() -> type:
             if run_action is not None:
                 run_action.setEnabled(False)
 
+            n_points = int(min(4000, max(800, round(60.0 * t_end))))
+            # V2: snapshot the primary config so a chained comparison
+            # sim (fired from _on_sim_finished if the compare setting
+            # is on) hits exactly the same integrator / dt / n_points.
+            # ``_compare_primary_config`` is consumed once per Run and
+            # cleared after the secondary sim is launched (or skipped).
+            if self._setting_compare_perturbed_ic and system.state_dim >= 1:
+                # Perturbing component 0 by epsilon is the canonical
+                # demo — the orbit pair stays on the same attractor
+                # but spreads exponentially. For pathological systems
+                # where component 0 should never be perturbed (none in
+                # the v1 catalog), a future iteration can surface the
+                # perturbed component as a setting.
+                perturbed_y0 = y0.copy()
+                perturbed_y0[0] += float(self._setting_compare_epsilon)
+                self._compare_primary_config = {
+                    "system": system,
+                    "t_span": (0.0, t_end),
+                    "y0": perturbed_y0,
+                    "params": params,
+                    "integrator": integrator,
+                    "dt": float(self.dt.value()),
+                    "n_points": n_points,
+                }
+            else:
+                self._compare_primary_config = None
+
             worker = _SimulateWorker(
                 system=system,
                 t_span=(0.0, t_end),
@@ -2152,7 +2199,7 @@ def _build_window_class() -> type:
                 # advancing roughly one trajectory sample per rendered
                 # frame at 1× speed (the visually-smoothest case). Cap
                 # at 4000 so a very long t_end doesn't blow memory.
-                n_points=int(min(4000, max(800, round(60.0 * t_end)))),
+                n_points=n_points,
             )
             thread = QThread(self)
             worker.moveToThread(thread)
@@ -2244,8 +2291,137 @@ def _build_window_class() -> type:
                     # Run starts at 1× from frame 0 per the spec.
                     self._play()
 
+            # V2 — kick off the perturbed-IC secondary sim if the
+            # compare setting was on when Run was pressed. The config
+            # was snapshotted in ``_on_run``; consume + clear it here
+            # so a subsequent Run with the toggle off doesn't fire a
+            # leftover comparison.
+            if self._compare_primary_config is not None:
+                self._launch_comparison_sim(self._compare_primary_config)
+                self._compare_primary_config = None
+
         def _on_sim_error(self, kind: str, message: str) -> None:
             self._show_error(f"Simulation failed ({kind})", self._hinted(kind, message))
+
+        # -- V2 perturbed-IC comparison ----------------------------------
+
+        def _on_setting_compare_perturbed_ic(self, checked: bool) -> None:
+            """Toggle the V2 perturbed-IC comparison setting.
+
+            Takes effect on the *next* Run, not retroactively — the
+            current trajectory's existing overlay stays put until a
+            fresh Run rebuilds the scene.
+            """
+            self._setting_compare_perturbed_ic = bool(checked)
+            if checked:
+                self._set_status(
+                    "Comparison armed: next Run will overlay a perturbed-IC orbit "
+                    f"(epsilon = {self._setting_compare_epsilon:g}).",
+                )
+            else:
+                self._set_status("Comparison disarmed.")
+
+        def _launch_comparison_sim(self, config: dict[str, Any]) -> None:
+            """Kick off the V2 perturbed-IC sim on a dedicated thread.
+
+            The config dict carries the perturbed ``y0`` already; see
+            the construction site in :meth:`_on_run`. On finish the
+            secondary trajectory is overlaid on the primary's renderer
+            via :meth:`Renderer3D.add_overlay_trajectory`.
+            """
+            if self._compare_thread is not None:
+                # Should be rare — the primary just finished, but defend.
+                self._set_status(
+                    "Comparison sim already in flight; skipping new one."
+                )
+                return
+            try:
+                worker = _SimulateWorker(
+                    system=config["system"],
+                    t_span=config["t_span"],
+                    y0=config["y0"],
+                    params=config["params"],
+                    integrator=config["integrator"],
+                    dt=config["dt"],
+                    n_points=config["n_points"],
+                )
+            except (ValueError, KeyError, RuntimeError) as exc:
+                self._set_status(
+                    f"Comparison sim setup failed: {exc}", state="error"
+                )
+                return
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_compare_finished)
+            worker.error.connect(self._on_compare_error)
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_compare_thread)
+            self._compare_thread = thread
+            self._compare_worker = worker
+            thread.start()
+
+        def _on_compare_finished(self, traj: Any) -> None:
+            """Overlay the secondary trajectory on the current renderer.
+
+            Picks the Tokyo-Night "red-pink" accent (``#f7768e``) so
+            the overlay reads against the primary's viridis colormap.
+            Failure is non-fatal — the primary trajectory's playback
+            continues normally and the user sees a status message.
+            """
+            if self._current_renderer is None:
+                self._set_status(
+                    "Comparison done, but the primary renderer was torn down.",
+                )
+                return
+            try:
+                self._current_renderer.add_overlay_trajectory(
+                    traj,
+                    color="#f7768e",
+                    opacity=0.85,
+                )
+            except (RuntimeError, ValueError) as exc:
+                self._set_status(
+                    f"Comparison overlay failed: {exc}", state="error"
+                )
+                return
+            # Compute the late-time separation as a quick numerical
+            # readout — small now, but a teachable number on chaotic
+            # systems. Falls back silently if shapes don't match.
+            sep_msg = ""
+            try:
+                primary_y = np.asarray(self._last_trajectory.y, dtype=float)
+                secondary_y = np.asarray(traj.y, dtype=float)
+                if (
+                    primary_y.ndim == 2
+                    and secondary_y.ndim == 2
+                    and primary_y.shape == secondary_y.shape
+                ):
+                    sep = float(
+                        np.linalg.norm(primary_y[-1] - secondary_y[-1])
+                    )
+                    sep_msg = f" Final separation: {sep:.4g}."
+            except (AttributeError, ValueError, IndexError):
+                pass
+            self._set_status(
+                f"Comparison overlay added (epsilon = "
+                f"{self._setting_compare_epsilon:g}).{sep_msg}",
+                state="done",
+            )
+
+        def _on_compare_error(self, kind: str, message: str) -> None:
+            self._set_status(
+                f"Comparison sim failed ({kind}): {message}", state="error"
+            )
+
+        def _cleanup_compare_thread(self) -> None:
+            if self._compare_worker is not None:
+                self._compare_worker.deleteLater()
+            if self._compare_thread is not None:
+                self._compare_thread.deleteLater()
+            self._compare_thread = None
+            self._compare_worker = None
 
         def _cleanup_sim_thread(self) -> None:
             if self._sim_worker is not None:
@@ -2862,6 +3038,38 @@ def _build_window_class() -> type:
                 self._on_setting_show_vector_preview
             )
             menu.addAction(self.action_show_vector_preview)
+
+            # V2 — compare with perturbed IC -------------------------------
+            # Toggling this on makes Run launch the primary trajectory as
+            # usual, then immediately fire a *secondary* sim with the same
+            # parameters but ``y0[0] += epsilon``. The secondary loads into
+            # the same viewport as a static red overlay via
+            # ``Renderer3D.add_overlay_trajectory`` — making "sensitive
+            # dependence on initial conditions" a single-click demo
+            # (Strogatz section 9). Epsilon is fixed at ``1e-3`` for v1;
+            # a slider is the natural follow-up.
+            self.action_compare_perturbed_ic = QAction(
+                "Compare: perturbed initial condition", self
+            )
+            self.action_compare_perturbed_ic.setObjectName(
+                "action_compare_perturbed_ic"
+            )
+            self.action_compare_perturbed_ic.setCheckable(True)
+            self.action_compare_perturbed_ic.setChecked(
+                self._setting_compare_perturbed_ic
+            )
+            self.action_compare_perturbed_ic.setToolTip(
+                "On the next Run, also integrate the same system with "
+                f"y0[0] += {self._setting_compare_epsilon:g}. The "
+                "perturbed orbit overlays the primary in a distinct "
+                "color so you can watch them diverge. The butterfly "
+                "effect in one click. See "
+                "docs/proposals/capability-roadmap-2026-05-17.md V2."
+            )
+            self.action_compare_perturbed_ic.toggled.connect(
+                self._on_setting_compare_perturbed_ic
+            )
+            menu.addAction(self.action_compare_perturbed_ic)
 
             menu.addSeparator()
 

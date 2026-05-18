@@ -342,6 +342,16 @@ class Renderer3D:
         self._sample_to_smooth_idx: np.ndarray | None = None
         self._smooth_stride: int = 1
 
+        # V2: overlay trajectory support. ``_overlay_actors`` holds the
+        # PyVista actors for any *static* secondary polylines added via
+        # :meth:`add_overlay_trajectory`. Each entry is the actor handle
+        # returned by ``plotter.add_mesh``; :meth:`clear_overlays` walks
+        # the list and calls ``remove_actor`` on each. No head sphere /
+        # no animation — overlays are drawn fully and held still while
+        # the primary trajectory animates. See
+        # ``docs/proposals/capability-roadmap-2026-05-17.md`` V2.
+        self._overlay_actors: list[Any] = []
+
     # ------------------------------------------------------------------ setup
 
     def _render_points(self) -> np.ndarray:
@@ -600,6 +610,133 @@ class Renderer3D:
                 self._plotter.render()
             except (AttributeError, RuntimeError):  # pragma: no cover
                 pass
+
+    # ----------------------------------------------------- V2 overlays
+
+    def add_overlay_trajectory(
+        self,
+        trajectory: Trajectory | np.ndarray,
+        *,
+        color: str = "#f7768e",
+        line_width: float | None = None,
+        opacity: float = 0.85,
+        projection: tuple[int, int, int] | None = None,
+        on_non_finite: str = "clip",
+    ) -> Any:
+        """Add a *static* secondary polyline to the current scene.
+
+        Used by the V2 "compare" toggle in the GUI to overlay a
+        perturbed-IC (or alternate-integrator) trajectory on the same
+        viewport as the primary animated trajectory. The overlay has
+        **no head sphere** and is **not** advanced by
+        :meth:`animate` / :meth:`seek` — it is drawn fully and held
+        still so the user can read the divergence visually as the
+        primary plays back.
+
+        Parameters
+        ----------
+        trajectory
+            Any object coerceable by :func:`chaotic_systems.visualization
+            .contract.as_points` — a :class:`Trajectory`, a duck-typed
+            object with ``.y``, or a raw ``(N, state_dim)`` ndarray.
+        color
+            Hex string for the polyline. Defaults to the Tokyo Night
+            "red-pink" accent (``#f7768e``) so the overlay reads as
+            distinct from the primary trajectory's viridis colormap.
+            Pick a hex that contrasts with the cmap you set on the
+            primary.
+        line_width
+            Polyline width in logical pixels. Defaults to the primary
+            trajectory's ``_line_width`` (so the two read as a
+            matched pair).
+        opacity
+            Overlay opacity in ``[0, 1]``. The default 0.85 keeps the
+            overlay readable while letting the primary's animated head
+            stay visually dominant. Lower values fade the overlay
+            further toward the background.
+        projection, on_non_finite
+            Forwarded to :func:`as_points` for the secondary trajectory.
+
+        Returns
+        -------
+        Any
+            The PyVista actor for the overlay. The renderer keeps an
+            internal reference so :meth:`clear_overlays` can remove it.
+
+        Raises
+        ------
+        RuntimeError
+            If no plotter is currently attached.
+        ValueError
+            If the secondary trajectory cannot be coerced to a
+            ``(N >= 2, 3)`` finite point array.
+        """
+        if self._plotter is None:
+            raise RuntimeError(
+                "call attach() or show() before add_overlay_trajectory()"
+            )
+        import pyvista as pv
+
+        pts = as_points(
+            trajectory, projection=projection, on_non_finite=on_non_finite
+        )
+        if pts.ndim != 2 or pts.shape[1] != 3:
+            raise ValueError(
+                f"overlay trajectory must be coerceable to (N, 3); "
+                f"got shape {pts.shape!r}"
+            )
+        if pts.shape[0] < 2:
+            raise ValueError(
+                "overlay trajectory must have at least 2 finite points"
+            )
+        if not np.isfinite(pts).all():
+            raise ValueError(
+                "overlay trajectory contains non-finite values after screening"
+            )
+
+        # Fresh PolyData per overlay — no shared buffers with the primary.
+        # Static polyline so we lay out connectivity once.
+        overlay = pv.PolyData(np.ascontiguousarray(pts, dtype=np.float64))
+        overlay.verts = np.empty(0, dtype=np.int64)
+        overlay.lines = _full_polyline_connectivity(int(pts.shape[0]))
+
+        actor = self._plotter.add_mesh(
+            overlay,
+            color=color,
+            line_width=(
+                float(line_width) if line_width is not None else self._line_width
+            ),
+            opacity=float(opacity),
+            render_lines_as_tubes=True,
+        )
+        self._overlay_actors.append(actor)
+        return actor
+
+    def clear_overlays(self) -> None:
+        """Remove every overlay polyline added via :meth:`add_overlay_trajectory`.
+
+        Safe to call when no overlays exist or no plotter is attached.
+        The GUI calls this before each new sim so a fresh comparison
+        run doesn't paint over the previous one.
+        """
+        if not self._overlay_actors:
+            return
+        if self._plotter is None:
+            # No live plotter to talk to; just clear the bookkeeping list.
+            self._overlay_actors.clear()
+            return
+        for actor in self._overlay_actors:
+            try:
+                self._plotter.remove_actor(actor, render=False)
+            except (AttributeError, RuntimeError):
+                # PyVista API drift / actor already gone — fine, drop it.
+                continue
+        self._overlay_actors.clear()
+
+    @property
+    def n_overlays(self) -> int:
+        """Number of overlay polylines currently in the scene."""
+        return len(self._overlay_actors)
 
     def show(self) -> None:
         """Open an interactive window. Blocks until the user closes it."""

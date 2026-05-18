@@ -123,6 +123,23 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **V2 — side-by-side trajectory comparison (perturbed-IC overlay).**
+  ``Renderer3D`` grows ``add_overlay_trajectory(traj, color, opacity)``
+  and ``clear_overlays()`` — static secondary polylines that share
+  the primary's plotter but have no head sphere and aren't driven by
+  the animation loop. The Settings dropdown gains a checkable
+  "Compare: perturbed initial condition" action; when on, the next
+  Run integrates the same system twice (primary with the user's
+  ``y0``, secondary with ``y0[0] += 1e-3``) and overlays the
+  secondary on the primary's viewport in Tokyo Night red-pink. A
+  status line surfaces the late-time L2 separation as a numerical
+  observable ("Final separation: 17.86" or similar on Lorenz).
+  Reference observable in the test suite: integrate Lorenz from an
+  on-attractor IC vs ``y0[0] += 1e-3``, t=15 — separation > 5.0 (and
+  early-time t=2 separation < 1.0, so the divergence is visually
+  unambiguous on screen). Closes the V2 proposal; +15 tests covering
+  the renderer-side overlay API + the GUI compare-setting wiring.
+  Commit ``<TBD>``.
 - **E1 — per-system educational notes.** Both ``DynamicalSystem``
   and ``DiscreteSystem`` gain an ``educational_notes: str`` class
   attribute (markdown). All 11 registered systems now ship
