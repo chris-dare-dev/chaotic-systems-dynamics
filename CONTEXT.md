@@ -139,7 +139,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   early-time t=2 separation < 1.0, so the divergence is visually
   unambiguous on screen). Closes the V2 proposal; +15 tests covering
   the renderer-side overlay API + the GUI compare-setting wiring.
-  Commit ``<TBD>``.
+  Commit ``f9862b0``.
 - **E1 — per-system educational notes.** Both ``DynamicalSystem``
   and ``DiscreteSystem`` gain an ``educational_notes: str`` class
   attribute (markdown). All 11 registered systems now ship
