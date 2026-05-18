@@ -19,6 +19,39 @@ from chaotic_systems.core.base import FloatArray, Trajectory
 RHS = Callable[[float, FloatArray], FloatArray]
 
 
+class IntegratorDivergedError(RuntimeError):
+    """The integrator produced a non-finite state and cannot continue.
+
+    Raised by fixed-step methods (Euler, RK4) when local truncation error
+    grows fast enough that the state overflows to ``±inf`` or becomes
+    ``nan``. The classic trigger is explicit Euler on a chaotic /
+    stiff system at too coarse a ``dt`` — Euler on the Lorenz attractor
+    at ``dt = 0.01`` is the canonical example.
+
+    Attributes
+    ----------
+    integrator
+        Name of the integrator that diverged (e.g. ``"Euler"``).
+    step_index
+        Index ``i`` into the time grid at which the *next* state
+        (``ys[i + 1]``) was first detected as non-finite. ``ys[: i + 1]``
+        is still finite; everything after is invalid.
+    t
+        Wall-time on the integration grid at the failing step
+        (``ts[step_index]``).
+    """
+
+    def __init__(self, integrator: str, step_index: int, t: float) -> None:
+        self.integrator = integrator
+        self.step_index = int(step_index)
+        self.t = float(t)
+        super().__init__(
+            f"{integrator} diverged at step {self.step_index} (t≈{self.t:.4g}): "
+            "state became non-finite. Try a smaller dt or a higher-order "
+            "integrator (RK4, RK45, DOP853)."
+        )
+
+
 @runtime_checkable
 class Integrator(Protocol):
     """Structural type for an ODE integrator.
@@ -44,4 +77,4 @@ class Integrator(Protocol):
     ) -> Trajectory: ...
 
 
-__all__ = ["Integrator", "RHS"]
+__all__ = ["Integrator", "IntegratorDivergedError", "RHS"]
