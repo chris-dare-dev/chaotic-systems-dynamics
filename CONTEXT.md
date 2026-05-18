@@ -141,7 +141,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   ``_rebuild_for_current_system`` so a system flip re-wires the
   preview hooks correctly. 11 new tests pin the toggle, debounce,
   setting-off cancel, full-Run suppression, and the
-  ``_last_trajectory``-stays-untouched contract. Commit ``<TBD>``.
+  ``_last_trajectory``-stays-untouched contract. Commit ``1b131e2``.
 - **D5 — recurrence plots + RQA scalars.** Three new modules, pure
   numpy compute, zero new runtime deps. ``core/recurrence.py``
   ships ``recurrence_matrix(trajectory, *, epsilon, norm, theiler)``
