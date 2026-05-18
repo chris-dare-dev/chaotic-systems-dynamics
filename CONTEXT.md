@@ -123,6 +123,25 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **E2 — live parameter-slider preview.** Settings dropdown gains a
+  checkable "Live preview (slider drag re-simulates)" action;
+  default off. When toggled on, every change to any parameter
+  spinbox or slider restarts a 200 ms debounce timer; on timeout a
+  low-res preview sim fires (300 samples × 8 s of integrated time,
+  ~50-100 ms wall-clock per Lorenz preview) and overlays the
+  resulting attractor in the viewport. The preview pipeline is
+  surgically separated from the full Run pipeline:
+  ``_last_trajectory`` is NOT updated (exports, diagnostics,
+  comparisons still reference the user's most recent explicit
+  Run); no prerender; no autoplay. ``_fire_preview`` suppresses
+  itself when a full Run is in flight; ``_cancel_preview_in_flight``
+  disconnects the in-flight worker's signals so a stale result
+  can't paint over a newer preview. Toggling the setting off
+  drops any pending debounce + in-flight worker. Hooks live in
+  ``_rebuild_for_current_system`` so a system flip re-wires the
+  preview hooks correctly. 11 new tests pin the toggle, debounce,
+  setting-off cancel, full-Run suppression, and the
+  ``_last_trajectory``-stays-untouched contract. Commit ``<TBD>``.
 - **D5 — recurrence plots + RQA scalars.** Three new modules, pure
   numpy compute, zero new runtime deps. ``core/recurrence.py``
   ships ``recurrence_matrix(trajectory, *, epsilon, norm, theiler)``

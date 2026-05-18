@@ -1360,6 +1360,37 @@ def _build_window_class() -> type:
             # identical params + integrator + dt + t_end.
             self._compare_primary_config: dict[str, Any] | None = None
 
+            # E2 — live parameter-slider preview.
+            #
+            # When ``_setting_live_preview`` is True, every change to a
+            # parameter spinbox (or slider, which routes through the
+            # spinbox) restarts a 200 ms debounce timer; on timeout we
+            # fire a *low-res* re-simulation that overlays a static
+            # polyline on the viewport. The user gets "drag a slider,
+            # watch the attractor breathe" feel without paying for the
+            # full prerender + playback pipeline. The preview does NOT
+            # update ``_last_trajectory`` — exports, diagnostics, and
+            # the next full Run still reference the user's most-recent
+            # *explicit* Run output.
+            self._setting_live_preview: bool = False
+            # Debounce window. 200 ms ≈ the user's perceptual "I'm
+            # done dragging" threshold; tighter and we re-fire mid-
+            # drag, looser and the GUI feels sluggish.
+            self._preview_debounce_ms: int = 200
+            self._preview_timer: QTimer = QTimer(self)
+            self._preview_timer.setSingleShot(True)
+            self._preview_timer.setInterval(self._preview_debounce_ms)
+            self._preview_timer.timeout.connect(self._fire_preview)
+            self._preview_thread: QThread | None = None
+            self._preview_worker: _SimulateWorker | None = None
+            # Capped preview sim size. 8 s of integrated time × 300
+            # samples is enough to read the attractor shape on every
+            # registered system without paying for a full prerender;
+            # at ~50 ms per scipy RK45 call on Lorenz this gives sub-
+            # 100 ms preview latency on a modern laptop.
+            self._preview_t_end: float = 8.0
+            self._preview_n_points: int = 300
+
             # --- left panel (card-style group boxes) -----------------------
             left = QWidget(self)
             left.setMinimumWidth(300)
@@ -1915,6 +1946,9 @@ def _build_window_class() -> type:
 
         def _rebuild_for_current_system(self) -> None:
             system = self.current_system
+            # Cancel any in-flight preview before tearing down the
+            # parameter widgets it was hooked to.
+            self._cancel_preview_in_flight()
             self._clear_param_form()
             raw_params = getattr(system, "parameters", {}) or {}
             for key, raw in raw_params.items():
@@ -1925,6 +1959,12 @@ def _build_window_class() -> type:
                 label.setProperty("role", "caption")
                 self._param_form_layout.addRow(label, w)
                 self._param_widgets[key] = w
+                # E2: hook the spinbox's valueChanged so every change
+                # (typed or slid) restarts the preview debounce timer
+                # iff live-preview mode is on.
+                w._spin.valueChanged.connect(  # noqa: SLF001
+                    self._on_param_changed_for_preview
+                )
 
             # Collapse the Lagrangian section automatically when the
             # current system isn't derived from one — the body still
@@ -2428,6 +2468,167 @@ def _build_window_class() -> type:
                 self._compare_thread.deleteLater()
             self._compare_thread = None
             self._compare_worker = None
+
+        # -- E2 live parameter-slider preview -----------------------------
+
+        def _on_setting_live_preview(self, checked: bool) -> None:
+            """Toggle the E2 live-preview setting on/off."""
+            self._setting_live_preview = bool(checked)
+            if checked:
+                self._set_status(
+                    "Live preview armed: dragging a parameter slider will "
+                    f"re-simulate ({self._preview_n_points} samples × "
+                    f"{self._preview_t_end:g} s, debounced by "
+                    f"{self._preview_debounce_ms} ms)."
+                )
+            else:
+                self._set_status("Live preview disarmed.")
+                # Drop any pending debounce tick so the user doesn't get
+                # one last preview after turning the setting off.
+                self._preview_timer.stop()
+                self._cancel_preview_in_flight()
+
+        def _on_param_changed_for_preview(self, _value: float) -> None:
+            """Restart the debounce timer on any parameter change.
+
+            The timer's ``timeout`` connects to :meth:`_fire_preview`.
+            Called from every ``_ParamWidget._spin.valueChanged`` —
+            the slider also routes through here because its drag
+            handler sets the spinbox value, which re-emits the signal.
+            """
+            if not self._setting_live_preview:
+                return
+            # ``QTimer.start`` on an already-started single-shot timer
+            # resets the countdown, which is exactly the debounce
+            # semantics we want.
+            self._preview_timer.start(self._preview_debounce_ms)
+
+        def _fire_preview(self) -> None:
+            """Kick off a low-res preview sim if conditions allow.
+
+            We suppress preview firing when:
+
+            - A full Run is currently in flight (``_sim_thread`` exists).
+              The Run takes precedence; the user can re-arm by changing
+              a parameter after Run finishes.
+            - The live-preview setting has been turned off between
+              ``valueChanged`` and the timer firing.
+            - The current system can't be inspected (missing system /
+              integrator / non-finite IC).
+            """
+            if not self._setting_live_preview:
+                return
+            if self._sim_thread is not None:
+                return
+            try:
+                system = self.current_system
+                params = self._params() or default_params(system)
+                y0 = np.asarray(system.initial_state, dtype=float).copy()
+                if not np.isfinite(y0).all():
+                    return
+                if "simulate" not in dir(system):
+                    return
+                integrator = self.integrator_box.currentText()
+                dt = float(self.dt.value())
+            except (KeyError, ValueError, RuntimeError, IndexError):
+                return
+
+            # Cancel any preview already in flight so we don't pile up.
+            self._cancel_preview_in_flight()
+
+            worker = _SimulateWorker(
+                system=system,
+                t_span=(0.0, float(self._preview_t_end)),
+                y0=y0,
+                params=params,
+                integrator=integrator,
+                dt=dt,
+                n_points=int(self._preview_n_points),
+            )
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_preview_finished)
+            worker.error.connect(self._on_preview_error)
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_preview_thread)
+            self._preview_thread = thread
+            self._preview_worker = worker
+            thread.start()
+
+        def _on_preview_finished(self, traj: Any) -> None:
+            """Attach the preview trajectory as a static polyline.
+
+            Crucially does NOT update :attr:`_last_trajectory`, run the
+            prerender pipeline, or auto-play — the preview is a
+            "what would this look like" snapshot, not a real Run. Any
+            full Run output stays addressable for export / diagnostics.
+            """
+            if self.viewer is None:
+                return
+            try:
+                self._pause()
+                self._current_renderer = None
+                try:
+                    self.viewer.clear()
+                except (AttributeError, RuntimeError):
+                    pass
+                system = self.current_system
+                axes_labels = self._axes_labels_for(system)
+                renderer = Renderer3D(
+                    traj,
+                    title=getattr(system, "name", "trajectory"),
+                    axes_labels=axes_labels,
+                )
+                renderer._line_width = self._setting_trajectory_width  # noqa: SLF001
+                renderer.attach(self.viewer)
+                self._current_renderer = renderer
+                self._apply_axes_grid()
+                self._apply_bg_color()
+                # Seek to the last frame so the full preview polyline
+                # is visible at rest.
+                n = self._renderer_total_frames()
+                if n > 1:
+                    self._seek_to(n - 1)
+            except (ValueError, RuntimeError, AttributeError, IndexError):
+                # Preview is best-effort; a hiccup mid-drag shouldn't
+                # surface a dialog. Status-bar message is enough.
+                self._set_status("Preview failed; toggle Live preview off if persistent.")
+
+        def _on_preview_error(self, kind: str, message: str) -> None:
+            """Surface a preview error quietly — no modal dialog."""
+            self._set_status(f"Preview {kind}: {message}")
+
+        def _cleanup_preview_thread(self) -> None:
+            if self._preview_worker is not None:
+                self._preview_worker.deleteLater()
+            if self._preview_thread is not None:
+                self._preview_thread.deleteLater()
+            self._preview_thread = None
+            self._preview_worker = None
+
+        def _cancel_preview_in_flight(self) -> None:
+            """Disconnect any in-flight preview worker so its result is dropped.
+
+            We can't actually interrupt scipy's ``solve_ivp`` mid-step,
+            but we can disconnect its signals so the result never
+            reaches ``_on_preview_finished`` (it would otherwise paint
+            over a newer preview). The thread then quits naturally
+            when ``run()`` returns and ``_cleanup_preview_thread``
+            runs.
+            """
+            worker = self._preview_worker
+            if worker is None:
+                return
+            try:
+                worker.finished.disconnect(self._on_preview_finished)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                worker.error.disconnect(self._on_preview_error)
+            except (TypeError, RuntimeError):
+                pass
 
         def _cleanup_sim_thread(self) -> None:
             if self._sim_worker is not None:
@@ -3165,6 +3366,31 @@ def _build_window_class() -> type:
                 self._on_setting_compare_perturbed_ic
             )
             menu.addAction(self.action_compare_perturbed_ic)
+
+            # E2 — live parameter-slider preview --------------------------
+            # When toggled on, every parameter spinbox / slider change
+            # restarts a debounce timer; on timeout the GUI fires a
+            # low-res re-sim and overlays the resulting attractor in the
+            # viewport. The full Run pipeline is unaffected.
+            self.action_live_preview = QAction(
+                "Live preview (slider drag re-simulates)", self
+            )
+            self.action_live_preview.setObjectName("action_live_preview")
+            self.action_live_preview.setCheckable(True)
+            self.action_live_preview.setChecked(self._setting_live_preview)
+            self.action_live_preview.setToolTip(
+                "Re-simulate after every parameter change with a "
+                f"{self._preview_n_points}-sample, "
+                f"{self._preview_t_end:g} s preview. Debounced by "
+                f"{self._preview_debounce_ms} ms so dragging the slider "
+                "is smooth. Off by default; turn on for "
+                "'drag-and-explore' use. See "
+                "docs/proposals/capability-roadmap-2026-05-17.md E2."
+            )
+            self.action_live_preview.toggled.connect(
+                self._on_setting_live_preview
+            )
+            menu.addAction(self.action_live_preview)
 
             menu.addSeparator()
 
