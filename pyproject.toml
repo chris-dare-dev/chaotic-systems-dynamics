@@ -86,6 +86,21 @@ dev = [
 performance = [
     "numba>=0.60",
 ]
+# I1 — Optional JAX / diffrax backend for vmapped trajectory batches.
+# Pulls in JAX + diffrax to unlock the ``JAX-RK45`` / ``JAX-Tsit5``
+# integrators registered in ``chaotic_systems.integrators`` and the
+# ``vmap_trajectories`` helper. Required for the basin-of-attraction
+# diagnostic (D4) and any large parameter sweep that would otherwise
+# pay one scipy invocation per IC.
+#
+# Versions: jax 0.4.30 (Jun 2024) is the earliest with the modern
+# stable API diffrax 0.6+ depends on. CPU-only by default — users who
+# want GPU/TPU JAX should install jax with the appropriate extra
+# *before* installing this package so JAX picks up CUDA / Metal / etc.
+jax = [
+    "jax>=0.4.30",
+    "diffrax>=0.6",
+]
 
 [project.urls]
 Homepage = "https://github.com/chris-dare-dev/chaotic-systems-dynamics"

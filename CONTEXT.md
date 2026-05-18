@@ -123,6 +123,31 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **I1 — optional JAX / diffrax integrator backend.** New
+  ``chaotic_systems.integrators.jax_backend`` module ships two
+  ``Integrator``-protocol classes (``JaxRK45`` = diffrax Dopri5;
+  ``JaxTsit5`` = diffrax Tsit5) and a ``vmap_trajectories(rhs,
+  t_span, y0_batch, ...)`` helper that runs a batch of trajectories
+  in one JIT-compiled XLA kernel — the prerequisite for D4 (basin-
+  of-attraction map) and arbitrary parameter sweeps. JAX and
+  diffrax are an **optional** ``[jax]`` extra in ``pyproject.toml``
+  (``jax>=0.4.30``, ``diffrax>=0.6``); the module imports cleanly
+  without them, raising ``ImportError`` with a ``pip install -e
+  '.[jax]'`` hint only when ``integrate()`` is called.
+  ``has_jax_backend()`` and a ``lorenz_jax_rhs()`` reference
+  callable round out the public surface. Registered as
+  ``"JAX-RK45"`` / ``"JAX-Tsit5"`` in the integrator registry.
+  Reference observables: JAX-Tsit5 matches scipy DOP853 on Lorenz
+  over t in [0, 5] to L2 endpoint error < 1e-3; ``vmap_trajectories``
+  runs a 4-IC batch through Lorenz in a single vmapped call and
+  recovers Lyapunov divergence (max pairwise separation > 1.0 at
+  t = 10 starting from on-attractor ICs with offsets up to 1e-1).
+  Side-effect at import: JAX 64-bit mode is enabled
+  (``jax.config.update("jax_enable_x64", True)``) since float32 is
+  unusable for chaotic-systems work at any meaningful tolerance.
+  10 new tests, all gated on the ``[jax]`` extra so contributors
+  without it see them as skips rather than failures. Commit
+  ``<TBD>``.
 - **V2 — side-by-side trajectory comparison (perturbed-IC overlay).**
   ``Renderer3D`` grows ``add_overlay_trajectory(traj, color, opacity)``
   and ``clear_overlays()`` — static secondary polylines that share

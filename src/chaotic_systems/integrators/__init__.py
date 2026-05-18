@@ -24,6 +24,14 @@ from chaotic_systems.integrators.adaptive import (
     Radau,
 )
 from chaotic_systems.integrators.fixed_step import RK4, Euler
+
+# I1 — JAX backend. The ``jax_backend`` module itself imports cleanly
+# *without* JAX / diffrax installed; only :meth:`integrate` actually
+# pulls them in. That keeps the no-JAX import-cost story honest while
+# letting the GUI's integrator picker advertise the JAX options
+# uniformly. If the user picks one without the extra installed, the
+# resulting ImportError surfaces on the first Run with a hint.
+from chaotic_systems.integrators.jax_backend import JaxRK45, JaxTsit5
 from chaotic_systems.integrators.symplectic import (
     from_hamiltonian,
     leapfrog,
@@ -43,6 +51,10 @@ _REGISTRY: dict[str, Integrator] = {
     "leapfrog": leapfrog,
     "velocity_verlet": velocity_verlet,
     "yoshida4": yoshida4,
+    # I1 — JAX/diffrax-backed integrators. Listed last so the
+    # picker's default selection (RK45) stays unchanged.
+    "JAX-RK45": JaxRK45,
+    "JAX-Tsit5": JaxTsit5,
 }
 
 
@@ -84,6 +96,8 @@ __all__ = [
     "Euler",
     "Integrator",
     "IntegratorDivergedError",
+    "JaxRK45",
+    "JaxTsit5",
     "LSODA",
     "RHS",
     "RK23",
