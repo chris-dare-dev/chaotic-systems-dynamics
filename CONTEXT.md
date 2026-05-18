@@ -134,7 +134,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   Performance: ~1.2× speedup on the double pendulum's RHS (the
   array-assembly Python overhead bounds further gains; the bulk of
   the win comes from numba inlining the CSE'd algebraic expressions
-  in the lambdified body). 15 new tests, all green. Commit ``<TBD>``.
+  in the lambdified body). 15 new tests, all green. Commit ``28bd53b``.
 - **N4 — Kuramoto N-oscillator network.** First *network* dynamical
   system in the project — fills the "network dynamics" slot the
   brief calls out as a target phenomenology. Single new module
