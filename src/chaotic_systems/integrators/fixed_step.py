@@ -19,7 +19,7 @@ import numpy as np
 
 from chaotic_systems.core._numba import NUMBA_AVAILABLE
 from chaotic_systems.core.base import FloatArray, Trajectory
-from chaotic_systems.integrators._protocol import RHS
+from chaotic_systems.integrators._protocol import RHS, IntegratorDivergedError
 
 
 def rk4_step(
@@ -44,36 +44,68 @@ _rk4_step = rk4_step
 
 
 def _rk4_loop_python(
-    rhs: RHS, ts: FloatArray, y0: FloatArray, h: float | None = None
+    rhs: RHS,
+    ts: FloatArray,
+    y0: FloatArray,
+    h: float | None = None,
+    name: str = "RK4",
 ) -> FloatArray:
-    """RK4 outer loop. If ``h`` is given, use it for every step (uniform grid)."""
+    """RK4 outer loop. If ``h`` is given, use it for every step (uniform grid).
+
+    Raises :class:`IntegratorDivergedError` if the state becomes
+    non-finite (``inf`` / ``nan``). Overflow warnings inside the step
+    are suppressed because we surface the failure as an explicit
+    exception instead.
+    """
 
     n = ts.shape[0]
     ys = np.empty((n, y0.shape[0]), dtype=np.float64)
     ys[0] = y0
-    if h is not None:
-        step = float(h)
-        for i in range(n - 1):
-            ys[i + 1] = rk4_step(rhs, ts[i], ys[i], step)
-    else:
-        for i in range(n - 1):
-            ys[i + 1] = rk4_step(rhs, ts[i], ys[i], ts[i + 1] - ts[i])
+    with np.errstate(over="ignore", invalid="ignore"):
+        if h is not None:
+            step = float(h)
+            for i in range(n - 1):
+                ys[i + 1] = rk4_step(rhs, ts[i], ys[i], step)
+                if not np.isfinite(ys[i + 1]).all():
+                    raise IntegratorDivergedError(name, i, float(ts[i]))
+        else:
+            for i in range(n - 1):
+                ys[i + 1] = rk4_step(rhs, ts[i], ys[i], ts[i + 1] - ts[i])
+                if not np.isfinite(ys[i + 1]).all():
+                    raise IntegratorDivergedError(name, i, float(ts[i]))
     return ys
 
 
 def _euler_loop_python(
-    rhs: RHS, ts: FloatArray, y0: FloatArray, h: float | None = None
+    rhs: RHS,
+    ts: FloatArray,
+    y0: FloatArray,
+    h: float | None = None,
+    name: str = "Euler",
 ) -> FloatArray:
+    """Explicit-Euler outer loop.
+
+    Raises :class:`IntegratorDivergedError` if the state becomes
+    non-finite. Euler is conditionally stable; on chaotic / stiff
+    systems (Lorenz being the canonical example) it will diverge
+    for any ``dt`` above a problem-dependent threshold.
+    """
+
     n = ts.shape[0]
     ys = np.empty((n, y0.shape[0]), dtype=np.float64)
     ys[0] = y0
-    if h is not None:
-        step = float(h)
-        for i in range(n - 1):
-            ys[i + 1] = ys[i] + step * rhs(ts[i], ys[i])
-    else:
-        for i in range(n - 1):
-            ys[i + 1] = ys[i] + (ts[i + 1] - ts[i]) * rhs(ts[i], ys[i])
+    with np.errstate(over="ignore", invalid="ignore"):
+        if h is not None:
+            step = float(h)
+            for i in range(n - 1):
+                ys[i + 1] = ys[i] + step * rhs(ts[i], ys[i])
+                if not np.isfinite(ys[i + 1]).all():
+                    raise IntegratorDivergedError(name, i, float(ts[i]))
+        else:
+            for i in range(n - 1):
+                ys[i + 1] = ys[i] + (ts[i + 1] - ts[i]) * rhs(ts[i], ys[i])
+                if not np.isfinite(ys[i + 1]).all():
+                    raise IntegratorDivergedError(name, i, float(ts[i]))
     return ys
 
 
@@ -124,7 +156,7 @@ class _RK4:
         del rtol, atol, kwargs  # Fixed-step methods don't use tolerances.
         ts, h = _resolve_grid(t_span, dt, n_points)
         y0_arr = np.asarray(y0, dtype=np.float64)
-        ys = _rk4_loop_python(rhs, ts, y0_arr, h)
+        ys = _rk4_loop_python(rhs, ts, y0_arr, h, self.name)
         return Trajectory(t=ts, y=ys, integrator=self.name)
 
 
@@ -146,7 +178,9 @@ class _Euler:
     ) -> Trajectory:
         del rtol, atol, kwargs
         ts, h = _resolve_grid(t_span, dt, n_points)
-        ys = _euler_loop_python(rhs, ts, np.asarray(y0, dtype=np.float64), h)
+        ys = _euler_loop_python(
+            rhs, ts, np.asarray(y0, dtype=np.float64), h, self.name
+        )
         return Trajectory(t=ts, y=ys, integrator=self.name)
 
 
