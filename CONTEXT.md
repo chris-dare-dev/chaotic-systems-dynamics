@@ -147,7 +147,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   (200 samples on exactly 2 periods, sample[i] = sample[i+100])
   → ENTR = 0 to machine precision (Marwan §3.5: "for periodic
   dynamics ENTR = 0"). 39 new tests across core/viz/GUI. Commit
-  ``<TBD>``.
+  ``c9e3d3f``.
 - **D4 — basin-of-attraction map.** The headline missing diagnostic;
   three new modules + a toolbar action. ``core/basins.py`` ships
   ``BasinDiagram`` dataclass + ``basin_diagram(rhs, *, x_axis, y_axis,
