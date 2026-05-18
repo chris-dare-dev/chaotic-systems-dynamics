@@ -56,6 +56,7 @@ from chaotic_systems.systems.duffing import Duffing
 from chaotic_systems.systems.henon_heiles import HenonHeiles
 from chaotic_systems.systems.henon_map import HenonMap
 from chaotic_systems.systems.ikeda import Ikeda
+from chaotic_systems.systems.kuramoto import Kuramoto
 from chaotic_systems.systems.logistic import Logistic
 from chaotic_systems.systems.lorenz import Lorenz
 from chaotic_systems.systems.mackey_glass import MackeyGlass
@@ -67,6 +68,8 @@ from chaotic_systems.systems.standard_map import StandardMap
 # MackeyGlass is a DDE rather than an ODE but inherits DynamicalSystem
 # and overrides ``simulate`` to dispatch to BellenRK4 internally, so it
 # slots into the same registry surface the GUI consumes.
+# Kuramoto is a *network* dynamical system — N coupled phase
+# oscillators — with state_dim = N set per-instance (default N=10).
 _SYSTEM_CLASSES: tuple[type[DynamicalSystem], ...] = (
     Lorenz,
     Rossler,
@@ -76,6 +79,7 @@ _SYSTEM_CLASSES: tuple[type[DynamicalSystem], ...] = (
     HenonHeiles,
     Duffing,
     MackeyGlass,
+    Kuramoto,
 )
 
 # Ordered tuple of discrete-map classes. Listed in pedagogical order

@@ -16,6 +16,7 @@ from chaotic_systems.systems.duffing import Duffing
 from chaotic_systems.systems.henon_heiles import HenonHeiles
 from chaotic_systems.systems.henon_map import HenonMap
 from chaotic_systems.systems.ikeda import Ikeda
+from chaotic_systems.systems.kuramoto import Kuramoto
 from chaotic_systems.systems.logistic import Logistic
 from chaotic_systems.systems.lorenz import Lorenz
 from chaotic_systems.systems.mackey_glass import MackeyGlass
@@ -40,6 +41,7 @@ __all__ = [
     "HenonHeiles",
     "HenonMap",
     "Ikeda",
+    "Kuramoto",
     "Logistic",
     "Lorenz",
     "MackeyGlass",

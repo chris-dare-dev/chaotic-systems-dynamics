@@ -123,6 +123,26 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **N4 — Kuramoto N-oscillator network.** First *network* dynamical
+  system in the project — fills the "network dynamics" slot the
+  brief calls out as a target phenomenology. Single new module
+  ``systems/kuramoto.py`` (~190 lines incl. docstring + educational
+  notes). State vector is the phase angles
+  ``(θ_1, ..., θ_N)`` with ``N`` set per-instance (default 10).
+  Natural frequencies are Lorentzian (Cauchy) draws seeded at
+  construction time — quenched disorder, reproducible across runs.
+  RHS uses the **mean-field reformulation**
+  ``dθ_i/dt = ω_i + K r sin(ψ - θ_i)`` (exact via trig identity,
+  O(N) per call instead of O(N²)). Public helpers:
+  ``order_parameter(theta) -> (|r|, ψ)`` and ``omega`` (read-only
+  copy of the frequency vector). Reference observable
+  (tests/systems/test_kuramoto.py): with ``N = 20`` Lorentzian
+  ``γ = 0.5`` (so ``K_c = 2γ = 1.0``), late-time mean ``|r|``
+  over t in [80, 100] is < 0.4 at subcritical ``K = 0.1`` and
+  > 0.85 at supercritical ``K = 5.0`` — the canonical Kuramoto
+  synchronization transition. K=0 dynamics match the analytic
+  ``θ_i(t) = θ_i(0) + ω_i t`` exactly. 13 new tests, all green.
+  Commit ``<TBD>``.
 - **N3 — Mackey-Glass DDE + Bellen-style DDE integrator.** First
   delay-differential equation in the project — adds an
   architecturally new *kind* of system (infinite-dimensional
