@@ -110,3 +110,10 @@ scratch/
 
 # Local adversarial critique — kept locally for context, not committed.
 CRITIQUE.md
+
+# Pipeline runtime artifacts (capability-scout, etc.) — gitignored
+# because they're per-run and per-developer. The pipeline scaffold
+# itself (.claude/agents, .claude/commands, .claude/scripts,
+# .claude/references) IS committed.
+.claude/notes/
+.claude/agent-memory/
