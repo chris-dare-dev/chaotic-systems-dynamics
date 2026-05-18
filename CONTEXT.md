@@ -142,7 +142,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   > 0.85 at supercritical ``K = 5.0`` — the canonical Kuramoto
   synchronization transition. K=0 dynamics match the analytic
   ``θ_i(t) = θ_i(0) + ω_i t`` exactly. 13 new tests, all green.
-  Commit ``<TBD>``.
+  Commit ``4d009ed``.
 - **N3 — Mackey-Glass DDE + Bellen-style DDE integrator.** First
   delay-differential equation in the project — adds an
   architecturally new *kind* of system (infinite-dimensional
