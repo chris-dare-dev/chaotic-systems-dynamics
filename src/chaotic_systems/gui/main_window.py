@@ -2752,6 +2752,31 @@ def _build_window_class() -> type:
             self._bifurcation_window = dialog
             dialog.show()
 
+        def _on_open_basins(self) -> None:
+            """Open the basin-of-attraction explorer in a top-level window.
+
+            The dialog ships with the canonical undriven double-well
+            Duffing demo preloaded; future iterations can surface
+            arbitrary system + attractor selection. See
+            ``docs/proposals/capability-roadmap-2026-05-17.md`` D4.
+            """
+            try:
+                from chaotic_systems.gui.basin_panel import build_basin_dialog
+            except ImportError as exc:  # pragma: no cover
+                self._set_status(
+                    f"Basin explorer unavailable: {exc}", state="error"
+                )
+                return
+            try:
+                dialog = build_basin_dialog(parent=self)
+            except (ValueError, RuntimeError) as exc:
+                self._set_status(
+                    f"Basin explorer failed: {exc}", state="error"
+                )
+                return
+            self._basin_window = dialog
+            dialog.show()
+
         def _on_open_phase_portrait(self) -> None:
             """Open the 2D phase-portrait explorer on the most recent trajectory.
 
@@ -2889,6 +2914,17 @@ def _build_window_class() -> type:
                     "See docs/proposals/capability-roadmap-2026-05-17.md V1.",
                     self._on_open_phase_portrait,
                     False,
+                ),
+                (
+                    "action_basins",
+                    "Basins…",
+                    "basins",
+                    "Open the basin-of-attraction explorer (undriven "
+                    "double-well Duffing demo). Map the (x, v) plane "
+                    "by which fixed point each initial condition flows to. "
+                    "See docs/proposals/capability-roadmap-2026-05-17.md D4.",
+                    self._on_open_basins,
+                    True,
                 ),
                 (
                     "action_toggle_theme",

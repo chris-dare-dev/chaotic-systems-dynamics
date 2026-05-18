@@ -11,6 +11,12 @@ from chaotic_systems.core.base import (
     Parameter,
     Trajectory,
 )
+from chaotic_systems.core.basins import (
+    UNCLASSIFIED_LABEL,
+    BasinDiagram,
+    basin_diagram,
+    double_well_rhs,
+)
 from chaotic_systems.core.bifurcation import (
     BifurcationDiagram,
     as_scatter,
@@ -26,6 +32,7 @@ from chaotic_systems.core.lyapunov import (
 from chaotic_systems.core.poincare import poincare_section
 
 __all__ = [
+    "BasinDiagram",
     "BifurcationDiagram",
     "DiscreteSystem",
     "DynamicalSystem",
@@ -34,8 +41,11 @@ __all__ = [
     "LagrangianSystem",
     "Parameter",
     "Trajectory",
+    "UNCLASSIFIED_LABEL",
     "as_scatter",
+    "basin_diagram",
     "bifurcation_diagram",
+    "double_well_rhs",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
     "poincare_section",

@@ -123,6 +123,31 @@ shipped via roadmap proposals V1 and D1 respectively; see the
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **D4 — basin-of-attraction map.** The headline missing diagnostic;
+  three new modules + a toolbar action. ``core/basins.py`` ships
+  ``BasinDiagram`` dataclass + ``basin_diagram(rhs, *, x_axis, y_axis,
+  attractors, fixed_state, n_grid, t_end, classify_tol, backend)``.
+  Supervised classification: caller supplies the attractor centers,
+  each grid orbit is assigned to the nearest one (or
+  ``UNCLASSIFIED_LABEL = -1`` if the orbit hasn't converged).
+  Backends: scipy (default — one ``solve_ivp`` per grid point) and
+  jax (opt-in, uses I1's ``vmap_trajectories`` to fuse the whole
+  grid into one XLA kernel). ``visualization/basin_plot.py`` renders
+  the basin as an imshow with Tokyo-Night-aligned categorical palette,
+  attractor-marker stars, and a legend. ``gui/basin_panel.py`` ships
+  ``BasinPanel`` (preloaded with the canonical undriven double-well
+  Duffing demo + ``_BasinWorker`` on a QThread with progress and
+  cancel) plus ``build_basin_dialog``. Main window grows a single
+  ``action_basins`` toolbar action. Reference observable: on a 32×32
+  (x, v) grid in [-2, 2]², the undriven Duffing (alpha=-1, beta=1,
+  delta=0.2) basin is ≥ 100 pixels per well, roughly symmetric
+  (|n_left - n_right| < 25% of the grid), with < 25% unclassified.
+  The signature low-energy observable: for ICs at rest with
+  |x0| < √2 (below the saddle energy), sign(x0) determines the well
+  — every test grid point passes. JAX-backend parity test (gated on
+  [jax] extra): scipy and jax classifications agree on > 95% of
+  pixels for a 16×16 grid. 27 new tests across core/viz/GUI.
+  Commit ``<TBD>``.
 - **I1 — optional JAX / diffrax integrator backend.** New
   ``chaotic_systems.integrators.jax_backend`` module ships two
   ``Integrator``-protocol classes (``JaxRK45`` = diffrax Dopri5;
