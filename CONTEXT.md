@@ -144,7 +144,7 @@ shipped via roadmap proposals V1 and D1 respectively; see the
   ``x* = (β/γ - 1)^(1/n) = 1`` to 1e-4; (3) canonical τ=17 stays
   bounded in (0.1, 2.0) with non-trivial late-time spread
   std/mean > 0.05 (chaotic). 26 new tests, all green. Commit
-  ``<TBD>``.
+  ``c95ba50``.
 - **E2 — live parameter-slider preview.** Settings dropdown gains a
   checkable "Live preview (slider drag re-simulates)" action;
   default off. When toggled on, every change to any parameter
