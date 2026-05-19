@@ -115,6 +115,46 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **I3 — optional ``scikit-sundae`` (SUNDIALS) CVODE + IDA backend.**
+  New ``chaotic_systems.integrators.sundials_backend`` module ships
+  three production-grade SUNDIALS integrators: ``"CVODE"``
+  (multistep BDF — default for stiff problems, drop-in alternative
+  to scipy's ``Radau`` / ``BDF``), ``"CVODE-Adams"`` (multistep
+  Adams-Moulton — non-stiff variant, predictor-corrector counterpart
+  of LSODA), and ``IDA`` (index-1 DAE solver, exposed as the
+  ``ida_solve`` free function because its residual + ``yp0``
+  signature doesn't fit the ODE-only ``Integrator`` protocol).
+  CVODE / CVODE-Adams register in the integrator picker; IDA is
+  reachable only by callers that need DAE semantics. NREL
+  ``scikit-sundae`` 1.1.3 (Mar 2026) ships wheels with SUNDIALS
+  7.5 prebuilt, so the brief's "no Julia / Rust / C++ deps the
+  user would need to compile" constraint is satisfied — the new
+  ``[sundials]`` extra in ``pyproject.toml`` never triggers a
+  local C compile. The module imports cleanly without the extra;
+  ``has_sundials_backend()`` reports install state; calling
+  ``integrate`` / ``ida_solve`` without the extra raises a clear
+  ``ImportError`` with the canonical ``pip install -e '.[sundials]'``
+  hint. The RHS adapter (``_make_rhsfn``) auto-wraps the project's
+  standard ``rhs(t, y) -> dy/dt`` form into sksundae's in-place
+  ``rhsfn(t, y, yp) -> None`` shape, so user code doesn't have to
+  learn a new RHS convention; native in-place rhsfn pass through
+  unchanged. ``lorenz_sundials_rhsfn`` and ``robertson_residual``
+  ship as canonical reference callables, citing Lorenz 1963 and
+  Robertson 1966 (Hairer-Wanner II §IV.1 stiff-DAE benchmark) in
+  the module docstring. Reference observables
+  (tests/integrators/test_sundials_backend.py, gated on the extra):
+  CVODE-BDF and CVODE-Adams on Lorenz from (1,1,1) over t in [0, 5]
+  at rtol=1e-10/atol=1e-12 each agree with scipy DOP853 at the
+  endpoint to L2 < 1e-3 (same precision floor I1 / I2 enforce);
+  IDA on Robertson's DAE preserves the algebraic conservation
+  ``y0 + y1 + y2 = 1`` to < 1e-8 across the integration and drives
+  the fast-decaying middle species ``y1 < 1e-3`` at t = 1, the
+  classical quasi-steady-state observable (Hairer-Wanner II Fig.
+  1.1). 18 new tests (12 always-on + 6 gated on ``[sundials]``);
+  backend suite goes 248 -> 271 collected (271 passed / 9 skipped
+  locally with the extra installed). Closes row 18 of the roadmap's
+  sequencing table — every "Defer until motivated" item is now
+  shipped. Commit ``<I3_SHA>``.
 - **I2 — optional ``numbalsoda`` LSODA integrator backend.** New
   ``chaotic_systems.integrators.numbalsoda_backend`` module ships a
   single ``Integrator``-protocol instance (``"NumbaLSODA"``) wrapping

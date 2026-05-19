@@ -109,6 +109,15 @@ jax = [
     "jax>=0.4.30",
     "diffrax>=0.6",
 ]
+# I3 — Optional NREL scikit-sundae (SUNDIALS) backend for
+# production-grade BDF / Adams multistep + IDA DAE integration.
+# scikit-sundae 1.1 (Oct 2024) and 1.1.3+ ship wheels with SUNDIALS
+# 7.5 prebuilt, so the project's "no Julia / Rust / C++ deps the
+# user would need to compile" constraint is satisfied — installing
+# this extra never triggers a local C compile.
+sundials = [
+    "scikit-sundae>=1.1",
+]
 
 [project.urls]
 Homepage = "https://github.com/chris-dare-dev/chaotic-systems-dynamics"

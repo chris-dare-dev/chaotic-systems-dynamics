@@ -46,6 +46,14 @@ from chaotic_systems.integrators.jax_backend import JaxRK45, JaxTsit5
 # ``[performance]`` extra installed, the resulting ImportError
 # surfaces on the first Run with a hint.
 from chaotic_systems.integrators.numbalsoda_backend import NumbaLSODA
+
+# I3 — scikit-sundae (SUNDIALS) backend. Same optional-extra story
+# as the JAX and numbalsoda backends above: the module imports
+# without sksundae installed; only ``integrate`` pulls it in,
+# raising ``ImportError`` with a ``pip install -e '.[sundials]'``
+# hint. CVODE / CVODE-Adams register here; IDA stays out of the
+# registry because its signature requires a residual + yp0.
+from chaotic_systems.integrators.sundials_backend import CVODE, CVODEAdams
 from chaotic_systems.integrators.symplectic import (
     from_hamiltonian,
     leapfrog,
@@ -72,6 +80,12 @@ _REGISTRY: dict[str, Integrator] = {
     # I2 — numbalsoda-backed LSODA. Same optional-extra story as
     # the JAX entries above; gated on the ``[performance]`` extra.
     "NumbaLSODA": NumbaLSODA,
+    # I3 — scikit-sundae (SUNDIALS) CVODE multistep integrators.
+    # ``CVODE`` is BDF (default for stiff problems); ``CVODE-Adams``
+    # is Adams-Moulton (non-stiff). Gated on the ``[sundials]``
+    # extra, which bundles SUNDIALS 7.5 wheels — no user compile.
+    "CVODE": CVODE,
+    "CVODE-Adams": CVODEAdams,
 }
 
 
@@ -109,6 +123,8 @@ SYMPLECTIC_INTEGRATORS: frozenset[str] = frozenset(
 
 __all__ = [
     "BDF",
+    "CVODE",
+    "CVODEAdams",
     "DOP853",
     "BellenRK4",
     "Euler",
