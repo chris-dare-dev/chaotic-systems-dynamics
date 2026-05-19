@@ -151,7 +151,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   leak sites) and is the foundation FU-016 (state-layer hover/focus
   QSS) and FU-003 (theme-aware Notes stylesheet) depend on. +2
   tests; backend + visualization + GUI suite at 546 passed / 14
-  skipped, ruff clean. Commit ``<FU-002_SHA>``.
+  skipped, ruff clean. Commit ``1a25fcd``.
 - **FU-001 — ``QMenu`` dark-theme QSS rules.** Top-of-sequencing
   foundational S-sized theme fix from the 2026-05-19-initial
   frontend-uplift (RICE 3.12 — NONE on every challenger axis;
