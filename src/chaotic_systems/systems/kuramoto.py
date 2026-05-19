@@ -67,6 +67,7 @@ References
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 
@@ -227,6 +228,34 @@ rotations); at high K they collapse to a thin line near
         """
         z = np.exp(1j * np.asarray(theta, dtype=np.float64)).mean()
         return float(abs(z)), float(np.angle(z))
+
+    # ------------------------------------------------------------------
+    # CSC-033 / T3 — PostSimDiagnosticProvider implementation.
+    # The Diagnostics card calls this after each Run if the system is
+    # an isinstance of
+    # :class:`~chaotic_systems.core.diagnostics_protocol.PostSimDiagnosticProvider`.
+    # ------------------------------------------------------------------
+    def post_sim_diagnostics(self, trajectory: Any) -> Mapping[str, str]:
+        """Return the late-time Kuramoto order parameter as display chips.
+
+        Computes :meth:`order_parameter` on the **last** frame of the
+        trajectory — once the population has had time to lock or
+        decohere, that single snapshot is the meaningful diagnostic
+        (cf. Strogatz, *From Kuramoto to Crawford*, Physica D 143
+        (2000) 1-20, where late-time ``|r|`` is the headline scalar).
+        For sub-critical ``K < K_c`` returns ``|r| → 0`` modulo
+        finite-N fluctuations; for supercritical ``K > K_c`` returns
+        ``|r|`` approaching 1.
+        """
+        y = np.asarray(getattr(trajectory, "y", []), dtype=np.float64)
+        if y.ndim != 2 or y.shape[0] == 0:
+            return {}
+        theta_last = y[-1]
+        r, psi = self.order_parameter(theta_last)
+        return {
+            "|r|": f"{r:.4f}",
+            "ψ": f"{psi:+.4f}",
+        }
 
 
 __all__ = ["Kuramoto"]

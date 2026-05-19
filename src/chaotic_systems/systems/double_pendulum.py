@@ -45,6 +45,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 import sympy as sp
@@ -165,6 +166,34 @@ same region of phase space.
         )
         V = -(m1 + m2) * g * l1 * np.cos(th1) - m2 * g * l2 * np.cos(th2)
         return float(T + V)
+
+    def post_sim_diagnostics(self, trajectory: Any) -> Mapping[str, str]:
+        """Return total energy + integrator drift as display chips (CSC-033).
+
+        The double pendulum is Hamiltonian (in the lifted phase
+        space) but the project drives it with a non-symplectic
+        ``DOP853`` because the underlying Lagrangian is non-separable.
+        Surfacing the energy drift makes the integrator's accuracy
+        budget concrete: ``|ΔE/E_0|`` on the order of 1e-9 to 1e-7
+        for the canonical chaotic IC at ``rtol = 1e-9``.
+        """
+        y = np.asarray(getattr(trajectory, "y", []), dtype=np.float64)
+        if y.ndim != 2 or y.shape[0] == 0:
+            return {}
+        params_obj = getattr(trajectory, "params", None)
+        params = params_obj if isinstance(params_obj, Mapping) else None
+        try:
+            e0 = self.energy(y[0], params)
+            e_last = self.energy(y[-1], params)
+        except (KeyError, ValueError):
+            return {}
+        out: dict[str, str] = {"E": f"{e_last:+.4e}"}
+        if abs(e0) > 0.0:
+            drift_rel = abs(e_last - e0) / abs(e0)
+            out["|ΔE/E₀|"] = f"{drift_rel:.2e}"
+        else:
+            out["|ΔE|"] = f"{abs(e_last - e0):.2e}"
+        return out
 
 
 __all__ = ["DoublePendulum"]

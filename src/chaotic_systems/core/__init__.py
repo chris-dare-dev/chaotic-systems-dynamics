@@ -28,6 +28,10 @@ from chaotic_systems.core.bifurcation import (
     as_scatter,
     bifurcation_diagram,
 )
+from chaotic_systems.core.diagnostics_protocol import (
+    PostSimDiagnosticProvider,
+    format_post_sim_diagnostics,
+)
 from chaotic_systems.core.discrete import DiscreteSystem
 from chaotic_systems.core.hamiltonian import HamiltonianSystem
 from chaotic_systems.core.lagrangian import LagrangianSystem
@@ -55,6 +59,7 @@ __all__ = [
     "LagrangianSystem",
     "NUMBA_AVAILABLE",
     "Parameter",
+    "PostSimDiagnosticProvider",
     "RQAStats",
     "Trajectory",
     "UNCLASSIFIED_LABEL",
@@ -63,6 +68,7 @@ __all__ = [
     "bifurcation_diagram",
     "compile_rhs",
     "double_well_rhs",
+    "format_post_sim_diagnostics",
     "kaplan_yorke_dimension",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",

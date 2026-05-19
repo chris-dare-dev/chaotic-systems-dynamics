@@ -67,6 +67,10 @@ from typing import Any
 
 import numpy as np
 
+from chaotic_systems.core.diagnostics_protocol import (
+    PostSimDiagnosticProvider,
+    format_post_sim_diagnostics,
+)
 from chaotic_systems.core.lyapunov import kaplan_yorke_dimension
 from chaotic_systems.visualization.contract import (
     ParameterSpec,
@@ -1535,6 +1539,19 @@ def _build_window_class() -> type:
             self.lyapunov_result_label.setWordWrap(True)
             self.lyapunov_result_label.setProperty("role", "caption")
             diag_layout.addWidget(self.lyapunov_result_label)
+            # CSC-033 / T3 — per-system observables surfaced after each Run.
+            # Populated only when the active system implements
+            # PostSimDiagnosticProvider (Kuramoto |r|, energy + drift for
+            # HenonHeiles / DoublePendulum). Starts hidden so systems
+            # without observables keep the card uncluttered.
+            self.system_observables_label = QLabel("", diag_card)
+            self.system_observables_label.setObjectName(
+                "system_observables_label"
+            )
+            self.system_observables_label.setWordWrap(True)
+            self.system_observables_label.setProperty("role", "caption")
+            self.system_observables_label.setVisible(False)
+            diag_layout.addWidget(self.system_observables_label)
             cards_layout.addWidget(diag_card)
 
             # Run / Export / Cancel buttons all live in the toolbar now,
@@ -2011,6 +2028,13 @@ def _build_window_class() -> type:
                     "Click to compute. λ₁ > 0 ⇒ chaos; two positive "
                     "exponents ⇒ hyperchaos."
                 )
+            # CSC-033 — per-system observables are trajectory-derived;
+            # the previous system's chips are meaningless after the
+            # switch, so hide the label until the next Run produces
+            # values from the new system's `post_sim_diagnostics`.
+            if hasattr(self, "system_observables_label"):
+                self.system_observables_label.setText("")
+                self.system_observables_label.setVisible(False)
             # The pre-export estimate is trajectory-derived; clear it
             # when the system flips so we never show a stale value.
             if hasattr(self, "export_estimate_chip"):
@@ -2267,6 +2291,14 @@ def _build_window_class() -> type:
         def _on_sim_finished(self, traj: Any) -> None:
             self._last_trajectory = traj
             self._update_state_label(traj)
+            # CSC-033 / T3 — surface per-system observables in the
+            # Diagnostics card. For Kuramoto this is the order parameter
+            # `|r|`; for HenonHeiles / DoublePendulum it's the total
+            # energy and the relative drift. The Protocol check
+            # (PostSimDiagnosticProvider is runtime-checkable) means
+            # systems without an implementation simply skip this block;
+            # the existing Lyapunov chip + state label still update.
+            self._refresh_system_observables(traj)
             # Always pause / drop any prior playback before attaching a new
             # renderer — the old renderer's actors are about to go away.
             self._pause()
@@ -4316,6 +4348,46 @@ def _build_window_class() -> type:
                 self.state_label.setText(f"y(t={t_last:.3f}) = [{pretty}]")
             except (AttributeError, IndexError, ValueError):
                 self.state_label.setText("y(t_end) = <unavailable>")
+
+        def _refresh_system_observables(self, traj: Any) -> None:
+            """Populate the per-system observables label (CSC-033 / T3).
+
+            Looks at the current system; if it implements
+            :class:`~chaotic_systems.core.diagnostics_protocol.PostSimDiagnosticProvider`
+            (runtime-checkable Protocol), calls its
+            ``post_sim_diagnostics(traj)`` and joins the returned
+            ``{label: formatted_value}`` dict into a multi-line
+            display block. The label is hidden when the provider
+            returns an empty dict or the active system doesn't
+            implement the Protocol — keeping the Diagnostics card
+            uncluttered for systems without per-system observables.
+            """
+            label = getattr(self, "system_observables_label", None)
+            if label is None:
+                return
+            try:
+                system = self.current_system
+            except (AttributeError, IndexError):
+                label.setText("")
+                label.setVisible(False)
+                return
+            if not isinstance(system, PostSimDiagnosticProvider):
+                label.setText("")
+                label.setVisible(False)
+                return
+            try:
+                observables = system.post_sim_diagnostics(traj)
+            except Exception:  # pragma: no cover - guard against contract bugs
+                label.setText("")
+                label.setVisible(False)
+                return
+            block = format_post_sim_diagnostics(observables)
+            if not block:
+                label.setText("")
+                label.setVisible(False)
+                return
+            label.setText(block)
+            label.setVisible(True)
 
         # ----------------------------------------------------- diagnostics
 

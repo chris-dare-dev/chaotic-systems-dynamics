@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 import sympy as sp
@@ -95,6 +96,30 @@ energy stays bounded forever. RK45 drifts.
             ],
             dtype=np.float64,
         )
+
+    def post_sim_diagnostics(self, trajectory: Any) -> Mapping[str, str]:
+        """Return total energy + integrator drift as display chips (CSC-033).
+
+        Hénon-Heiles is Hamiltonian; energy is a conserved quantity.
+        Surfacing the absolute energy and the relative drift
+        ``|E_last − E_0| / |E_0|`` over the trajectory makes the
+        symplectic-vs-RK45 integrator comparison vivid:
+        ``yoshida4`` keeps the drift at ~1e-7 over hundreds of
+        periods (Hairer-Lubich-Wanner 2006 §V); RK45 / DOP853 leaks
+        energy linearly.
+        """
+        y = np.asarray(getattr(trajectory, "y", []), dtype=np.float64)
+        if y.ndim != 2 or y.shape[0] == 0:
+            return {}
+        e0 = self.energy(y[0])
+        e_last = self.energy(y[-1])
+        out: dict[str, str] = {"E": f"{e_last:+.4e}"}
+        if abs(e0) > 0.0:
+            drift_rel = abs(e_last - e0) / abs(e0)
+            out["|ΔE/E₀|"] = f"{drift_rel:.2e}"
+        else:
+            out["|ΔE|"] = f"{abs(e_last - e0):.2e}"
+        return out
 
     def energy(self, y: FloatArray) -> float:
         """Return the Hamiltonian evaluated at the given state."""

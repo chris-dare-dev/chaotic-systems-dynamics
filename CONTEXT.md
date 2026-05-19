@@ -115,6 +115,65 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-033 [T3] — ``PostSimDiagnosticProvider`` hook + per-system
+  observables in the Diagnostics card.** Foundational M-sized
+  workflow change from the 2026-q2-broadening capability-scout
+  (RICE 3.51 — foundational + wire-up;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  Closes the internal-adversary brief's T3 + T2 gaps in one
+  protocol-shaped change: Kuramoto's order parameter ``|r|``,
+  HénonHeiles' conserved energy + drift, and DoublePendulum's
+  energy + drift now display as chips in the Diagnostics card after
+  every Run. Per the Phase-3 challenger's recommendation the hook
+  uses a **runtime-checkable Protocol** in a new module
+  ``chaotic_systems.core.diagnostics_protocol`` rather than adding
+  a method to the ``abc.ABC`` ``DynamicalSystem``, so the change
+  is zero-impact on the 9 systems that don't implement it (Lorenz,
+  Rossler, Chua, Duffing, RosslerHyper, MackeyGlass, + the 4
+  discrete maps all keep their existing Diagnostics-card behaviour
+  unchanged). Public surface:
+  ``PostSimDiagnosticProvider`` (Protocol with
+  ``post_sim_diagnostics(trajectory) -> Mapping[str, str]``) and
+  ``format_post_sim_diagnostics(dict) -> str``, both re-exported
+  from ``chaotic_systems.core``. Implementations:
+  ``Kuramoto.post_sim_diagnostics`` returns
+  ``{"|r|": "{r:.4f}", "ψ": "{psi:+.4f}"}`` computed on the final
+  trajectory frame via the existing ``order_parameter`` static
+  method (Kuramoto/Strogatz "From Kuramoto to Crawford", Physica D
+  143 (2000) 1-20); ``HenonHeiles.post_sim_diagnostics`` and
+  ``DoublePendulum.post_sim_diagnostics`` return
+  ``{"E": "...", "|ΔE/E₀|": "..."}`` derived from the existing
+  ``energy()`` method on first and last frames (Hairer-Lubich-
+  Wanner *Geometric Numerical Integration* 2006 §V provides the
+  expected ~1e-7 drift signature for ``yoshida4`` on HénonHeiles).
+  All three providers return ``{}`` on empty trajectories so the
+  Diagnostics card stays uncluttered. GUI wiring: new
+  ``system_observables_label`` ``QLabel`` lives in the existing
+  Diagnostics card immediately below ``lyapunov_result_label``,
+  starts hidden, populated via the new
+  ``_refresh_system_observables(traj)`` helper called from
+  ``_on_sim_finished``. ``isinstance(system, PostSimDiagnosticProvider)``
+  is the gate; the label hides on system change so the previous
+  system's stale chips never appear. Reference observables
+  (``tests/core/test_post_sim_diagnostics_protocol.py``, 19 tests):
+  the Protocol's ``isinstance`` check returns True for Kuramoto /
+  HenonHeiles / DoublePendulum and False for Lorenz / Rossler /
+  Chua / Duffing (parametrised); Kuramoto with all phases aligned
+  returns ``|r| = 1.0000``; Kuramoto with evenly spaced phases
+  returns ``|r| = 0`` to atol=1e-12; HenonHeiles on a stationary
+  trajectory returns ``|ΔE/E₀| = 0`` exactly; DoublePendulum picks
+  up ``trajectory.params`` when present and falls back to defaults
+  otherwise. GUI-side wiring tests
+  (``tests/gui/test_post_sim_diagnostics_panel.py``, 6 tests,
+  gated on ``CHAOTIC_GUI_TESTS_USE_DISPLAY=1`` + ``PySide6`` +
+  ``pyvistaqt``): label has stable ``objectName``, starts hidden,
+  populates with ``|r|`` and ``ψ`` lines after a Kuramoto Run,
+  stays hidden after a Lorenz Run, resets to hidden on system
+  switch, and HenonHeiles populates ``E`` + ``|ΔE/E₀|`` chips.
+  Non-GUI suite: 290 passed / 10 skipped / 0 failed (up from 271 —
+  the +19 are all the new protocol tests, no regressions). ruff
+  clean. Commit ``TBD``.
+
 - **CSC-029 [W1] — Poincaré section panel (the "next D1").** Top-of-
   sequencing M-sized wire-up from the 2026-q2-broadening
   capability-scout (RICE 4.68 — foundational + wire-up;
