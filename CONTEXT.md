@@ -203,7 +203,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   non-finite) and 3 GUI wiring tests (widget existence,
   quick-finished signal flow, toggle-sticky-on-system-change).
   Non-GUI suite unchanged at 290 passed / 10 skipped / 0 failed;
-  ruff clean. Commit ``TBD``.
+  ruff clean. Commit ``e3abbc3``.
 
 - **CSC-033 [T3] — ``PostSimDiagnosticProvider`` hook + per-system
   observables in the Diagnostics card.** Foundational M-sized
