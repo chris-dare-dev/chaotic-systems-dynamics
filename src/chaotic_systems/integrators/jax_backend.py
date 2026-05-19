@@ -33,13 +33,15 @@ will not trace cleanly (``np.array(...)`` blocks JIT). For v1 the
 integrator therefore expects the caller to provide a JAX-traceable
 ``rhs`` callable directly.
 
-To make the migration painless we ship :func:`lorenz_jax_rhs` as the
-canonical reference: a 5-line JAX-traceable Lorenz vector field that
-matches :class:`chaotic_systems.systems.Lorenz` to integrator
-tolerance. The same pattern (replace ``np`` with ``jnp``, return a
-``jnp.array``) carries over to every polynomial system the project
-ships (Rössler, Duffing, Chua, ...) — see CONTEXT.md for the
-follow-up.
+To make the migration painless we ship JAX-traceable factory functions
+for every polynomial system in the registry — :func:`lorenz_jax_rhs`,
+:func:`rossler_jax_rhs`, :func:`chua_jax_rhs`,
+:func:`duffing_jax_rhs`, and :func:`rossler_hyper_jax_rhs`. Each
+mirrors the corresponding :class:`DynamicalSystem` subclass's ``_rhs``
+exactly (machine precision) but uses ``jax.numpy`` so the result
+JIT-compiles and vmaps. The factories close over the parameter values
+so the returned callable has the diffrax-friendly
+``rhs(t, y, args)`` signature with ``args`` typically unused.
 
 References
 ----------
@@ -51,6 +53,15 @@ References
   verbatim.
 - E. N. Lorenz, *Deterministic Nonperiodic Flow*, J. Atmos. Sci. 20
   (1963), 130-141 — for :func:`lorenz_jax_rhs`.
+- O. E. Rössler, *An equation for continuous chaos*, Phys. Lett. A 57
+  (1976), 397-398 — for :func:`rossler_jax_rhs`.
+- O. E. Rössler, *An equation for hyperchaos*, Phys. Lett. A 71 (1979),
+  155-157 — for :func:`rossler_hyper_jax_rhs`.
+- T. Matsumoto, L. O. Chua, M. Komuro, *The Double Scroll*, IEEE Trans.
+  Circuits Syst. CAS-32 (1985), 798-818 — for :func:`chua_jax_rhs`.
+- G. Duffing, *Erzwungene Schwingungen bei veränderlicher
+  Eigenfrequenz*, Vieweg 1918; F. C. Moon, *Chaotic Vibrations*,
+  Wiley 1987 — for :func:`duffing_jax_rhs`.
 
 .. _diffrax: https://github.com/patrick-kidger/diffrax
 """
@@ -466,9 +477,13 @@ def vmap_trajectories(
 
 
 # --------------------------------------------------------------------------
-# Reference JAX-traceable Lorenz RHS used by tests and the docstring
-# pattern. Other systems follow the same recipe — replace ``np`` with
-# ``jnp`` and return a ``jnp.array``.
+# JAX-traceable RHS factories — one per polynomial system in the
+# registry. Each closes over its system's canonical default parameters
+# (matching the corresponding :class:`DynamicalSystem` subclass) and
+# returns ``rhs(t, y, args=None)`` for diffrax. The recipe is uniform:
+# unpack the state, multiply with the closed-over parameters, return a
+# ``jnp.array``. Parity with the numpy ``_rhs`` is pinned by
+# ``tests/integrators/test_jax_polynomial_rhs.py``.
 # --------------------------------------------------------------------------
 
 
@@ -500,10 +515,129 @@ def lorenz_jax_rhs(
     return rhs
 
 
+def rossler_jax_rhs(
+    a: float = 0.2,
+    b: float = 0.2,
+    c: float = 5.7,
+) -> Callable[..., Any]:
+    """Return a JAX-traceable Rössler '76 vector field with fixed params.
+
+    Mirrors :class:`chaotic_systems.systems.Rossler._rhs` to machine
+    precision (test: ``tests/integrators/test_jax_polynomial_rhs.py``).
+    Canonical chaotic regime ``(a, b, c) = (0.2, 0.2, 5.7)``,
+    :math:`\\lambda_1 \\approx 0.071` (Rössler 1976; Sprott 2003 §6).
+    """
+    _, jnp, _ = _import_diffrax()
+
+    def rhs(t: float, y: Any, args: Any = None) -> Any:
+        x, y_, z = y[0], y[1], y[2]
+        return jnp.array(
+            [
+                -y_ - z,
+                x + a * y_,
+                b + z * (x - c),
+            ]
+        )
+
+    return rhs
+
+
+def chua_jax_rhs(
+    alpha: float = 15.6,
+    beta: float = 28.0,
+    m0: float = -1.143,
+    m1: float = -0.714,
+) -> Callable[..., Any]:
+    """Return a JAX-traceable Chua's-circuit vector field with fixed params.
+
+    Mirrors :class:`chaotic_systems.systems.Chua._rhs` to machine
+    precision. The piecewise-linear Chua-diode nonlinearity
+    ``h(x) = m1 x + 0.5 (m0 - m1) (|x + 1| - |x - 1|)`` traces through
+    ``jnp.abs`` (Matsumoto, Chua & Komuro 1985).
+    """
+    _, jnp, _ = _import_diffrax()
+
+    def rhs(t: float, y: Any, args: Any = None) -> Any:
+        x, y_, z = y[0], y[1], y[2]
+        hx = m1 * x + 0.5 * (m0 - m1) * (jnp.abs(x + 1.0) - jnp.abs(x - 1.0))
+        return jnp.array(
+            [
+                alpha * (y_ - x - hx),
+                x - y_ + z,
+                -beta * y_,
+            ]
+        )
+
+    return rhs
+
+
+def duffing_jax_rhs(
+    alpha: float = -1.0,
+    beta: float = 1.0,
+    delta: float = 0.2,
+    gamma: float = 0.3,
+    omega: float = 1.0,
+) -> Callable[..., Any]:
+    """Return a JAX-traceable driven Duffing vector field with fixed params.
+
+    Mirrors :class:`chaotic_systems.systems.Duffing._rhs` to machine
+    precision. The cosine drive ``gamma * cos(omega * t)`` makes the
+    system non-autonomous and uses ``jnp.cos`` for JIT-compatibility
+    (Duffing 1918; Moon, *Chaotic Vibrations*, 1987 §3).
+    """
+    _, jnp, _ = _import_diffrax()
+
+    def rhs(t: float, y: Any, args: Any = None) -> Any:
+        x, v = y[0], y[1]
+        return jnp.array(
+            [
+                v,
+                -delta * v - alpha * x - beta * x * x * x
+                + gamma * jnp.cos(omega * t),
+            ]
+        )
+
+    return rhs
+
+
+def rossler_hyper_jax_rhs(
+    a: float = 0.25,
+    b: float = 3.0,
+    c: float = 0.5,
+    d: float = 0.05,
+) -> Callable[..., Any]:
+    """Return a JAX-traceable 4D Rössler hyperchaos vector field.
+
+    Mirrors :class:`chaotic_systems.systems.RosslerHyper._rhs` to
+    machine precision. Canonical hyperchaotic regime
+    ``(a, b, c, d) = (0.25, 3.0, 0.5, 0.05)`` produces a
+    ``(+, +, 0, -)`` Lyapunov spectrum (Rössler 1979; Stankevich &
+    Wilczak 2015).
+    """
+    _, jnp, _ = _import_diffrax()
+
+    def rhs(t: float, y: Any, args: Any = None) -> Any:
+        x, y_, z, w = y[0], y[1], y[2], y[3]
+        return jnp.array(
+            [
+                -y_ - z,
+                x + a * y_ + w,
+                b + x * z,
+                -c * z + d * w,
+            ]
+        )
+
+    return rhs
+
+
 __all__ = [
     "JaxRK45",
     "JaxTsit5",
+    "chua_jax_rhs",
+    "duffing_jax_rhs",
     "has_jax_backend",
     "lorenz_jax_rhs",
+    "rossler_hyper_jax_rhs",
+    "rossler_jax_rhs",
     "vmap_trajectories",
 ]

@@ -115,6 +115,51 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-027 [W5] — JAX-traceable RHS for all polynomial systems.**
+  Foundational performance candidate from the 2026-q2-broadening
+  capability-scout (RICE 14.04 — foundational + wire-up;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  Resolves the "JAX backend dead code for everything except Lorenz"
+  anti-pattern flagged in the internal-adversary brief (AP3): until
+  this landed, only ``lorenz_jax_rhs`` existed, so any
+  ``vmap_trajectories`` or ``basin_diagram(backend='jax')`` call on
+  Rossler / Chua / Duffing / 4D-Rossler would fail to JIT-trace
+  through the numpy ``_rhs`` (which uses ``np.array(...)``). New
+  factories shipped alongside ``lorenz_jax_rhs`` in
+  ``chaotic_systems.integrators.jax_backend``:
+  ``rossler_jax_rhs(a=0.2, b=0.2, c=5.7)``,
+  ``chua_jax_rhs(alpha=15.6, beta=28.0, m0=-1.143, m1=-0.714)``
+  (with the piecewise-linear Chua-diode nonlinearity traced through
+  ``jnp.abs``), ``duffing_jax_rhs(alpha=-1, beta=1, delta=0.2,
+  gamma=0.3, omega=1.0)`` (non-autonomous, ``jnp.cos(omega*t)``
+  drive), and ``rossler_hyper_jax_rhs(a=0.25, b=3.0, c=0.5, d=0.05)``.
+  Each factory closes over its system's canonical default parameters
+  (matching the corresponding ``DynamicalSystem`` subclass exactly)
+  and returns a ``rhs(t, y, args=None)`` callable in the diffrax-
+  friendly 3-arg shape. Module docstring cites Lorenz 1963, Rossler
+  1976 + 1979, Matsumoto/Chua/Komuro 1985, and Duffing 1918 / Moon
+  1987 verbatim. Reference observable
+  (``tests/integrators/test_jax_polynomial_rhs.py``, gated on the
+  ``[jax]`` extra): for each system at the canonical IC and across
+  a 20-point random ``(state, t)`` grid sampled from
+  ``[-5, 5]^state_dim x [0, 5]``, the JAX RHS output matches the
+  numpy ``_rhs`` output to ``atol=1e-6, rtol=0`` (the floor absorbs
+  any float32-default JIT casts; with ``jax_enable_x64`` the error
+  collapses to 0). Edge cases tested explicitly: Chua's diode across
+  all three regions (probes ``x in {-2.5, -1.0, -0.25, 0.0, 0.25,
+  1.0, 2.5}``); Duffing's drive flipping sign across half a period
+  (``cos(0) - cos(pi) = 2``, so the v-component RHS differs by
+  ``2*gamma``); 3-arg ``rhs(t, y, args)`` form parity with the
+  2-arg form. The pre-existing ``lorenz_jax_rhs`` and its scipy-
+  parity test in ``test_jax_backend.py`` are unchanged. Hénon-Heiles
+  and DoublePendulum (sympy.lambdify-backed) are out of scope here
+  — they need a separate JAX-grad-H path that mirrors P2's
+  ``CompiledRHS`` pattern. The module still imports cleanly without
+  the ``[jax]`` extra (deferred-import pattern preserved). 26 new
+  parametrized tests (5 canonical-IC, 5 random-grid, 7 Chua-diode,
+  1 Duffing-time, 5 three-arg-signature, 3 import-import-import
+  smoke), 271 passed in the non-GUI suite. Commit ``TBD``.
+
 - **CSC-008 — Kaplan-Yorke (Lyapunov) dimension diagnostic.** Top-RICE
   pick from the 2026-q2-broadening capability-scout
   (``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``,
