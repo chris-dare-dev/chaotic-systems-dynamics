@@ -143,7 +143,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   two updated GUI panel tests (``tests/gui/test_lyapunov_panel.py``)
   pin the integer-regime edge cases (empty spectrum raises, all-
   negative -> 0, limit cycle -> 1) and the degenerate
-  ``lambda_{k+1} ~= 0`` fallback. Commit ``TBD``.
+  ``lambda_{k+1} ~= 0`` fallback. Commit ``d241092``.
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
