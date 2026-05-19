@@ -151,7 +151,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   "Analyse…" toolbar submenu the synthesis sequences next) and
   FU-014's command palette container. +2 tests, all green; backend
   + visualization + GUI suite at 538 passed / 14 skipped. Commit
-  ``<FU-001_SHA>``.
+  ``6e38df0``.
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
