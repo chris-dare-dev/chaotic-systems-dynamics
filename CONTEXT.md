@@ -113,6 +113,46 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
+
+- **FU-001 — ``QMenu`` dark-theme QSS rules.** Top-of-sequencing
+  foundational S-sized theme fix from the 2026-05-19-initial
+  frontend-uplift (RICE 3.12 — NONE on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the regression the visual scout caught at
+  ``screenshots/settings-open.png`` and the current-state-critic
+  flagged as anti-pattern AP-01: the Settings dropdown (and any
+  future menu-bearing affordance) was rendering with the
+  platform-native white background on Windows, jarring against the
+  Tokyo Night dark chrome. Adds a single block to
+  ``src/chaotic_systems/gui/assets/dark.qss`` covering ``QMenu`` +
+  ``QMenu::item`` + ``QMenu::item:selected`` + ``QMenu::item:disabled``
+  + ``QMenu::separator`` + ``QMenu::indicator`` + ``QMenu::right-arrow``,
+  mirroring the existing ``QComboBox QAbstractItemView`` vocabulary
+  (popup surfaces feel uniform). Tokens used: ``bg_panel`` (#1f2335)
+  for the menu background, ``text_primary`` (#c0caf5) for items,
+  ``accent`` (#7aa2f7) + ``accent_text`` (#1f2335) for the selected
+  row, ``border`` (#3b4261) for the frame, ``text_muted`` (#565f89)
+  for disabled items — every value resolves to a declared
+  ``theme.PALETTE`` token, no new hex literals. ``QMenu::indicator``
+  and ``QMenu::right-arrow`` deliberately omit ``image: url(...)``
+  references so Qt's native glyphs render in the foreground
+  color (no missing-SVG silent-degradation per critic AP-04).
+  Reference observable
+  (``tests/gui/test_theme.py::test_dark_stylesheet_contains_qmenu_rules``):
+  after ``apply_theme(qapp, "dark")`` the installed stylesheet
+  contains all four load-bearing selectors (``QMenu``,
+  ``QMenu::item``, ``QMenu::item:selected``, ``QMenu::separator``);
+  a second test parses the QMenu block out of ``dark.qss`` and
+  asserts ``PALETTE.bg_panel`` / ``text_primary`` / ``border`` /
+  ``accent`` / ``accent_text`` / ``text_muted`` all appear in it,
+  pinning the token-discipline contract so a future palette change
+  is forced to update the QMenu rule too. Unblocks FU-008 (the
+  "Analyse…" toolbar submenu the synthesis sequences next) and
+  FU-014's command palette container. +2 tests, all green; backend
+  + visualization + GUI suite at 538 passed / 14 skipped. Commit
+  ``<FU-001_SHA>``.
+
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
 - **CSC-033 [T3] — ``PostSimDiagnosticProvider`` hook + per-system

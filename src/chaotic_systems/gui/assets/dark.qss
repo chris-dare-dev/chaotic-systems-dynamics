@@ -561,6 +561,61 @@ QToolTip {
     font-size: 10pt;
 }
 
+/* Menus — Settings dropdown, future "Analyse..." overflow, any QMenu
+ * embedded as a QToolButton popup. Without these rules Qt falls back
+ * to the platform-native palette, which on Windows renders the menu
+ * white against the dark window chrome (FU-001 — frontend-uplift
+ * 2026-05-19-initial). Mirrors the existing QComboBox QAbstractItemView
+ * vocabulary so popup surfaces feel uniform. */
+QMenu {
+    background-color: #1f2335;
+    color: #c0caf5;
+    border: 1px solid #3b4261;
+    border-radius: 6px;
+    padding: 4px;
+    font-size: 11pt;
+}
+
+QMenu::item {
+    background-color: transparent;
+    color: #c0caf5;
+    padding: 5px 24px 5px 24px;
+    border-radius: 4px;
+    margin: 1px 2px;
+}
+
+QMenu::item:selected {
+    background-color: #7aa2f7;
+    color: #1f2335;
+}
+
+QMenu::item:disabled {
+    color: #565f89;
+}
+
+QMenu::separator {
+    background: #3b4261;
+    height: 1px;
+    margin: 4px 6px;
+}
+
+/* Indicator (the checkmark slot) and right-arrow (submenu chevron) —
+ * use Qt's native glyphs so we don't bake a missing SVG reference
+ * (AP-04 from the current-state-critic). Qt draws them in the
+ * widget's foreground color, which inherits the QMenu color set
+ * above; on the :selected row Qt re-tints to the selection color. */
+QMenu::indicator {
+    width: 14px;
+    height: 14px;
+    margin-left: 4px;
+}
+
+QMenu::right-arrow {
+    width: 10px;
+    height: 10px;
+    margin-right: 4px;
+}
+
 /* Focus rings — explicit 2 px accent outline for keyboard navigation
  * (WCAG 2.1 SC 2.4.7). Qt's QSS doesn't honor ``outline`` reliably so
  * we use a thicker accent border with a negative margin so the layout

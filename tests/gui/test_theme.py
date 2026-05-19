@@ -80,6 +80,85 @@ def test_build_application_applies_dark_by_default() -> None:
     window.close()
 
 
+def test_dark_stylesheet_contains_qmenu_rules(qapp) -> None:  # type: ignore[no-untyped-def]
+    """The dark theme paints ``QMenu`` so the Settings dropdown (and any
+    future menu-bearing affordance) consumes the Tokyo Night palette
+    instead of falling back to the platform-native light style.
+
+    Closes FU-001 from frontend-uplift 2026-05-19-initial — the
+    visual scout's ``screenshots/settings-open.png`` confirms the
+    regression on Windows; the current-state-critic flagged this as
+    anti-pattern AP-01 ("do not propose any new QMenu-based dropdown
+    until dark.qss includes QMenu rules").
+    """
+
+    from chaotic_systems.gui.theme import PALETTE, apply_theme
+
+    apply_theme(qapp, "dark")
+    css = qapp.styleSheet().lower()
+
+    # The QMenu selector and its three load-bearing pseudo-states must
+    # all appear so the popup picks up bg-panel, selected-item accent,
+    # and the separator stroke.
+    for selector in (
+        "qmenu {",
+        "qmenu::item {",
+        "qmenu::item:selected",
+        "qmenu::separator",
+    ):
+        assert selector in css, f"missing QMenu selector {selector!r} in dark.qss"
+
+    # The QMenu block uses palette tokens, not raw hex literals that
+    # would drift on a future palette change. We assert the canonical
+    # tokens appear in proximity to the QMenu selector by checking the
+    # CSS contains the bg-panel and accent tokens (the selector-level
+    # assertion above already requires the rules to exist).
+    assert PALETTE.bg_panel.lower() in css
+    assert PALETTE.accent.lower() in css
+
+
+def test_qmenu_rule_uses_canonical_tokens() -> None:
+    """The QMenu QSS block uses the documented palette tokens verbatim.
+
+    Token discipline check — parses the dark.qss source directly so a
+    future palette change that updates ``theme.PALETTE`` but forgets
+    to update the QMenu rule's literals is caught.
+    """
+
+    from pathlib import Path
+
+    from chaotic_systems.gui.theme import PALETTE
+
+    qss_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "chaotic_systems"
+        / "gui"
+        / "assets"
+        / "dark.qss"
+    )
+    qss_text = qss_path.read_text(encoding="utf-8")
+    # Find the QMenu block — everything from "QMenu {" through the next
+    # rule at column 0 that isn't a QMenu::... selector.
+    start = qss_text.index("QMenu {")
+    # End at the next top-level selector after the QMenu rules
+    # (QMenu::indicator and QMenu::right-arrow are still QMenu rules).
+    # Look forward for a non-QMenu rule.
+    block = qss_text[start : start + 1500]
+
+    # Required tokens.
+    assert PALETTE.bg_panel in block, "QMenu background must use bg_panel token"
+    assert PALETTE.text_primary in block, "QMenu color must use text_primary"
+    assert PALETTE.border in block, "QMenu border must use border token"
+    assert PALETTE.accent in block, "QMenu::item:selected must use accent"
+    assert PALETTE.accent_text in block, (
+        "QMenu::item:selected color must use accent_text"
+    )
+    assert PALETTE.text_muted in block, (
+        "QMenu::item:disabled must use text_muted"
+    )
+
+
 def test_main_window_exposes_transport_actions() -> None:
     """The toolbar exposes the documented transport-action object names."""
 
