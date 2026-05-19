@@ -32,6 +32,7 @@ from chaotic_systems.core.discrete import DiscreteSystem
 from chaotic_systems.core.hamiltonian import HamiltonianSystem
 from chaotic_systems.core.lagrangian import LagrangianSystem
 from chaotic_systems.core.lyapunov import (
+    kaplan_yorke_dimension,
     largest_lyapunov_two_trajectory,
     lyapunov_spectrum,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "bifurcation_diagram",
     "compile_rhs",
     "double_well_rhs",
+    "kaplan_yorke_dimension",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
     "maybe_njit",

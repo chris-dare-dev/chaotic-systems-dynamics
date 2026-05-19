@@ -67,6 +67,7 @@ from typing import Any
 
 import numpy as np
 
+from chaotic_systems.core.lyapunov import kaplan_yorke_dimension
 from chaotic_systems.visualization.contract import (
     ParameterSpec,
     SystemLike,
@@ -202,9 +203,14 @@ def _format_lyapunov_spectrum(spectrum: np.ndarray) -> tuple[str, float]:
     """Format a Lyapunov spectrum for the GUI Diagnostics card.
 
     Returns ``(display_text, leading_exponent)``. The display text lists
-    every exponent with two decimal places of precision, plus a regime
-    classification (``Regular`` / ``Chaotic`` / ``Hyperchaotic``) and
-    the sum-of-positive-exponents Kaplan-Yorke proxy.
+    every exponent with four decimal places of precision, prefixed by a
+    regime classification (``Regular`` / ``Chaotic`` / ``Hyperchaotic``)
+    and suffixed by the Kaplan-Yorke (Lyapunov) dimension
+    :math:`D_{KY}` computed by
+    :func:`~chaotic_systems.core.lyapunov.kaplan_yorke_dimension`. For
+    Lorenz, :math:`D_{KY} \\approx 2.062`; for a stable fixed point
+    :math:`D_{KY} = 0`; for a limit cycle :math:`D_{KY} = 1` (Sprott,
+    *Chaos and Time-Series Analysis*, Oxford 2003, Table 5.1).
     """
 
     arr = np.asarray(spectrum, dtype=float)
@@ -221,7 +227,12 @@ def _format_lyapunov_spectrum(spectrum: np.ndarray) -> tuple[str, float]:
     exponent_lines = "\n".join(
         f"  λ{i + 1} = {lam:+.4f}" for i, lam in enumerate(sorted_desc)
     )
-    return (f"{regime}\n{exponent_lines}", float(sorted_desc[0]))
+    d_ky = kaplan_yorke_dimension(sorted_desc)
+    ky_line = f"  D_KY = {d_ky:.3f}"
+    return (
+        f"{regime}\n{exponent_lines}\n{ky_line}",
+        float(sorted_desc[0]),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -113,6 +113,38 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
+
+- **CSC-008 — Kaplan-Yorke (Lyapunov) dimension diagnostic.** Top-RICE
+  pick from the 2026-q2-broadening capability-scout
+  (``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``,
+  RICE 24.0 — wire-up + broken docstring fix). New
+  ``kaplan_yorke_dimension(spectrum) -> float`` lives next to
+  ``lyapunov_spectrum`` in ``core/lyapunov.py``. Formula
+  ``D_KY = k + (sum_{i=1..k} lambda_i) / |lambda_{k+1}|`` where ``k``
+  is the largest index with non-negative cumulative sum (Kaplan &
+  Yorke 1979, LNM 730; Sprott *Chaos and Time-Series Analysis*
+  Oxford 2003, Table 5.1). The function handles the four canonical
+  regimes by construction: fixed point -> ``0.0``; limit cycle ->
+  ``1.0``; chaotic flow with one contracting direction -> ``k + frac``;
+  no contraction (all cumulative sums non-negative) -> ``float(n)``.
+  Surfaced in the GUI Diagnostics card by
+  ``_format_lyapunov_spectrum`` (``gui/main_window.py``), which now
+  appends ``D_KY = X.XXX`` as the last line of the spectrum readout,
+  fixing the broken docstring promise that proposal CSC-008
+  identified at ``main_window.py:207``. Reference observable
+  (``tests/core/test_kaplan_yorke.py``): on the Sprott Table 5.1
+  reference spectrum ``(0.9056, 0, -14.572)``, ``kaplan_yorke_dimension``
+  returns ``2 + 0.9056 / 14.572 = 2.0621...`` to machine precision; on
+  an end-to-end ``lyapunov_spectrum(Lorenz, t_total=120)`` run,
+  ``D_KY`` lands in ``(2.0, 2.2)``, comfortably bracketing the Sprott
+  value 2.062; on 4D hyperchaos ``(0.16, 0.03, 0, -25)`` returns
+  ``3 + 0.19 / 25 ~= 3.008``. 10 new unit tests (``tests/core``) plus
+  two updated GUI panel tests (``tests/gui/test_lyapunov_panel.py``)
+  pin the integer-regime edge cases (empty spectrum raises, all-
+  negative -> 0, limit cycle -> 1) and the degenerate
+  ``lambda_{k+1} ~= 0`` fallback. Commit ``TBD``.
+
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
 - **I3 — optional ``scikit-sundae`` (SUNDIALS) CVODE + IDA backend.**

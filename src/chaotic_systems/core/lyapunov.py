@@ -1,6 +1,6 @@
-"""Lyapunov exponent estimation.
+"""Lyapunov exponent estimation and derived attractor diagnostics.
 
-Two methods are exposed:
+Two estimators are exposed:
 
 - :func:`largest_lyapunov_two_trajectory` — Benettin's two-trajectory
   method. Integrate the system and a nearby copy; periodically rescale
@@ -18,12 +18,23 @@ Both routines call :meth:`DynamicalSystem.rhs` (the public hook), so
 subclasses that override ``rhs`` for non-autonomous time gating or
 similar concerns are respected.
 
+In addition, :func:`kaplan_yorke_dimension` returns the
+Kaplan-Yorke (Lyapunov) dimension derived from a pre-computed spectrum
+— a scalar fractal-dimension summary of the attractor.
+
 References
 ----------
 - G. Benettin, L. Galgani, A. Giorgilli, J.-M. Strelcyn, *Lyapunov
   Characteristic Exponents for smooth dynamical systems and for
   Hamiltonian systems; a method for computing all of them.* Meccanica
   15 (1980), 9-30.
+- J. L. Kaplan, J. A. Yorke, *Chaotic behavior of multidimensional
+  difference equations*, in *Functional Differential Equations and
+  Approximation of Fixed Points* (H.-O. Peitgen, H.-O. Walther, eds.),
+  Lecture Notes in Mathematics 730, Springer (1979), 204-227.
+- J. C. Sprott, *Chaos and Time-Series Analysis*, Oxford University
+  Press, 2003 — chapter 5 derives D_KY values for Lorenz, Rossler, and
+  other canonical attractors.
 - S. H. Strogatz, *Nonlinear Dynamics and Chaos*, 2nd ed., Westview
   Press, 2015 — see chapter 10.
 """
@@ -272,7 +283,91 @@ def lyapunov_spectrum(
     return log_sum / (n_steps * dt)
 
 
+# ---------------------------------------------------------------------------
+# Derived diagnostic: Kaplan-Yorke (Lyapunov) dimension.
+# ---------------------------------------------------------------------------
+
+
+def kaplan_yorke_dimension(spectrum: FloatArray) -> float:
+    """Kaplan-Yorke (Lyapunov) dimension of an attractor.
+
+    The Kaplan-Yorke conjecture relates the spectrum of Lyapunov
+    exponents :math:`\\lambda_1 \\geq \\lambda_2 \\geq \\dots \\geq
+    \\lambda_n` of a dissipative dynamical system to the information
+    dimension of its attractor by
+
+    .. math::
+
+        D_{KY} = k + \\frac{\\sum_{i=1}^{k} \\lambda_i}{|\\lambda_{k+1}|},
+
+    where :math:`k` is the largest index for which the cumulative sum
+    :math:`\\sum_{i=1}^{k} \\lambda_i \\geq 0`. The interpretation is
+    geometric: :math:`k` independent stretching directions plus a
+    fractional contribution from the next, contracting direction.
+
+    Canonical reference values (Sprott, *Chaos and Time-Series
+    Analysis*, Oxford 2003, Table 5.1 and §5.4):
+
+    - Stable fixed point (all :math:`\\lambda_i < 0`): :math:`D_{KY} = 0`.
+    - Limit cycle (:math:`\\lambda_1 = 0`, the rest negative):
+      :math:`D_{KY} = 1`.
+    - Lorenz canonical (:math:`\\lambda \\approx (0.9056, 0, -14.572)`):
+      :math:`D_{KY} \\approx 2.062`.
+    - 4D Rossler hyperchaos (two positive exponents):
+      :math:`D_{KY} > 3`.
+
+    Parameters
+    ----------
+    spectrum
+        Array of Lyapunov exponents in any order; sorted descending
+        internally.
+
+    Returns
+    -------
+    float
+        The Kaplan-Yorke dimension. ``0.0`` when no exponent is
+        non-negative (fixed-point attractor); ``n`` (the spectrum
+        length) when every cumulative sum is non-negative (no
+        contracting direction); ``k + fraction`` otherwise.
+
+    Raises
+    ------
+    ValueError
+        If the spectrum is empty.
+
+    References
+    ----------
+    - J. L. Kaplan, J. A. Yorke, *Chaotic behavior of multidimensional
+      difference equations*, LNM 730, Springer (1979), 204-227.
+    - J. C. Sprott, *Chaos and Time-Series Analysis*, Oxford 2003,
+      sec. 5.
+    """
+    arr = np.asarray(spectrum, dtype=np.float64)
+    if arr.size == 0:
+        raise ValueError(
+            "kaplan_yorke_dimension requires a non-empty spectrum"
+        )
+    sorted_desc = np.sort(arr)[::-1]
+    cumsum = np.cumsum(sorted_desc)
+    # The largest Lyapunov exponent is already negative => fixed point.
+    if not bool(cumsum[0] >= 0.0):
+        return 0.0
+    # k = number of leading entries whose cumulative sum is non-negative.
+    k = int(np.sum(cumsum >= 0.0))
+    if k >= sorted_desc.size:
+        # No contracting direction; report integer dimension n.
+        return float(sorted_desc.size)
+    next_lambda = float(sorted_desc[k])
+    if abs(next_lambda) < 1e-12:
+        # Degenerate: cumulative sum tips negative at a near-zero next
+        # exponent. The integer-part k is the meaningful answer.
+        return float(k)
+    cumsum_k = float(cumsum[k - 1])
+    return float(k) + cumsum_k / abs(next_lambda)
+
+
 __all__ = [
+    "kaplan_yorke_dimension",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
 ]

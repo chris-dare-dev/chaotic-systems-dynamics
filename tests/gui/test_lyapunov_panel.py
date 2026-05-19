@@ -57,6 +57,9 @@ def test_format_classifies_chaotic_lorenz_like() -> None:
     # Sorted descending for display.
     assert "λ1 = +0.9100" in text
     assert "λ3 = -14.5700" in text
+    # Kaplan-Yorke dimension is rendered as the last line; Sprott
+    # Table 5.1 quotes ~2.062 for Lorenz canonical.
+    assert "D_KY = 2.062" in text
 
 
 def test_format_classifies_hyperchaotic_4d() -> None:
@@ -65,6 +68,9 @@ def test_format_classifies_hyperchaotic_4d() -> None:
     assert "Hyperchaotic" in text
     assert "2 positive" in text
     assert leading == pytest.approx(0.16)
+    # 4D hyperchaos: D_KY > 3 with two positive exponents.
+    # Cumulative sums: (0.16, 0.19, 0.19, -24.81) -> k=3, D_KY = 3 + 0.19/25.
+    assert "D_KY = 3.008" in text
 
 
 def test_format_sorts_unordered_input() -> None:
