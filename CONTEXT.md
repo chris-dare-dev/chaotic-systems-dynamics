@@ -135,7 +135,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   what to try" structure used by all shipped systems, and the
   ``jax_backend.py`` JAX-RHS factory companion (CSC-027 shipped same
   day) for polynomial systems. No code change, no test change. Commit
-  ``TBD``.
+  ``21fe521``.
 
 - **CSC-027 [W5] — JAX-traceable RHS for all polynomial systems.**
   Foundational performance candidate from the 2026-q2-broadening
