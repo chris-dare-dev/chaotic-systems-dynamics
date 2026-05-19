@@ -115,6 +115,61 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-029 [W1] — Poincaré section panel (the "next D1").** Top-of-
+  sequencing M-sized wire-up from the 2026-q2-broadening
+  capability-scout (RICE 4.68 — foundational + wire-up;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  Closes the exact gap the internal-adversary brief flagged at W1:
+  ``poincare_section()`` has shipped in ``core/poincare.py:42`` since
+  day one and is tested at ``tests/systems/test_henon_heiles.py:33``,
+  but had **zero GUI surface** — no panel, no toolbar action, no
+  matplotlib visualization. This is the textbook "next D1" by the
+  internal-adversary's framing: the compute existed; only the UI
+  wrapper was missing. New modules:
+  ``chaotic_systems.visualization.poincare_plot`` (pure-matplotlib
+  scatter renderer in the same Agg-safe pattern as ``phase_plot.py``
+  / ``basin_plot.py``, with Tokyo-Night facecolor support and an
+  empty-result annotation) and ``chaotic_systems.gui.poincare_panel``
+  (PoincarePanel widget + ``_PoincareWorker`` QThread worker +
+  ``build_poincare_panel`` / ``build_poincare_dialog`` constructors).
+  Controls: section-axis combo (axis-aligned only, per the
+  challenger's "defer arbitrary-normal until users ask"), offset
+  spinbox, direction picker (upward / downward / both, mirroring
+  scipy.integrate event.direction semantics), ``t_end`` /
+  ``t_transient`` spinboxes, display-axis pickers for the 2D
+  projection (defaults exclude the section axis — for HenonHeiles
+  with section-axis = ``x``, picks ``(y, p_y)`` for the canonical
+  Hénon & Heiles 1964 Fig. 4 image), equal-aspect toggle, Compute
+  / Cancel buttons, status label. The compute runs through the
+  existing ``solve_ivp`` event-detection path (``DOP853``,
+  rtol=1e-9, atol=1e-12, max_step=0.5) on a QThread so the UI
+  stays responsive. Cancellation is cooperative (the underlying
+  ``solve_ivp`` is opaque, so cancel flips a flag that takes effect
+  at the next completed compute). Wired into the main-window
+  toolbar as ``action_poincare`` (enabled by default — the panel
+  runs its own compute, no prior Run required), positioned after
+  ``action_basins`` and before ``action_toggle_theme``.
+  ``_on_open_poincare`` slot mirrors ``_on_open_basins`` / ``_on_open
+  _phase_portrait`` with state_dim >= 2 guard and a Tokyo-Night
+  facecolor pass-through via ``viewport_background()``. Reference
+  observable (``tests/gui/test_poincare_panel.py``,
+  ``test_henon_heiles_section_observable``): with HenonHeiles at
+  the canonical default IC ``[0, 0.1, 0.45, 0]`` (E ≈ 0.125),
+  section through ``x = 0`` with upward crossings and
+  ``t_end = 200``, the panel's worker collects >= 20 crossings (
+  measured: 31), all on the hyperplane to atol=1e-8, all with
+  ``|p_y| < 1`` (mixed-phase-space scale). The synthesis's
+  long-window >= 50 claim is pinned in a second test at
+  ``t_end = 500``. 13 new GUI tests covering widget existence,
+  default-value pinning, section-axis-change repositioning the
+  display defaults, finished/cancelled/error handlers, the
+  ``t_transient >= t_end`` guard, error-via-signal on bad normal
+  shape, and the ``action_poincare`` toolbar entry. Non-GUI suite
+  unchanged at 271 passed / 10 skipped / 0 failed; GUI panel tests
+  gated on ``CHAOTIC_GUI_TESTS_USE_DISPLAY=1`` and on
+  ``pytest.importorskip("PySide6")`` / ``"pyvistaqt"``. ruff clean.
+  Commit ``TBD``.
+
 - **CSC-034 [V3] — ``docs/systems.md`` refresh covers all 13 registered
   systems.** Tied-for-#3 RICE pick from the 2026-q2-broadening
   capability-scout (RICE 7.20 — XS wire-up;

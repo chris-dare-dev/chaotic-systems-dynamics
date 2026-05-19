@@ -3036,6 +3036,62 @@ def _build_window_class() -> type:
             self._basin_window = dialog
             dialog.show()
 
+        def _on_open_poincare(self) -> None:
+            """Open the Poincaré-section explorer on the current system.
+
+            Unlike the phase-portrait dialog (which reads the last
+            trajectory snapshot), the Poincaré panel runs its own
+            ``solve_ivp`` event-detection compute against the
+            current system + parameters, so no prior Run is required.
+            Canonical demo: ``HenonHeiles`` registered, default IC
+            (E ≈ 0.125), section axis = ``x`` (axis 0), upward
+            direction — reproduces Hénon & Heiles 1964 Fig. 4. See
+            ``.claude/notes/capability-scouts/2026-q2-broadening/``
+            ``artifacts/final-report.md`` CSC-029.
+            """
+            try:
+                system = self.current_system
+            except (AttributeError, IndexError):
+                self._set_status(
+                    "Pick a system first — the Poincaré explorer needs "
+                    "the current system to compute the section.",
+                    state="error",
+                )
+                return
+            state_dim = int(getattr(system, "state_dim", 0) or 0)
+            if state_dim < 2:
+                self._set_status(
+                    "Poincaré section requires a system with state_dim >= 2.",
+                    state="error",
+                )
+                return
+            try:
+                from chaotic_systems.gui.poincare_panel import (
+                    build_poincare_dialog,
+                )
+            except ImportError as exc:  # pragma: no cover
+                self._set_status(
+                    f"Poincaré explorer unavailable: {exc}", state="error"
+                )
+                return
+            from chaotic_systems.gui.theme import viewport_background
+
+            axes_labels = self._axes_labels_for(system)
+            try:
+                dialog = build_poincare_dialog(
+                    system,
+                    axes_labels=axes_labels,
+                    facecolor=viewport_background(),
+                    parent=self,
+                )
+            except (TypeError, ValueError) as exc:
+                self._set_status(
+                    f"Poincaré explorer failed: {exc}", state="error"
+                )
+                return
+            self._poincare_window = dialog
+            dialog.show()
+
         def _on_open_phase_portrait(self) -> None:
             """Open the 2D phase-portrait explorer on the most recent trajectory.
 
@@ -3195,6 +3251,22 @@ def _build_window_class() -> type:
                     "by which fixed point each initial condition flows to. "
                     "See docs/proposals/capability-roadmap-2026-05-17.md D4.",
                     self._on_open_basins,
+                    True,
+                ),
+                (
+                    "action_poincare",
+                    "Poincaré section…",
+                    "poincare",
+                    "Open the Poincaré-section explorer on the current "
+                    "system. Pick an axis-aligned hyperplane (section "
+                    "axis + offset + direction); the panel runs scipy "
+                    "event detection on DOP853 and renders the crossings "
+                    "as a 2D scatter. Canonical demo: Hénon-Heiles at the "
+                    "default IC reproduces the mixed-phase-space picture "
+                    "of Hénon & Heiles 1964 Fig. 4. See "
+                    "capability-scouts/2026-q2-broadening/artifacts/"
+                    "final-report.md CSC-029.",
+                    self._on_open_poincare,
                     True,
                 ),
                 (
