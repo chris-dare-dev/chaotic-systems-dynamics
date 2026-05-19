@@ -115,6 +115,38 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-17, capability roadmap rollout cont'd)
 
+- **I2 — optional ``numbalsoda`` LSODA integrator backend.** New
+  ``chaotic_systems.integrators.numbalsoda_backend`` module ships a
+  single ``Integrator``-protocol instance (``"NumbaLSODA"``) wrapping
+  Wogan et al.'s ``numbalsoda.lsoda`` — a numba-callable LSODA that
+  auto-detects stiffness (Adams ↔ BDF) and runs the integration loop
+  entirely in native code, closing the "you can JIT your RHS but the
+  outer loop is still Python" gap that ``docs/numerics.md`` calls
+  out as a known limitation of the fixed-step JIT recipe.
+  ``numbalsoda`` is **maintenance-dormant** (last release Sep 2022)
+  but still correct because the underlying ODEPACK LSODA is itself
+  frozen-spec; the module's docstring flags this and points new
+  optional-backend work at I1's diffrax / JAX path instead. The RHS
+  must be a ``numba.cfunc(numbalsoda.lsoda_sig)``-decorated callable
+  (plain Python ``rhs(t, y)`` cannot cross the Fortran boundary and
+  is rejected with a clear ``TypeError`` pointing at the recipe in
+  the module docstring); :func:`lorenz_numbalsoda_rhs` ships as the
+  canonical reference cfunc, with parameters passed through
+  numbalsoda's ``data=`` channel (``p[0]/p[1]/p[2]`` = sigma/rho/
+  beta). ``numbalsoda`` and ``numba`` are bundled into the existing
+  ``[performance]`` extra of ``pyproject.toml`` — the module imports
+  cleanly without them, ``has_numbalsoda_backend()`` reports
+  install state, and calling ``integrate`` without the extra raises
+  ``ImportError`` with a ``pip install -e '.[performance]'`` hint.
+  Registered as ``"NumbaLSODA"`` in the integrator registry so the
+  GUI picker advertises it uniformly. Reference observable
+  (tests/integrators/test_numbalsoda_backend.py, gated on the
+  extra): NumbaLSODA's Lorenz trajectory from (1,1,1) over t in
+  [0, 5] at rtol=1e-10/atol=1e-12 agrees with scipy DOP853 at the
+  endpoint to L2 < 1e-3 (same precision floor I1 enforces — chaos
+  amplifies any per-step discrepancy fast). 15 new tests (10
+  always-on + 5 gated on the ``[performance]`` extra), all green.
+  Commit ``<I2_SHA>``.
 - **P2 — AOT-compile sympy ``_rhs`` via numba.** Closes the
   open ``CONTEXT.md`` "What's next" #4 item (and matches the P2
   proposal in the roadmap). ``chaotic_systems.core._numba`` grows

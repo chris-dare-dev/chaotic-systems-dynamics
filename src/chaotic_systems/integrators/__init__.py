@@ -38,6 +38,14 @@ from chaotic_systems.integrators.fixed_step import RK4, Euler
 # uniformly. If the user picks one without the extra installed, the
 # resulting ImportError surfaces on the first Run with a hint.
 from chaotic_systems.integrators.jax_backend import JaxRK45, JaxTsit5
+
+# I2 — numbalsoda backend. Like the JAX backend, the module imports
+# cleanly without numbalsoda / numba installed; only :meth:`integrate`
+# pulls them in. Listed in ``_REGISTRY`` so the GUI's integrator
+# picker advertises it uniformly. If the user picks it without the
+# ``[performance]`` extra installed, the resulting ImportError
+# surfaces on the first Run with a hint.
+from chaotic_systems.integrators.numbalsoda_backend import NumbaLSODA
 from chaotic_systems.integrators.symplectic import (
     from_hamiltonian,
     leapfrog,
@@ -61,6 +69,9 @@ _REGISTRY: dict[str, Integrator] = {
     # picker's default selection (RK45) stays unchanged.
     "JAX-RK45": JaxRK45,
     "JAX-Tsit5": JaxTsit5,
+    # I2 — numbalsoda-backed LSODA. Same optional-extra story as
+    # the JAX entries above; gated on the ``[performance]`` extra.
+    "NumbaLSODA": NumbaLSODA,
 }
 
 
@@ -106,6 +117,7 @@ __all__ = [
     "JaxRK45",
     "JaxTsit5",
     "LSODA",
+    "NumbaLSODA",
     "RHS",
     "RK23",
     "RK4",

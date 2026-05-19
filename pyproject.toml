@@ -83,8 +83,16 @@ dev = [
     "mypy>=1.10",
 ]
 # Optional numba JIT for users who want to compile their own RHS.
+#
+# Includes ``numbalsoda`` (I2) — a numba-callable LSODA wrapper that
+# closes the "you can JIT your RHS but the outer loop is still
+# Python" gap that ``docs/numerics.md`` calls out. Note: numbalsoda
+# is maintenance-dormant (last release 2022) but still correct
+# because the underlying ODEPACK LSODA is itself frozen-spec; prefer
+# I1's JAX/diffrax path for new optional-backend work.
 performance = [
     "numba>=0.60",
+    "numbalsoda>=0.3",
 ]
 # I1 — Optional JAX / diffrax backend for vmapped trajectory batches.
 # Pulls in JAX + diffrax to unlock the ``JAX-RK45`` / ``JAX-Tsit5``
