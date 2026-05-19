@@ -154,7 +154,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   backend suite goes 248 -> 271 collected (271 passed / 9 skipped
   locally with the extra installed). Closes row 18 of the roadmap's
   sequencing table — every "Defer until motivated" item is now
-  shipped. Commit ``<I3_SHA>``.
+  shipped. Commit ``2a18f3c``.
 - **I2 — optional ``numbalsoda`` LSODA integrator backend.** New
   ``chaotic_systems.integrators.numbalsoda_backend`` module ships a
   single ``Integrator``-protocol instance (``"NumbaLSODA"``) wrapping
