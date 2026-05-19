@@ -146,7 +146,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   endpoint to L2 < 1e-3 (same precision floor I1 enforces — chaos
   amplifies any per-step discrepancy fast). 15 new tests (10
   always-on + 5 gated on the ``[performance]`` extra), all green.
-  Commit ``<I2_SHA>``.
+  Commit ``22d53ec``.
 - **P2 — AOT-compile sympy ``_rhs`` via numba.** Closes the
   open ``CONTEXT.md`` "What's next" #4 item (and matches the P2
   proposal in the roadmap). ``chaotic_systems.core._numba`` grows
