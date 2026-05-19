@@ -5,16 +5,19 @@ implementation in ``core/lyapunov.py``, but wasn't surfaced in the
 GUI until this card landed (see docs/proposals/capability-roadmap-
 2026-05-17.md, proposal D1). These tests pin:
 
-- The card's widgets exist.
+- The card's widgets exist (including the CSC-032 quick-mode toggle).
 - ``_format_lyapunov_spectrum`` classifies regular / chaotic /
   hyperchaotic correctly and pulls out the leading exponent.
+- ``_format_quick_lyapunov`` formats a single-exponent quick result
+  with no D_KY line (CSC-032 / T1).
 - The worker's ``finished`` signal flows into the result label and
-  the status-bar chip.
+  the status-bar chip; the ``quick_finished`` signal renders the
+  one-line quick-mode output.
 - Changing systems resets the card to its prompt copy.
 
-The actual ``lyapunov_spectrum`` compute is the
-``tests/core/test_lyapunov.py`` suite's concern — these tests stub
-the worker so they stay fast.
+The actual ``lyapunov_spectrum`` / ``largest_lyapunov_two_trajectory``
+computes are the ``tests/core/`` and ``tests/systems/`` suites'
+concern — these tests stub the worker so they stay fast.
 """
 
 from __future__ import annotations
@@ -25,7 +28,10 @@ import pytest
 pytest.importorskip("PySide6")
 pytest.importorskip("pyvistaqt")
 
-from chaotic_systems.gui.main_window import _format_lyapunov_spectrum
+from chaotic_systems.gui.main_window import (
+    _format_lyapunov_spectrum,
+    _format_quick_lyapunov,
+)
 
 
 def _make_window(qtbot):  # type: ignore[no-untyped-def]
@@ -86,12 +92,46 @@ def test_format_handles_empty_spectrum() -> None:
 
 
 # ---------------------------------------------------------------------------
+# CSC-032 / T1 — quick-mode formatter.
+# ---------------------------------------------------------------------------
+
+
+def test_quick_format_chaotic_classification() -> None:
+    """λ₁ > 0 (above zero tol) → Chaotic + (quick estimate) suffix."""
+    text, leading = _format_quick_lyapunov(0.9072)
+    assert "Chaotic" in text
+    assert "quick estimate" in text
+    assert "λ1 = +0.9072" in text
+    # No D_KY line: Kaplan-Yorke needs the whole spectrum.
+    assert "D_KY" not in text
+    assert leading == pytest.approx(0.9072)
+
+
+def test_quick_format_regular_classification() -> None:
+    text, _ = _format_quick_lyapunov(-0.5)
+    assert "Regular" in text
+    assert "λ1 = -0.5000" in text
+
+
+def test_quick_format_marginal_near_zero() -> None:
+    text, _ = _format_quick_lyapunov(0.0)
+    assert "Marginal" in text
+    assert "λ1 = +0.0000" in text
+
+
+def test_quick_format_non_finite_input() -> None:
+    text, leading = _format_quick_lyapunov(float("nan"))
+    assert "non-finite" in text.lower()
+    assert leading == 0.0
+
+
+# ---------------------------------------------------------------------------
 # GUI wiring tests.
 # ---------------------------------------------------------------------------
 
 
 def test_card_widgets_exist(qtbot) -> None:  # type: ignore[no-untyped-def]
-    """Compute button + result label are wired into the left panel."""
+    """Compute button + result label + quick-mode toggle are wired in."""
 
     window = _make_window(qtbot)
     assert window.lyapunov_button is not None
@@ -99,6 +139,47 @@ def test_card_widgets_exist(qtbot) -> None:  # type: ignore[no-untyped-def]
     assert window.lyapunov_result_label is not None
     # Initial copy invites the user to compute.
     assert "compute" in window.lyapunov_result_label.text().lower()
+    # CSC-032 — the quick-mode toggle exists, has the expected
+    # objectName, and defaults to unchecked so the full spectrum
+    # remains the default path.
+    assert hasattr(window, "quick_lyapunov_checkbox")
+    assert window.quick_lyapunov_checkbox.objectName() == "checkbox_quick_lyapunov"
+    assert window.quick_lyapunov_checkbox.isChecked() is False
+
+
+def test_quick_lyapunov_finished_signal_updates_card(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """The CSC-032 quick-mode signal renders λ₁ with no D_KY line."""
+
+    window = _make_window(qtbot)
+    window._on_quick_lyapunov_finished(0.9072)  # noqa: SLF001
+    text = window.lyapunov_result_label.text()
+    assert "Chaotic" in text
+    assert "quick estimate" in text
+    assert "0.9072" in text
+    # No spectrum or D_KY in quick-mode output.
+    assert "D_KY" not in text
+    assert "λ2" not in text
+    assert "λ3" not in text
+    # Status-bar chip still mirrors the leading exponent.
+    if hasattr(window, "lyapunov_chip"):
+        assert "0.9072" in window.lyapunov_chip.text()
+        assert not window.lyapunov_chip.isHidden()
+    # Compute button re-enables for the next click.
+    assert window.lyapunov_button.isEnabled()
+
+
+def test_quick_toggle_survives_system_change(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """The quick-mode preference is sticky across system switches."""
+
+    window = _make_window(qtbot)
+    window.quick_lyapunov_checkbox.setChecked(True)
+    if window.system_box.count() < 2:
+        pytest.skip("only one system registered; cycling is a no-op")
+    next_idx = (window.system_box.currentIndex() + 1) % window.system_box.count()
+    window.system_box.setCurrentIndex(next_idx)
+    # User preference persists; the result label resets but the
+    # toggle does not.
+    assert window.quick_lyapunov_checkbox.isChecked() is True
 
 
 def test_lyapunov_finished_signal_updates_card(qtbot) -> None:  # type: ignore[no-untyped-def]

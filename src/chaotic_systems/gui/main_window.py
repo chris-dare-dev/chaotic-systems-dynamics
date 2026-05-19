@@ -203,6 +203,34 @@ def _integrator_names() -> list[str]:
 _LYAPUNOV_ZERO_TOL: float = 1e-2
 
 
+def _format_quick_lyapunov(lam1: float) -> tuple[str, float]:
+    """Format a single largest-Lyapunov-exponent estimate for the GUI card.
+
+    Returns ``(display_text, leading_exponent)`` mirroring
+    :func:`_format_lyapunov_spectrum`'s shape so the caller can pipe
+    ``leading`` into the status-bar λ₁ chip without branching. The
+    text is intentionally one line shorter than the full-spectrum
+    block — no per-exponent listing (we only computed one), no D_KY
+    (Kaplan-Yorke needs the whole spectrum). The "(quick estimate)"
+    suffix tells the user they can re-run with the full spectrum for
+    a publication-grade reading.
+    """
+
+    if not np.isfinite(lam1):
+        return ("(non-finite λ₁ — try a smaller dt or longer t_transient)", 0.0)
+    if lam1 > _LYAPUNOV_ZERO_TOL:
+        regime = "Chaotic"
+    elif lam1 < -_LYAPUNOV_ZERO_TOL:
+        regime = "Regular (stable fixed point or limit cycle)"
+    else:
+        regime = "Marginal (near-zero exponent)"
+    return (
+        f"{regime} (quick estimate, two-trajectory method)\n"
+        f"  λ1 = {lam1:+.4f}",
+        float(lam1),
+    )
+
+
 def _format_lyapunov_spectrum(spectrum: np.ndarray) -> tuple[str, float]:
     """Format a Lyapunov spectrum for the GUI Diagnostics card.
 
@@ -285,6 +313,7 @@ def _build_window_class() -> type:
     )
     from PySide6.QtWidgets import (
         QApplication,
+        QCheckBox,
         QColorDialog,
         QComboBox,
         QDoubleSpinBox,
@@ -1089,17 +1118,35 @@ def _build_window_class() -> type:
     # -----------------------------------------------------------------------
 
     class _LyapunovWorker(QObject):
-        """Run ``lyapunov_spectrum(system, ...)`` on a worker thread.
+        """Run a Lyapunov-exponent compute on a worker thread.
 
-        The Benettin / continuous-QR algorithm integrates the variational
-        equations over ``t_total - t_transient`` time units, periodically
-        QR-decomposing the perturbation matrix to extract local stretch
-        rates. Default settings (``t_transient=50``, ``t_total=500``,
-        ``dt=1.0``) match the canonical reference and yield ~0.7% error
-        on Lorenz's largest exponent (0.9072 vs canonical 0.9056).
+        Two modes:
+
+        - ``mode="spectrum"`` (default) runs
+          :func:`~chaotic_systems.core.lyapunov.lyapunov_spectrum` —
+          the full Benettin / continuous-QR algorithm. Default
+          settings (``t_transient=50``, ``t_total=500``, ``dt=1.0``)
+          yield ~0.7% error on Lorenz's largest exponent (0.9072 vs
+          canonical 0.9056) and take ~30-60 s on a modern laptop.
+        - ``mode="quick"`` (CSC-032 / T1) runs
+          :func:`~chaotic_systems.core.lyapunov.largest_lyapunov_two_trajectory`
+          — Benettin's two-trajectory estimator that returns just
+          :math:`\\lambda_1` in ~5 s. Useful for a fast "is this
+          chaotic?" answer when exploring a new system; the full
+          spectrum stays the default for publication-grade output
+          and is the only path that produces a Kaplan-Yorke
+          dimension (CSC-008).
+
+        The two modes emit through different signals
+        (``finished(ndarray)`` vs ``quick_finished(float)``) so the
+        Diagnostics-card consumer can render each cleanly without
+        sentinel-value shenanigans.
         """
 
-        finished = Signal(object)  # ndarray of exponents, sorted descending
+        # Full-spectrum payload: descending-sorted ndarray of exponents.
+        finished = Signal(object)
+        # Quick-mode payload: a single float (largest exponent).
+        quick_finished = Signal(float)
         error = Signal(str, str)  # (kind, message)
 
         def __init__(
@@ -1110,6 +1157,7 @@ def _build_window_class() -> type:
             t_transient: float = 50.0,
             t_total: float = 500.0,
             dt: float = 1.0,
+            mode: str = "spectrum",
         ) -> None:
             super().__init__()
             self._system = system
@@ -1118,8 +1166,20 @@ def _build_window_class() -> type:
             self._t_transient = t_transient
             self._t_total = t_total
             self._dt = dt
+            if mode not in ("spectrum", "quick"):
+                raise ValueError(
+                    f"unknown _LyapunovWorker mode {mode!r}; "
+                    "expected 'spectrum' or 'quick'"
+                )
+            self._mode = mode
 
         def run(self) -> None:
+            if self._mode == "quick":
+                self._run_quick()
+                return
+            self._run_spectrum()
+
+        def _run_spectrum(self) -> None:
             try:
                 from chaotic_systems.core.lyapunov import lyapunov_spectrum
             except ImportError as exc:  # pragma: no cover - core always ships
@@ -1145,6 +1205,31 @@ def _build_window_class() -> type:
             # largest first.
             spectrum_sorted = np.sort(np.asarray(spectrum, dtype=float))[::-1]
             self.finished.emit(spectrum_sorted)
+
+        def _run_quick(self) -> None:
+            try:
+                from chaotic_systems.core.lyapunov import (
+                    largest_lyapunov_two_trajectory,
+                )
+            except ImportError as exc:  # pragma: no cover - core always ships
+                self.error.emit("ImportError", str(exc))
+                return
+            try:
+                lam1 = largest_lyapunov_two_trajectory(
+                    self._system,
+                    y0=self._y0,
+                    params=self._params,
+                    t_transient=self._t_transient,
+                    t_total=self._t_total,
+                    dt=self._dt,
+                )
+            except (RuntimeError, ValueError) as exc:
+                self.error.emit(type(exc).__name__, str(exc))
+                return
+            except Exception as exc:  # pragma: no cover - last-resort guard
+                self.error.emit("Exception", f"{type(exc).__name__}: {exc}")
+                return
+            self.quick_finished.emit(float(lam1))
 
     # -----------------------------------------------------------------------
     # Busy spinner — a tiny rotating-arc widget for indeterminate work.
@@ -1531,6 +1616,27 @@ def _build_window_class() -> type:
             )
             self.lyapunov_button.clicked.connect(self._on_compute_lyapunov)
             diag_layout.addWidget(self.lyapunov_button)
+            # CSC-032 / T1 — quick-mode toggle. When checked, the
+            # Compute button dispatches the two-trajectory estimator
+            # (~5 s) instead of the full QR-spectrum (~30-60 s); the
+            # result shows λ₁ only (no D_KY, since Kaplan-Yorke needs
+            # the whole spectrum). Default unchecked per the challenger
+            # — the full spectrum stays the default for publication
+            # output.
+            self.quick_lyapunov_checkbox = QCheckBox(
+                "Quick λ₁ only (~5 s, no D_KY)", diag_card
+            )
+            self.quick_lyapunov_checkbox.setObjectName("checkbox_quick_lyapunov")
+            self.quick_lyapunov_checkbox.setChecked(False)
+            self.quick_lyapunov_checkbox.setToolTip(
+                "Compute just the largest Lyapunov exponent (Benettin "
+                "two-trajectory method, ~5 s) instead of the full "
+                "Lyapunov spectrum (~30-60 s). The quick estimate is "
+                "ideal for exploring a new system. The full spectrum "
+                "is required for hyperchaos detection and the "
+                "Kaplan-Yorke dimension."
+            )
+            diag_layout.addWidget(self.quick_lyapunov_checkbox)
             self.lyapunov_result_label = QLabel(
                 "Click to compute. λ₁ > 0 ⇒ chaos; two positive exponents "
                 "⇒ hyperchaos.",
@@ -2899,19 +3005,33 @@ def _build_window_class() -> type:
                 )
                 return
 
-            self.lyapunov_button.setEnabled(False)
-            self.lyapunov_result_label.setText("Computing spectrum…")
-            self._set_status(
-                "Computing Lyapunov spectrum (~5 s)…", busy=True
+            quick = (
+                hasattr(self, "quick_lyapunov_checkbox")
+                and self.quick_lyapunov_checkbox.isChecked()
             )
+            mode = "quick" if quick else "spectrum"
+            self.lyapunov_button.setEnabled(False)
+            if quick:
+                self.lyapunov_result_label.setText("Computing λ₁…")
+                self._set_status(
+                    "Computing largest Lyapunov exponent (~5 s)…",
+                    busy=True,
+                )
+            else:
+                self.lyapunov_result_label.setText("Computing spectrum…")
+                self._set_status(
+                    "Computing Lyapunov spectrum (~5 s)…", busy=True
+                )
 
-            worker = _LyapunovWorker(system, params, y0)
+            worker = _LyapunovWorker(system, params, y0, mode=mode)
             thread = QThread(self)
             worker.moveToThread(thread)
             thread.started.connect(worker.run)
             worker.finished.connect(self._on_lyapunov_finished)
+            worker.quick_finished.connect(self._on_quick_lyapunov_finished)
             worker.error.connect(self._on_lyapunov_error)
             worker.finished.connect(thread.quit)
+            worker.quick_finished.connect(thread.quit)
             worker.error.connect(thread.quit)
             thread.finished.connect(self._cleanup_lyapunov_thread)
             self._lyapunov_thread = thread
@@ -2923,6 +3043,16 @@ def _build_window_class() -> type:
             self.lyapunov_result_label.setText(text)
             self.lyapunov_button.setEnabled(True)
             self._set_status("Lyapunov spectrum ready.", state="done")
+            if hasattr(self, "lyapunov_chip"):
+                self.lyapunov_chip.setText(f"λ₁ = {leading:+.4f}")
+                self.lyapunov_chip.setVisible(True)
+
+        def _on_quick_lyapunov_finished(self, lam1: float) -> None:
+            """Handle the quick-mode worker payload (CSC-032 / T1)."""
+            text, leading = _format_quick_lyapunov(lam1)
+            self.lyapunov_result_label.setText(text)
+            self.lyapunov_button.setEnabled(True)
+            self._set_status("λ₁ ready.", state="done")
             if hasattr(self, "lyapunov_chip"):
                 self.lyapunov_chip.setText(f"λ₁ = {leading:+.4f}")
                 self.lyapunov_chip.setVisible(True)

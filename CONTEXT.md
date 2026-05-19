@@ -155,6 +155,56 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-032 [T1] — Quick λ₁ GUI toggle.** XS wire-up from the
+  2026-q2-broadening capability-scout (tied for RICE 7.20 with the
+  ``docs/systems.md`` refresh that already shipped as CSC-034;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  ``largest_lyapunov_two_trajectory`` has shipped at
+  ``core/lyapunov.py:52`` since day one and is tested
+  (``tests/systems/test_lorenz.py:55``); this milestone surfaces it
+  in the Diagnostics card as an alternative to the full Lyapunov
+  spectrum. New widget:
+  ``quick_lyapunov_checkbox`` (``QCheckBox``, objectName
+  ``checkbox_quick_lyapunov``) lives directly below the existing
+  ``button_lyapunov`` in the Diagnostics card. Default state
+  unchecked — the full spectrum stays the default per the
+  challenger's recommendation, so existing tests and any
+  publication-grade output paths are unchanged. When the user
+  ticks the box and clicks Compute, the ``_LyapunovWorker`` gains
+  a ``mode="quick"`` branch that calls
+  ``largest_lyapunov_two_trajectory(system, ...)`` instead of the
+  QR-spectrum path; a second
+  ``quick_finished = Signal(float)`` signal carries the single λ₁
+  back to ``_on_quick_lyapunov_finished``, which renders the
+  one-line ``Chaotic (quick estimate, two-trajectory method) ⏎  λ1
+  = +0.9072`` summary via the new ``_format_quick_lyapunov``
+  module helper. The output deliberately omits any per-exponent
+  spectrum lines and any ``D_KY`` line — Kaplan-Yorke needs the
+  whole spectrum (CSC-008), so the quick mode is honest about
+  what it can and cannot compute. Status-bar λ₁ chip mirrors the
+  scalar exactly as the full-spectrum path does. Default settings
+  (``t_transient=50``, ``t_total=500``, ``dt=1.0``) match the
+  ``lyapunov_spectrum`` worker so the user can compare modes on
+  the same window; the quick mode runs in ~5 s on Lorenz vs.
+  ~30-60 s for the full spectrum (Benettin two-trajectory vs.
+  variational QR, same compute window). Reference observables
+  (``tests/gui/test_lyapunov_panel.py``): ``_format_quick_lyapunov(0.9072)``
+  returns text with ``"Chaotic"`` + ``"quick estimate"`` + ``"λ1 =
+  +0.9072"`` and no ``"D_KY"`` substring; the
+  ``_on_quick_lyapunov_finished(0.9072)`` slot updates
+  ``lyapunov_result_label.text()`` to that block and sets the
+  λ₁ chip to ``"λ₁ = +0.9072"`` exactly. NaN input falls into a
+  ``"non-finite λ₁"`` branch with ``leading = 0.0`` so the chip
+  doesn't display garbage. Quick-mode preference is sticky across
+  system switches (``test_quick_toggle_survives_system_change``);
+  the result label resets to its prompt copy on system change
+  but the toggle does not. 7 new tests total: 4 pure-function tests
+  on ``_format_quick_lyapunov`` (chaotic / regular / marginal /
+  non-finite) and 3 GUI wiring tests (widget existence,
+  quick-finished signal flow, toggle-sticky-on-system-change).
+  Non-GUI suite unchanged at 290 passed / 10 skipped / 0 failed;
+  ruff clean. Commit ``TBD``.
+
 - **CSC-033 [T3] — ``PostSimDiagnosticProvider`` hook + per-system
   observables in the Diagnostics card.** Foundational M-sized
   workflow change from the 2026-q2-broadening capability-scout
