@@ -172,7 +172,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   switch, and HenonHeiles populates ``E`` + ``|ΔE/E₀|`` chips.
   Non-GUI suite: 290 passed / 10 skipped / 0 failed (up from 271 —
   the +19 are all the new protocol tests, no regressions). ruff
-  clean. Commit ``TBD``.
+  clean. Commit ``eb3bccd``.
 
 - **CSC-029 [W1] — Poincaré section panel (the "next D1").** Top-of-
   sequencing M-sized wire-up from the 2026-q2-broadening
