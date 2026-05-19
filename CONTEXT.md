@@ -168,7 +168,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   unchanged at 271 passed / 10 skipped / 0 failed; GUI panel tests
   gated on ``CHAOTIC_GUI_TESTS_USE_DISPLAY=1`` and on
   ``pytest.importorskip("PySide6")`` / ``"pyvistaqt"``. ruff clean.
-  Commit ``TBD``.
+  Commit ``5efc305``.
 
 - **CSC-034 [V3] — ``docs/systems.md`` refresh covers all 13 registered
   systems.** Tied-for-#3 RICE pick from the 2026-q2-broadening
