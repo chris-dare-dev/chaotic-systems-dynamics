@@ -158,7 +158,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   the ``[jax]`` extra (deferred-import pattern preserved). 26 new
   parametrized tests (5 canonical-IC, 5 random-grid, 7 Chua-diode,
   1 Duffing-time, 5 three-arg-signature, 3 import-import-import
-  smoke), 271 passed in the non-GUI suite. Commit ``TBD``.
+  smoke), 271 passed in the non-GUI suite. Commit ``f2639fd``.
 
 - **CSC-008 — Kaplan-Yorke (Lyapunov) dimension diagnostic.** Top-RICE
   pick from the 2026-q2-broadening capability-scout
