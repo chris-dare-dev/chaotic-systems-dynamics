@@ -115,6 +115,28 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-034 [V3] — ``docs/systems.md`` refresh covers all 13 registered
+  systems.** Tied-for-#3 RICE pick from the 2026-q2-broadening
+  capability-scout (RICE 7.20 — XS wire-up;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  Pure documentation hygiene — closes the gap the internal-adversary
+  brief identified at ``docs/systems.md:4`` (7 systems documented vs.
+  13 registered in ``registry.py:73-93``). New sections cover
+  ``MackeyGlass`` (DDE), ``Kuramoto`` (N-oscillator network),
+  ``Logistic``, ``HenonMap``, ``Ikeda``, and ``StandardMap`` (the four
+  discrete maps from N1). The table is split into "ODE flows" (9
+  entries) and "Discrete maps" (4 entries) so the registry's ``kind``
+  attribute lines up with the doc layout. Existing entries refreshed:
+  Lorenz cites D_KY ≈ 2.062 (CSC-008 shipped same day), RosslerHyper
+  cross-references the new Kaplan-Yorke diagnostic. The "Adding a new
+  system" checklist is rewritten to cover the `DiscreteSystem` /
+  ``DynamicalSystem`` split, the ``_DEFAULT_*`` constant convention,
+  the ``educational_notes`` "what / where to read / why it matters /
+  what to try" structure used by all shipped systems, and the
+  ``jax_backend.py`` JAX-RHS factory companion (CSC-027 shipped same
+  day) for polynomial systems. No code change, no test change. Commit
+  ``TBD``.
+
 - **CSC-027 [W5] — JAX-traceable RHS for all polynomial systems.**
   Foundational performance candidate from the 2026-q2-broadening
   capability-scout (RICE 14.04 — foundational + wire-up;
