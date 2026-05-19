@@ -115,6 +115,43 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-002 — Promote ``#1a1b26`` + interaction shades to ``theme.PALETTE``.**
+  Foundational S-sized token-discipline pass from the 2026-05-19-initial
+  frontend-uplift (RICE 3.25 — NONE on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Adds five derived-interaction-shade fields to the ``Palette``
+  dataclass — ``bg_deep`` (#1a1b26), ``bg_pill_track`` (#2a2c3a),
+  ``accent_hover`` (#343a55), ``accent_pressed`` (#6788d8), and
+  ``accent_glow`` (#a4c1ff) — each anchored with a single-line
+  comment naming the use site so a future palette migration knows
+  where to follow. ``assets/dark.qss`` grows a "Derived interaction
+  shades (FU-002)" sub-section in the header comment block and
+  inline-comment annotations at every literal use (lines for
+  ``QPushButton:hover``, ``QPushButton[variant="primary"]:pressed``,
+  ``QToolButton[variant="primary"]:pressed``, the spinbox up/down
+  hover, and both pill-progress gradient stops). ``main_window.py``
+  migrates four token-leak sites: ``_BusySpinner`` default color
+  resolves lazily to ``PALETTE.accent``; Notes ``QTextBrowser``
+  document stylesheet routes every literal through PALETTE tokens
+  (and restores ``text_secondary`` for paragraph/list — the prior
+  ``#a9b1d6`` had drifted off-palette per critic TL-02);
+  ``_on_compare_finished`` overlay color resolves through
+  ``PALETTE.error``; ``_BG_PRESETS`` becomes a static method
+  ``_bg_presets()`` whose dark-mode presets ("Tokyo Night", "Deep
+  Night") source from PALETTE tokens at call time, with "Paper
+  Cream" explicitly documented as a future ``light.qss`` stub.
+  Vocabulary borrows from Material Design 3 / Fluent 2 state-token
+  naming. Reference observable (tests/gui/test_theme.py):
+  ``test_palette_carries_derived_interaction_shades`` asserts every
+  new field exists on ``PALETTE`` and resolves to its canonical
+  Tokyo-Night-derived hex; ``test_dark_qss_header_documents_derived_shades``
+  parses the dark.qss header comment and asserts each token name +
+  expected hex is present, so a header drift fails the test.
+  Closes critic findings TL-02 / TL-04 / TL-06 (the seven cited
+  leak sites) and is the foundation FU-016 (state-layer hover/focus
+  QSS) and FU-003 (theme-aware Notes stylesheet) depend on. +2
+  tests; backend + visualization + GUI suite at 546 passed / 14
+  skipped, ruff clean. Commit ``<FU-002_SHA>``.
 - **FU-001 — ``QMenu`` dark-theme QSS rules.** Top-of-sequencing
   foundational S-sized theme fix from the 2026-05-19-initial
   frontend-uplift (RICE 3.12 — NONE on every challenger axis;

@@ -1255,10 +1255,17 @@ def _build_window_class() -> type:
             parent: QWidget | None = None,
             *,
             diameter: int = DEFAULT_SIZE_PX,
-            color: str = "#7aa2f7",
+            color: str | None = None,
         ) -> None:
             super().__init__(parent)
             self._diameter = int(diameter)
+            # Resolve the default lazily so a future theme switch picks
+            # up the right accent rather than the value frozen at import
+            # time (FU-002 — track ``PALETTE.accent`` through the token,
+            # not a literal hex).
+            if color is None:
+                from chaotic_systems.gui.theme import PALETTE
+                color = PALETTE.accent
             self._color_hex = color
             self._angle = 0
             self.setFixedSize(self._diameter + 4, self._diameter + 4)
@@ -1848,16 +1855,23 @@ def _build_window_class() -> type:
             self.notes_widget.setFrameShape(QFrame.Shape.NoFrame)
             # Match the rest of the dark theme; the QSS sets a base
             # background, but the document-side stylesheet controls
-            # link / heading colors so they stay legible.
+            # link / heading colors so they stay legible. Every value
+            # routes through ``PALETTE`` (FU-002) so a future palette
+            # migration is one-touch — and so FU-003's theme-aware
+            # branch already sees palette tokens to swap on instead
+            # of raw hex literals. The pre-FU-002 paragraph color
+            # ``#a9b1d6`` was off-palette (drifted from
+            # ``text_secondary``); restored here.
+            from chaotic_systems.gui.theme import PALETTE as _P_NOTES
             self.notes_widget.document().setDefaultStyleSheet(
-                "h1,h2,h3{color:#c0caf5;margin:6px 0 4px 0;}"
-                "p{color:#a9b1d6;line-height:1.4;}"
-                "li{color:#a9b1d6;}"
-                "code{color:#9ece6a;background:#1a1b26;"
+                f"h1,h2,h3{{color:{_P_NOTES.text_primary};margin:6px 0 4px 0;}}"
+                f"p{{color:{_P_NOTES.text_secondary};line-height:1.4;}}"
+                f"li{{color:{_P_NOTES.text_secondary};}}"
+                f"code{{color:{_P_NOTES.success};background:{_P_NOTES.bg_deep};"
                 "padding:1px 4px;border-radius:3px;}"
-                "strong{color:#e0af68;}"
-                "em{color:#bb9af7;}"
-                "a{color:#7aa2f7;}"
+                f"strong{{color:{_P_NOTES.warning};}}"
+                f"em{{color:{_P_NOTES.lyapunov};}}"
+                f"a{{color:{_P_NOTES.accent};}}"
             )
             self._notes_section = _CollapsibleSection(
                 "Notes",
@@ -2571,9 +2585,14 @@ def _build_window_class() -> type:
                 )
                 return
             try:
+                # FU-002 — route through ``PALETTE.error`` rather than
+                # the literal ``#f7768e`` so a future palette migration
+                # is one-touch. The comment two lines up still cites
+                # the canonical Tokyo-Night accent.
+                from chaotic_systems.gui.theme import PALETTE as _P_OVERLAY
                 self._current_renderer.add_overlay_trajectory(
                     traj,
-                    color="#f7768e",
+                    color=_P_OVERLAY.error,
                     opacity=0.85,
                 )
             except (RuntimeError, ValueError) as exc:
@@ -3530,12 +3549,24 @@ def _build_window_class() -> type:
         # Background-color presets surfaced in the Settings dropdown.
         # Each entry is ``(label, hex)``. The user can also open a full
         # ``QColorDialog`` for an arbitrary color.
-        _BG_PRESETS: tuple[tuple[str, str], ...] = (
-            ("Tokyo Night", "#24283b"),
-            ("Deep Night", "#1a1b26"),
-            ("Pure Black", "#000000"),
-            ("Paper Cream", "#f5f1e8"),
-        )
+        #
+        # FU-002 — the dark-themed presets ("Tokyo Night", "Deep Night")
+        # route through ``PALETTE`` tokens so a future palette migration
+        # propagates automatically. "Pure Black" is a true zero (#000000,
+        # not a palette concept). "Paper Cream" is a light-mode stub —
+        # the planned ``light.qss`` would carry the matching ``bg_window``
+        # token; until then it stays as a literal documented here.
+        @staticmethod
+        def _bg_presets() -> tuple[tuple[str, str], ...]:
+            from chaotic_systems.gui.theme import PALETTE
+            return (
+                ("Tokyo Night", PALETTE.bg_window),
+                ("Deep Night", PALETTE.bg_deep),
+                ("Pure Black", "#000000"),
+                # Light-mode bg_window stub — when ``light.qss`` ships,
+                # source this from the light-theme PALETTE instead.
+                ("Paper Cream", "#f5f1e8"),
+            )
 
         def _build_settings_button(self, toolbar: QToolBar, icons_dir: Path) -> QToolButton:
             """Build the gear button with a popup ``QMenu`` of toggles."""
@@ -3643,7 +3674,7 @@ def _build_window_class() -> type:
             bg_menu = menu.addMenu("Background")
             bg_menu.setObjectName("menu_settings_background")
             self._bg_actions: dict[str, QAction] = {}
-            for label, hex_color in self._BG_PRESETS:
+            for label, hex_color in self._bg_presets():
                 act = QAction(f"  {label}  ({hex_color})", self)
                 act.setCheckable(True)
                 act.setChecked(hex_color.lower() == self._setting_bg_color.lower())

@@ -71,6 +71,18 @@ class Palette:
     warning: str
     error: str
     lyapunov: str
+    # Derived interaction shades (FU-002 — frontend-uplift 2026-05-19-initial).
+    # These are the design-time-derived shades baked into ``assets/dark.qss``
+    # for hover / pressed / progress-pill states. Promoting them to PALETTE
+    # makes future palette migrations a one-touch change rather than a
+    # grep-and-replace across the QSS and ``main_window.py``. The
+    # vocabulary mirrors Material Design 3 / Fluent 2 state-token names
+    # (``hover``, ``pressed``, ``focus``, ``deep``).
+    bg_deep: str
+    bg_pill_track: str
+    accent_hover: str
+    accent_pressed: str
+    accent_glow: str
 
 
 # Tokyo Night Storm palette — kept in lock-step with `assets/dark.qss` and
@@ -92,6 +104,15 @@ PALETTE: Final[Palette] = Palette(
     warning="#e0af68",
     error="#f7768e",
     lyapunov="#bb9af7",
+    # Derived interaction shades — see Palette dataclass docstring. Each
+    # value is anchored to a use site in ``assets/dark.qss`` or
+    # ``main_window.py``; if you change one here, update the header
+    # comment in ``dark.qss`` so the use sites stay traceable.
+    bg_deep="#1a1b26",          # deeper than bg_panel; Notes code blocks, "Deep Night" preset
+    bg_pill_track="#2a2c3a",    # pill progress-bar track gradient end-stop
+    accent_hover="#343a55",     # secondary button hover; QToolButton hover; spinbox button hover
+    accent_pressed="#6788d8",   # primary button pressed; primary toolbutton pressed
+    accent_glow="#a4c1ff",      # pill progress chunk gradient highlight stop
 )
 
 

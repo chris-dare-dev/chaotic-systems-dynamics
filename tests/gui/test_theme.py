@@ -80,6 +80,72 @@ def test_build_application_applies_dark_by_default() -> None:
     window.close()
 
 
+def test_palette_carries_derived_interaction_shades() -> None:
+    """FU-002 — ``bg_deep`` / ``accent_hover`` / ``accent_pressed`` /
+    ``accent_glow`` / ``bg_pill_track`` are first-class palette tokens
+    so the QSS-derived interaction shades + the Notes panel + the
+    ``_BG_PRESETS`` background picker all route through ``PALETTE``
+    instead of grep-targets across the codebase.
+    """
+
+    from chaotic_systems.gui.theme import PALETTE
+
+    # Each new token must exist on the dataclass and resolve to the
+    # canonical Tokyo-Night-derived hex (see ``theme.py`` comments).
+    expected = {
+        "bg_deep": "#1a1b26",
+        "bg_pill_track": "#2a2c3a",
+        "accent_hover": "#343a55",
+        "accent_pressed": "#6788d8",
+        "accent_glow": "#a4c1ff",
+    }
+    for field_name, expected_hex in expected.items():
+        assert hasattr(PALETTE, field_name), (
+            f"PALETTE missing FU-002 token {field_name!r}"
+        )
+        assert getattr(PALETTE, field_name) == expected_hex, (
+            f"PALETTE.{field_name} drift: expected {expected_hex}, "
+            f"got {getattr(PALETTE, field_name)}"
+        )
+
+
+def test_dark_qss_header_documents_derived_shades() -> None:
+    """The ``dark.qss`` header comment block must enumerate the FU-002
+    tokens — QSS has no variable substitution so the header anchors
+    the values and inline-comment annotations at each use site mark
+    the token names. A drifted header would lie about the contract.
+    """
+
+    from pathlib import Path
+
+    from chaotic_systems.gui.theme import PALETTE
+
+    qss_text = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "chaotic_systems"
+        / "gui"
+        / "assets"
+        / "dark.qss"
+    ).read_text(encoding="utf-8")
+
+    # The header block is everything up to the first non-comment rule.
+    header_end = qss_text.index("\n */\n") + 5
+    header = qss_text[:header_end]
+
+    for name, expected_hex in (
+        ("bg-deep", PALETTE.bg_deep),
+        ("bg-pill-track", PALETTE.bg_pill_track),
+        ("accent-hover", PALETTE.accent_hover),
+        ("accent-pressed", PALETTE.accent_pressed),
+        ("accent-glow", PALETTE.accent_glow),
+    ):
+        assert name in header, f"dark.qss header missing derived shade {name!r}"
+        assert expected_hex in header, (
+            f"dark.qss header missing hex {expected_hex} for token {name}"
+        )
+
+
 def test_dark_stylesheet_contains_qmenu_rules(qapp) -> None:  # type: ignore[no-untyped-def]
     """The dark theme paints ``QMenu`` so the Settings dropdown (and any
     future menu-bearing affordance) consumes the Tokyo Night palette

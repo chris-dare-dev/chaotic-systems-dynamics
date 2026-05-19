@@ -18,6 +18,21 @@
  *   error             #f7768e
  *   lyapunov          #bb9af7
  *
+ * Derived interaction shades (FU-002, kept in lock-step with
+ * ``theme.PALETTE``). QSS has no variable substitution so we anchor
+ * the values here and reference them by name in inline comments at
+ * each use site. If any of these change in ``theme.py``, update the
+ * matching literal below.
+ *
+ *   bg-deep           #1a1b26  Deeper than bg-panel. Used for the pill
+ *                              progress-bar track-start (gradient stop 0).
+ *   bg-pill-track     #2a2c3a  Pill progress-bar track-end (gradient stop 1).
+ *   accent-hover      #343a55  Hover state for secondary QPushButton,
+ *                              QToolButton, QSpinBox up/down buttons.
+ *   accent-pressed    #6788d8  Pressed state for primary QPushButton /
+ *                              QToolButton; pill progress chunk dark stop.
+ *   accent-glow       #a4c1ff  Pill progress chunk gradient highlight stop.
+ *
  * Spacing tokens, in logical px:
  *   pad-xs  4   pad-sm  8   pad-md 12   pad-lg 16
  *
@@ -127,7 +142,7 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #343a55;
+    background-color: #343a55;  /* accent-hover */
     border-color: #545c7e;
 }
 
@@ -154,8 +169,8 @@ QPushButton[variant="primary"]:hover {
 }
 
 QPushButton[variant="primary"]:pressed {
-    background-color: #6788d8;
-    border-color: #6788d8;
+    background-color: #6788d8;  /* accent-pressed */
+    border-color: #6788d8;      /* accent-pressed */
 }
 
 QPushButton[variant="primary"]:disabled {
@@ -171,7 +186,7 @@ QPushButton[variant="danger"] {
 }
 
 QPushButton[variant="danger"]:hover {
-    background-color: #343a55;
+    background-color: #343a55;  /* accent-hover */
     border-color: #f7768e;
 }
 
@@ -269,7 +284,7 @@ QDoubleSpinBox::up-button:hover,
 QDoubleSpinBox::down-button:hover,
 QSpinBox::up-button:hover,
 QSpinBox::down-button:hover {
-    background-color: #343a55;
+    background-color: #343a55;  /* accent-hover */
 }
 
 QDoubleSpinBox::up-arrow,
@@ -347,7 +362,7 @@ QProgressBar::chunk {
 QProgressBar[variant="pill"] {
     background: qlineargradient(
         x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #1a1b26, stop: 1 #2a2c3a
+        stop: 0 #1a1b26, stop: 1 #2a2c3a  /* bg-deep -> bg-pill-track */
     );
     border: 1px solid rgba(255, 255, 255, 13);
     border-radius: 4px;
@@ -360,7 +375,9 @@ QProgressBar[variant="pill"] {
 QProgressBar[variant="pill"]::chunk {
     background: qlineargradient(
         x1: 0, y1: 0, x2: 0, y2: 1,
-        stop: 0 #a4c1ff, stop: 0.45 #7aa2f7, stop: 1 #6788d8
+        stop: 0 #a4c1ff,         /* accent-glow */
+        stop: 0.45 #7aa2f7,      /* accent */
+        stop: 1 #6788d8          /* accent-pressed */
     );
     border-radius: 3px;
     margin: 0;
@@ -496,7 +513,7 @@ QToolButton[variant="primary"]:hover {
 }
 
 QToolButton[variant="primary"]:pressed {
-    background-color: #6788d8;
+    background-color: #6788d8;  /* accent-pressed */
 }
 
 QToolButton[variant="primary"]:disabled {
