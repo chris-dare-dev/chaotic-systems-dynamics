@@ -1,0 +1,54 @@
+# Dependabot configuration.
+#
+# Two ecosystems are tracked:
+#   - pip            : runtime + extras from pyproject.toml (PEP 621).
+#   - github-actions : workflow action pins under .github/workflows/.
+#
+# Cadence is weekly (Monday) to match a single-owner repo. Minor + patch
+# bumps are grouped into a single PR per ecosystem to keep PR volume low;
+# majors stay separate so they get individual review (API breaks live
+# there). PRs target `main` directly, matching the no-branches workflow
+# documented in CLAUDE.md.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      python-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      actions-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"

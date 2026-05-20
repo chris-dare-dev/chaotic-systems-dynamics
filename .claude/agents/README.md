@@ -48,6 +48,21 @@ The Phase 2 (synthesize) and Phase 4 (prioritize) phases run in the
 4 briefs in working memory and prioritization is the user-review
 surface.
 
+**`/draft-proposal`** — promote CSC items (or a freeform brief) into
+a clean `docs/proposals/*.md` ready for `/milestone-pipeline`.
+
+| Agent | Phase | Role |
+|---|---|---|
+| `draft-proposal-drafter` | 2 (parallel) | Produces per-item What/Where/SOTA/Effort/Rationale sections from the source brief, matching the `capability-roadmap-2026-05-17.md` shape. |
+| `draft-proposal-sequencer` | 2 (parallel) | Independently produces the top-of-file dependency table — explicitly does NOT read the drafter's output (anti-anchoring). |
+| `draft-proposal-critic` | 3 (sequential) | Walks a 10-axis proposal-hygiene checklist (source traceability, path conflict, citation quality, observable presence, effort calibration, native locks, additivity, bundle coherence, dependency declarations, risks discipline). Same severity calibration as `/capability-scout`'s challenger. |
+| `draft-proposal-refiner` | 4 (sequential) | Applies DROP / REDESIGN / MITIGATE / PROCEED dispositions; renumbers the sequencing table; writes the final `docs/proposals/<slug>-<DATE>.md`. The only agent in the pipeline that writes to `docs/`. |
+
+Phase 1 (resolve) and Phase 5 (handoff) run in the **main session**:
+resolve needs CLAUDE.md/CONTEXT.md/synthesis-file context already in
+working memory; handoff is the user-review surface that OFFERS the
+`/milestone-pipeline` invocation (never auto-invokes).
+
 ## How to invoke
 
 **Standalone scouts** (e.g. `ui-upgrade-scout`): in a fresh Claude

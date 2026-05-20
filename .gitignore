@@ -117,3 +117,10 @@ CRITIQUE.md
 # .claude/references) IS committed.
 .claude/notes/
 .claude/agent-memory/
+# Per-machine Claude Code state. ``settings.local.json`` holds the
+# user's permission allow-list (different on every laptop) and
+# ``worktrees/`` is the on-disk staging directory the harness uses
+# for sub-agent worktrees (recursive copies of this repo — must not
+# be committed).
+.claude/settings.local.json
+.claude/worktrees/
