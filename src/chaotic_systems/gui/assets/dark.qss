@@ -228,8 +228,11 @@ QComboBox::drop-down {
     background: transparent;
 }
 
+/* QComboBox down-arrow — FU-005: use Qt's native chevron glyph so
+ * there's no missing-SVG silent-degradation surface. Qt renders
+ * the arrow in the widget's foreground colour, which inherits
+ * ``color: #c0caf5`` from the rule above. */
 QComboBox::down-arrow {
-    image: url(assets/icons/chevron-down.svg);
     width: 10px;
     height: 10px;
 }
@@ -298,16 +301,17 @@ QSpinBox::down-button:hover {
     background-color: #343a55;  /* accent-hover */
 }
 
+/* Spinbox up/down arrows — FU-005: Qt-native glyphs (no SVG ref).
+ * The native arrows inherit the widget's foreground colour so they
+ * remain legible on the dark theme without a custom asset. */
 QDoubleSpinBox::up-arrow,
 QSpinBox::up-arrow {
-    image: url(assets/icons/chevron-up.svg);
     width: 10px;
     height: 10px;
 }
 
 QDoubleSpinBox::down-arrow,
 QSpinBox::down-arrow {
-    image: url(assets/icons/chevron-down.svg);
     width: 10px;
     height: 10px;
 }

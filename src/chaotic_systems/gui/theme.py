@@ -167,22 +167,12 @@ def apply_theme(app: QApplication, mode: str = "dark") -> None:
             f"theme stylesheet not found: {path}; the install is missing assets/"
         )
     stylesheet = path.read_text(encoding="utf-8")
-    # Resolve asset URLs against the installed package so QSS works under
-    # editable installs, wheels, and zip-imported packages alike. Tokens of
-    # the form ``url(assets/icons/foo.svg)`` are rewritten to absolute
-    # ``file:///...`` URLs; the QSS files use the relative form so they
-    # stay readable when viewed standalone.
-    icons_dir = _ASSETS_DIR / "icons"
-    if icons_dir.exists():
-        # Qt resolves QSS ``url(...)`` against the application working
-        # directory, so we substitute the absolute filesystem path.
-        # ``file://`` URIs would be cleaner but Qt 6's QSS parser strips
-        # the scheme inconsistently across platforms — bare absolute
-        # paths Just Work.
-        stylesheet = stylesheet.replace(
-            "url(assets/icons/",
-            f"url({icons_dir.as_posix()}/",
-        )
+    # FU-005 — every icon previously loaded via the QSS asset path
+    # has been migrated to qtawesome MDI6 glyphs set programmatically
+    # (see ``icons.icon_for_stem``); QComboBox / QSpinBox arrows
+    # render via Qt-native chevrons. The icon-path-rewriting hack
+    # that lived here pre-FU-005 is gone — no asset directory is
+    # referenced by the shipped QSS anymore.
     app.setStyleSheet(stylesheet)
     _current_theme = normalized
 

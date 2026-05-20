@@ -304,7 +304,6 @@ def _build_window_class() -> type:
     )
     from PySide6.QtGui import (
         QAction,
-        QIcon,
         QImage,
         QKeySequence,
         QPalette,
@@ -3358,10 +3357,11 @@ def _build_window_class() -> type:
         # ------------------------------------------------------------ toolbar
 
         # Toolbar action specs: (object_name, label, icon-stem, tooltip,
-        # slot, starts_enabled). ``icon_stem`` resolves to
-        # ``assets/icons/<stem>.svg``. Kept as data so the structure is
-        # readable and external agents can introspect it via
-        # ``MainWindow.transport_actions()``.
+        # slot, starts_enabled). ``icon_stem`` resolves through the
+        # qtawesome MDI6 mapping in ``chaotic_systems.gui.icons``
+        # (FU-005) — see ``STEM_TO_GLYPH``. Kept as data so the
+        # structure is readable and external agents can introspect
+        # it via ``MainWindow.transport_actions()``.
         def _toolbar_action_specs(self) -> list[tuple[str, str, str, str, Any, bool]]:
             return [
                 (
@@ -3509,9 +3509,14 @@ def _build_window_class() -> type:
             toolbar.addWidget(self.system_box)
             toolbar.addSeparator()
 
-            icons_dir = (
-                Path(__file__).resolve().parent / "assets" / "icons"
-            )
+            # FU-005 — icons resolve through ``icon_for_stem`` (qtawesome
+            # MDI6 glyphs) rather than the prior ``assets/icons/<stem>.svg``
+            # path. The mapping table lives in
+            # ``chaotic_systems.gui.icons.STEM_TO_GLYPH``; missing stems
+            # raise ``KeyError`` at construction time so the
+            # silently-degraded-toolbar bug (visual-scout F-02 /
+            # critic AP-04) cannot recur.
+            from chaotic_systems.gui.icons import icon_for_stem
 
             for i, spec in enumerate(self._toolbar_action_specs()):
                 obj_name, label, icon_stem, tip, slot, enabled = spec
@@ -3522,9 +3527,7 @@ def _build_window_class() -> type:
                 action = QAction(label, self)
                 action.setObjectName(obj_name)
                 action.setToolTip(tip)
-                icon_path = icons_dir / f"{icon_stem}.svg"
-                if icon_path.exists():
-                    action.setIcon(QIcon(str(icon_path)))
+                action.setIcon(icon_for_stem(icon_stem))
                 action.setEnabled(enabled)
                 action.triggered.connect(slot)
                 toolbar.addAction(action)
@@ -3542,7 +3545,7 @@ def _build_window_class() -> type:
             # axes, grid, background color, trajectory width, and the
             # vector-field preview. QSettings persistence is stubbed.
             toolbar.addSeparator()
-            self._settings_button = self._build_settings_button(toolbar, icons_dir)
+            self._settings_button = self._build_settings_button(toolbar)
             toolbar.addWidget(self._settings_button)
 
             self._toolbar = toolbar
@@ -3590,16 +3593,22 @@ def _build_window_class() -> type:
                 ("Paper Cream", "#f5f1e8"),
             )
 
-        def _build_settings_button(self, toolbar: QToolBar, icons_dir: Path) -> QToolButton:
-            """Build the gear button with a popup ``QMenu`` of toggles."""
+        def _build_settings_button(self, toolbar: QToolBar) -> QToolButton:
+            """Build the gear button with a popup ``QMenu`` of toggles.
+
+            FU-005 routes the gear glyph through ``icon_for_stem``
+            (qtawesome MDI6 ``mdi6.cog``) — the prior version took an
+            ``icons_dir: Path`` argument pointing at the
+            ``assets/icons/`` directory that no longer exists.
+            """
+
+            from chaotic_systems.gui.icons import icon_for_stem
 
             btn = QToolButton(toolbar)
             btn.setObjectName("button_settings")
             btn.setToolTip("Display settings")
             btn.setText("Settings")
-            icon_path = icons_dir / "gear.svg"
-            if icon_path.exists():
-                btn.setIcon(QIcon(str(icon_path)))
+            btn.setIcon(icon_for_stem("gear"))
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 

@@ -113,6 +113,68 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-005 — Adopt qtawesome; retire the hand-rolled SVG icon set.**
+  S-sized iconography uplift from the 2026-05-19-initial
+  frontend-uplift (RICE 1.80 — MAJOR severity mitigated by FU-002
+  landing first;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the visual scout's F-02 finding ("Five analysis toolbar
+  actions have no SVG icons") and the current-state-critic's
+  AP-04 anti-pattern ("icon stems reference non-existent SVG
+  files; silent-skip degrades to text-only buttons"). Adds
+  ``qtawesome>=1.4`` (MIT, ~12 MB; pure Python — bundles MDI6 +
+  FontAwesome 6 + Codicons font packs, no compiled extensions)
+  to ``pyproject.toml`` runtime deps. New module
+  ``chaotic_systems.gui.icons`` ships ``STEM_TO_GLYPH`` — a
+  stable 13-entry mapping from the project's legacy icon-stem
+  vocabulary (``run`` / ``pause`` / ``stop`` / ``jump-end`` /
+  ``export`` / ``reset-view`` / ``theme`` / ``gear`` /
+  ``bifurcation`` / ``phase-portrait`` / ``recurrence`` /
+  ``basins`` / ``poincare``) to MDI6 glyph IDs (``mdi6.play``,
+  ``mdi6.chart-scatter-plot``, etc.), plus ``icon_for_stem(stem,
+  color=None)`` that returns a ``QIcon`` tinted from
+  ``PALETTE.text_primary`` at call time. The mapping pins the
+  contract that a missing glyph raises ``KeyError`` at
+  construction time rather than silently degrading — so the
+  five orphan stems can never go un-iconned again. Two call sites
+  in ``main_window.py`` migrated: the toolbar-action loop
+  (replaces ``QIcon(QFile(stem.svg))`` with
+  ``icon_for_stem(stem)``) and ``_build_settings_button`` (gear
+  glyph). The unused ``QIcon`` import is removed.
+  ``assets/dark.qss`` drops three ``image: url(assets/icons/
+  chevron-*.svg)`` references — ``QComboBox::down-arrow`` and
+  ``QDoubleSpinBox::up/down-arrow`` now render via Qt's native
+  chevron glyphs (same approach FU-001 used for ``QMenu::
+  indicator``), so no missing-SVG silent-degradation surface
+  remains in the shipped QSS. The 10-line URL-rewriting block
+  in ``theme.apply_theme`` (lines 154-163 pre-FU-005) is deleted
+  — no asset directory is touched anywhere on the QSS hot path.
+  Ten SVG files under ``assets/icons/`` deleted (``run`` /
+  ``pause`` / ``stop`` / ``jump-end`` / ``export`` / ``reset-view``
+  / ``theme`` / ``gear`` / ``chevron-up`` / ``chevron-down``).
+  Challenger-flagged CC-2 mitigation honored: a smoke test fires
+  ``_on_toggle_theme`` and verifies every toolbar action's icon
+  still rasterises to a non-null 16x16 pixmap (catches qtawesome
+  cache-invalidation regressions). CC-06 (chevron migration risk)
+  found to be moot for this codebase — the project's
+  ``_CollapsibleSection`` chevrons are Unicode glyphs
+  (``▾`` / ``▸``), not SVGs, so no QSS-to-setIcon migration was
+  needed there. Reference observables (tests/gui/test_icons.py):
+  ``STEM_TO_GLYPH`` covers every stem ``_toolbar_action_specs``
+  declares (pinned dynamically against the live spec list);
+  every glyph value starts with ``mdi6.`` (single-font-pack
+  invariant); ``icon_for_stem("run")`` returns a non-null
+  ``QIcon`` with a rasterisable 16x16 pixmap; unknown stems
+  raise ``KeyError`` (no silent degradation);
+  ``test_every_toolbar_action_has_a_non_null_icon`` checks every
+  action surfaced via ``window.transport_actions()`` — pre-FU-005
+  this test would fail with 5 missing icons (the headline
+  behavioural fix); the theme-toggle smoke test verifies icons
+  survive a re-theme; the ``assets/icons/`` directory has no
+  ``.svg`` left; ``theme.apply_theme`` source no longer
+  contains the icon-URL-rewriting hack. 8 new tests; full
+  backend + visualization + GUI suite at 643 passed / 14
+  skipped, ruff clean. Commit ``<FU-005_SHA>``.
 - **FU-016 — State-layer hover / focus / pressed QSS overlays.**
   S-sized accessibility uplift from the 2026-05-19-initial
   frontend-uplift (RICE 3.00 — MINOR on every challenger axis;

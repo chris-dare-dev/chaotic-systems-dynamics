@@ -63,6 +63,13 @@ dependencies = [
     "pyvistaqt>=0.11",
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
+    # FU-005 — qtawesome (Material Design Icons 6 + FontAwesome 6 +
+    # Codicons) replaces the hand-rolled SVG icon set under
+    # ``assets/icons/`` and the URL-rewriting hack that previously
+    # had to absolutise the relative QSS ``url(...)`` paths against
+    # the installed package. Pure-Python, MIT-licensed, ~12 MB
+    # wheel (bundles three icon fonts; no compiled extensions).
+    "qtawesome>=1.4",
 ]
 
 [project.scripts]
