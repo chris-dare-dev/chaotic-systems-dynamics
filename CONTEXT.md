@@ -158,7 +158,7 @@ follow-ups:
   + GUI suite at 671 passed / 14 skipped (no test count delta;
   the existing ``test_theme.py`` source-grep tests still pin
   the live tokens against the doc's narrative). Ruff clean.
-  Commit ``<FU-025_SHA>``.
+  Commit ``ebcb79c``.
 - **FU-024 — Clear dialog window references on close.** XS-sized
   hygiene fix from the 2026-05-19-initial frontend-uplift (RICE 0.72
   — NONE on every challenger axis;
