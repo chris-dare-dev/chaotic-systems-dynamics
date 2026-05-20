@@ -76,3 +76,66 @@ def qapp_args() -> list[str]:  # pragma: no cover - trivial fixture
     """Args passed to the QApplication built by ``pytest-qt``."""
 
     return ["chaotic-systems-tests"]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_qsettings_path(tmp_path_factory: pytest.TempPathFactory) -> None:
+    """Point ``QSettings`` at a tmp directory for the test session.
+
+    FU-013 introduces a ``QSettings``-backed persistent-settings layer
+    (theme, last system, last integrator, per-system parameter values,
+    window geometry) that the main window loads at startup. Without
+    isolation, the test session would read / mutate the developer's
+    real settings file under ``~/.config/`` (Linux) / ``%APPDATA%``
+    (Windows) — flaky in CI and corrupting on a dev machine.
+
+    We redirect via :meth:`QSettings.setPath` for both ``IniFormat`` /
+    ``UserScope`` and ``IniFormat`` / ``SystemScope`` so every code
+    path that constructs a default ``QSettings`` lands in the tmp dir.
+    Session-scoped so the redirect is set once before any GUI test
+    imports ``preferences_dialog``; the per-test clear below resets
+    the contents between tests.
+    """
+
+    if not _can_run_gui_tests():
+        return
+    try:
+        from PySide6.QtCore import QSettings
+    except ImportError:  # pragma: no cover - PySide6 missing
+        return
+
+    tmp_dir = tmp_path_factory.mktemp("qsettings_isolation")
+    QSettings.setPath(
+        QSettings.Format.IniFormat,
+        QSettings.Scope.UserScope,
+        str(tmp_dir),
+    )
+    QSettings.setPath(
+        QSettings.Format.IniFormat,
+        QSettings.Scope.SystemScope,
+        str(tmp_dir),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _clear_qsettings_between_tests() -> None:
+    """Wipe the redirected ``QSettings`` file before each GUI test.
+
+    ``MainWindow.closeEvent`` persists the live snapshot via
+    :func:`save_settings`, so any earlier test that closes a window
+    leaves state behind — without this clear, ``last_system`` from
+    test A leaks into the startup-load path of test B and changes
+    the picker silently. Function-scoped + autouse so every GUI test
+    starts from an empty settings file.
+    """
+
+    if not _can_run_gui_tests():
+        return
+    try:
+        from chaotic_systems.gui.preferences_dialog import _new_qsettings
+    except ImportError:  # pragma: no cover - PySide6 missing
+        return
+
+    qs = _new_qsettings()
+    qs.clear()
+    qs.sync()

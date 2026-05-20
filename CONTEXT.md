@@ -98,23 +98,76 @@ tests and only skips the GUI smoke tests.
 
 ## What's next
 
-The scaffolding and the visualization MVP are done. Items #1, #2, and
-#4 from earlier revisions of this list have all shipped — see the
-``Recently shipped`` sections below for V1 (2D phase-space panels),
-D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
-(numba-JIT'd RHS). Remaining open follow-ups:
+The scaffolding and the visualization MVP are done. Items #1, #2,
+and #4 from earlier revisions of this list have all shipped — and
+the "persistent settings" item that was #1 in the prior revision
+landed as FU-013 (see ``Recently shipped`` below). Remaining open
+follow-ups:
 
-1. **Persistent settings.** Remember the last-used system, parameters,
-   and integrator across launches (`QSettings`).
-2. **CI for the GUI smoke tests.** Today the GUI tests are skipped
+1. **CI for the GUI smoke tests.** Today the GUI tests are skipped
    without a display. A `xvfb` job (Linux) or a macOS runner with a
    logged-in user could turn them back on.
-3. **Pre-rendered intros (manim).** Out-of-scope today but a nice
+2. **Pre-rendered intros (manim).** Out-of-scope today but a nice
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-013 — Persistent settings via ``QSettings`` + Preferences dialog.**
+  Foundational M-sized workflow uplift from the 2026-05-19-initial
+  frontend-uplift (RICE 4.88 — highest in the synthesis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the longest-standing item on ``CONTEXT.md`` "What's next" #1
+  — "Persistent settings. Remember the last-used system, parameters,
+  and integrator across launches (``QSettings``)." Three convergent
+  inspirations (napari / ParaView / Blender) all split a Preferences
+  dialog into Appearance / Defaults / Restore-on-launch sections;
+  this ships the same layout. New module
+  ``chaotic_systems.gui.preferences_dialog`` exposes a
+  ``PersistedSettings`` dataclass + ``load_settings()`` /
+  ``save_settings()`` helpers (canonical ``QSettings`` with
+  ``IniFormat`` + ``UserScope`` — Windows registry deliberately
+  bypassed so users can inspect / delete their config) +
+  ``PreferencesDialog`` with the three sections + a
+  ``build_preferences_dialog`` factory matching the existing
+  ``build_*_dialog`` pattern. Schema-version key
+  (``SETTINGS_VERSION = 1``) in the settings file gates a clean
+  reset on mismatch — bumping the version is the documented way
+  to invalidate stale keys when a knob's meaning changes.
+  ``main_window`` grows three private methods —
+  ``_load_persisted_settings_at_startup`` (called at the tail of
+  ``__init__`` after every widget is built),
+  ``_persisted_settings_snapshot`` (reads live state into a
+  ``PersistedSettings``), ``_apply_persisted_settings`` (writes a
+  snapshot back into the live window, with an ``at_startup`` flag
+  distinguishing boot-restore from dialog-OK paths) —
+  ``_open_preferences_dialog`` (modal dialog wired so OK
+  persists + re-applies), Ctrl+, shortcut, and a "Preferences..."
+  action in the Settings dropdown. Persisted surface:
+  ``theme`` / ``bg_color`` / ``last_system`` / ``last_integrator``
+  / ``last_t_end`` / ``last_dt`` / per-system parameter dicts /
+  window ``saveGeometry`` + ``saveState`` bytes — the geometry /
+  state fields are already wired so FU-018 (undockable diagnostic
+  panels) only adds *what* to remember, not *how*.
+  Challenger-flagged race condition mitigated: ``closeEvent``
+  persists settings AFTER the existing sim / export / prerender
+  worker-cancel block, so no worker can race ``saveGeometry`` /
+  ``QSettings.setValue``. ``tests/gui/conftest.py`` gains two
+  autouse fixtures (session-scoped path redirection via
+  ``QSettings.setPath`` + per-test ``QSettings.clear()``) so the
+  test session never touches the developer's real settings file
+  and tests start from a clean slate. Reference observables
+  (tests/gui/test_preferences.py): save → load round-trips every
+  field (including per-system parameter dicts + bytes ``window_*``
+  payloads); schema-version mismatch resets to defaults; a saved
+  snapshot that drops a previously-saved system removes its stale
+  keys; the main window registers an ``action_preferences`` with
+  Ctrl+, shortcut and ``_persisted_settings_snapshot()`` reads
+  the live picker values. 11 new tests; full backend +
+  visualization + GUI suite at 584 passed / 14 skipped, ruff
+  clean. Foundational for FU-018 (dock-state persistence
+  consumer) and FU-014 (command palette container styling now
+  benefits from the persisted theme). Commit ``<FU-013_SHA>``.
 - **FU-002 — Promote ``#1a1b26`` + interaction shades to ``theme.PALETTE``.**
   Foundational S-sized token-discipline pass from the 2026-05-19-initial
   frontend-uplift (RICE 3.25 — NONE on every challenger axis;

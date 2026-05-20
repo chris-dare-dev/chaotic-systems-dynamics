@@ -1911,6 +1911,13 @@ def _build_window_class() -> type:
             QShortcut(QKeySequence(Qt.Key.Key_Space), self, activated=self._on_toggle_play)
             QShortcut(QKeySequence("Ctrl+."), self, activated=self._on_stop)
             QShortcut(QKeySequence("End"), self, activated=self._on_jump_to_end)
+            # FU-013 — Preferences dialog (closes CONTEXT.md open item #1).
+            # Ctrl+, mirrors the macOS / napari / VS Code convention.
+            QShortcut(
+                QKeySequence("Ctrl+,"),
+                self,
+                activated=self._open_preferences_dialog,
+            )
 
             self._set_transport_enabled(False)
             # Initialize export tooltip to the "Run a simulation first"
@@ -1927,6 +1934,13 @@ def _build_window_class() -> type:
             # Deferring to the event loop avoids racing the QtInteractor's
             # first paint on macOS.
             QTimer.singleShot(50, self._render_vector_field_preview)
+            # FU-013 — restore persisted settings (theme, last-used
+            # system / integrator / time-range / per-system parameters,
+            # window geometry). Initialised here as a field so the
+            # Preferences dialog and ``closeEvent`` have a single source
+            # of truth.
+            self._persisted_snapshot: Any = None
+            self._load_persisted_settings_at_startup()
 
         # ------------------------------------------------------------------
 
@@ -3719,6 +3733,17 @@ def _build_window_class() -> type:
             menu.addSeparator()
             menu.addAction(width_action)
 
+            # FU-013 — Preferences dialog entry point. Routed through
+            # the Settings menu so users discover it; the Ctrl+,
+            # shortcut wired in ``__init__`` is the keyboard path.
+            menu.addSeparator()
+            prefs_action = QAction("Preferences...", self)
+            prefs_action.setObjectName("action_preferences")
+            prefs_action.setShortcut(QKeySequence("Ctrl+,"))
+            prefs_action.triggered.connect(self._open_preferences_dialog)
+            menu.addAction(prefs_action)
+            self.action_preferences = prefs_action
+
             btn.setMenu(menu)
             self._settings_menu = menu
             return btn
@@ -3769,6 +3794,222 @@ def _build_window_class() -> type:
             for key, act in self._bg_actions.items():
                 act.setChecked(key == hex_color.lower())
             self._apply_bg_color()
+
+        # -------------------------------------------------------- FU-013
+        # Persistent settings + Preferences dialog. The three methods below
+        # form the contract documented in
+        # ``src/chaotic_systems/gui/preferences_dialog.py``:
+        #
+        # - ``_load_persisted_settings_at_startup`` runs at the tail of
+        #   ``__init__`` after every widget has been built and the
+        #   parameter form is populated for the default system.
+        # - ``_persisted_settings_snapshot`` reads the live window state
+        #   into a ``PersistedSettings`` dataclass. Called by the
+        #   Preferences dialog (to seed its current values) and by
+        #   ``closeEvent`` (to persist the final state).
+        # - ``_apply_persisted_settings`` writes a ``PersistedSettings``
+        #   back into the live window — sets the system / integrator
+        #   picker, applies the bg color, restores per-system parameter
+        #   values, etc.
+        # - ``_open_preferences_dialog`` opens the modal dialog and
+        #   wires its ``applied`` signal to save + re-apply.
+
+        def _load_persisted_settings_at_startup(self) -> None:
+            """Read ``QSettings`` and apply what's relevant to a fresh window."""
+            from chaotic_systems.gui.preferences_dialog import (
+                PersistedSettings,
+                load_settings,
+            )
+
+            try:
+                snapshot = load_settings()
+            except (OSError, ValueError):  # pragma: no cover - degraded
+                snapshot = PersistedSettings()
+            self._persisted_snapshot = snapshot
+            self._apply_persisted_settings(snapshot, at_startup=True)
+
+        def _apply_persisted_settings(
+            self, snapshot: Any, *, at_startup: bool
+        ) -> None:
+            """Apply ``snapshot`` to the live window.
+
+            ``at_startup=True`` is the boot-time path: apply
+            ``last_system`` / ``last_integrator`` / ``last_t_end`` /
+            ``last_dt`` / per-system parameters / window geometry. Used
+            from ``_load_persisted_settings_at_startup``.
+
+            ``at_startup=False`` is the Preferences-dialog OK path:
+            apply only the dialog's writable surface (theme,
+            restore-on-launch toggles, default system / integrator if
+            they changed) — the user has actively chosen these and
+            they should take effect immediately, but we don't reset
+            time-range / parameters underneath them.
+            """
+            # Re-apply theme on every settings change (the dialog can
+            # change it; startup also re-applies whatever was saved).
+            if snapshot.theme in ("dark", "light"):
+                try:
+                    from PySide6.QtWidgets import QApplication
+
+                    from chaotic_systems.gui.theme import apply_theme
+
+                    app = QApplication.instance()
+                    if app is not None:
+                        apply_theme(app, snapshot.theme)
+                except (ImportError, RuntimeError):  # pragma: no cover
+                    pass
+
+            if not at_startup:
+                # Dialog-OK path stops here — see method docstring.
+                return
+
+            # Restore window geometry / dock state if available and the
+            # user opted into save_window_layout.
+            if (
+                snapshot.save_window_layout
+                and snapshot.window_geometry is not None
+            ):
+                try:
+                    self.restoreGeometry(snapshot.window_geometry)
+                except (TypeError, RuntimeError):  # pragma: no cover
+                    pass
+            if (
+                snapshot.save_window_layout
+                and snapshot.window_state is not None
+            ):
+                try:
+                    self.restoreState(snapshot.window_state)
+                except (TypeError, RuntimeError):  # pragma: no cover
+                    pass
+
+            # Apply background color if remembered.
+            if snapshot.bg_color is not None:
+                self._on_setting_bg_color(snapshot.bg_color)
+
+            # Apply system picker — silently no-op if the saved name is
+            # no longer registered (e.g. user upgraded across a system
+            # rename).
+            if snapshot.remember_last_used and snapshot.last_system:
+                idx = self.system_box.findText(snapshot.last_system)
+                if idx >= 0 and idx != self.system_box.currentIndex():
+                    # Setting the index fires ``_on_system_changed``
+                    # which rebuilds the parameter form, so the
+                    # parameter restoration below operates on the
+                    # right widgets.
+                    self.system_box.setCurrentIndex(idx)
+
+            # Apply integrator picker.
+            if snapshot.remember_last_used and snapshot.last_integrator:
+                idx = self.integrator_box.findText(snapshot.last_integrator)
+                if idx >= 0:
+                    self.integrator_box.setCurrentIndex(idx)
+
+            # Apply time range.
+            if snapshot.remember_last_used:
+                if snapshot.last_t_end is not None:
+                    self.t_end.setValue(float(snapshot.last_t_end))
+                if snapshot.last_dt is not None:
+                    self.dt.setValue(float(snapshot.last_dt))
+
+            # Apply per-system parameter values for the *current* system.
+            # If the saved system was restored above, this targets it;
+            # otherwise it targets whatever's currently shown.
+            if snapshot.remember_last_used:
+                current_name = self.system_box.currentText()
+                stored = snapshot.system_parameters.get(current_name, {})
+                for param_name, value in stored.items():
+                    widget = self._param_widgets.get(param_name)
+                    if widget is None:
+                        continue
+                    try:
+                        widget._spin.setValue(float(value))  # noqa: SLF001
+                    except (TypeError, ValueError):  # pragma: no cover
+                        pass
+
+        def _persisted_settings_snapshot(self) -> Any:
+            """Build a :class:`PersistedSettings` from current window state."""
+            from chaotic_systems.gui.preferences_dialog import PersistedSettings
+            from chaotic_systems.gui.theme import current_theme
+
+            prior = self._persisted_snapshot
+            if prior is None:
+                prior = PersistedSettings()
+
+            current_system = self.system_box.currentText() or None
+            current_integrator = self.integrator_box.currentText() or None
+
+            # Merge live per-system parameter values into the saved dict
+            # so previously-saved systems aren't forgotten when the user
+            # switches between them.
+            system_parameters = dict(prior.system_parameters)
+            if current_system:
+                live: dict[str, float] = {}
+                for name, widget in self._param_widgets.items():
+                    try:
+                        live[name] = float(widget.value())
+                    except (TypeError, ValueError):  # pragma: no cover
+                        continue
+                if live:
+                    system_parameters[current_system] = live
+
+            # Snapshot window geometry / state. ``saveGeometry`` and
+            # ``saveState`` return ``QByteArray``; ``bytes(...)`` does
+            # the right thing on PySide6.
+            try:
+                geom_ba = self.saveGeometry()
+                window_geometry = bytes(geom_ba)
+            except (RuntimeError, AttributeError):  # pragma: no cover
+                window_geometry = None
+            try:
+                state_ba = self.saveState()
+                window_state = bytes(state_ba)
+            except (RuntimeError, AttributeError):  # pragma: no cover
+                window_state = None
+
+            return PersistedSettings(
+                theme=current_theme(),
+                bg_color=str(self._setting_bg_color),
+                last_system=current_system,
+                last_integrator=current_integrator,
+                last_t_end=float(self.t_end.value()),
+                last_dt=float(self.dt.value()),
+                remember_last_used=prior.remember_last_used,
+                save_window_layout=prior.save_window_layout,
+                window_geometry=window_geometry,
+                window_state=window_state,
+                system_parameters=system_parameters,
+            )
+
+        def _open_preferences_dialog(self) -> None:
+            """Open the Preferences dialog; persist + re-apply on OK."""
+            from chaotic_systems.gui.preferences_dialog import (
+                build_preferences_dialog,
+                save_settings,
+            )
+
+            current = self._persisted_settings_snapshot()
+            systems = [
+                self.system_box.itemText(i)
+                for i in range(self.system_box.count())
+            ]
+            integrators = [
+                self.integrator_box.itemText(i)
+                for i in range(self.integrator_box.count())
+            ]
+            dialog = build_preferences_dialog(self, current, systems, integrators)
+
+            def _on_applied(new_snapshot: Any) -> None:
+                self._persisted_snapshot = new_snapshot
+                try:
+                    save_settings(new_snapshot)
+                except (OSError, RuntimeError):  # pragma: no cover
+                    pass
+                self._apply_persisted_settings(new_snapshot, at_startup=False)
+
+            dialog.applied.connect(_on_applied)
+            dialog.exec()
+
+        # ----------------------------------------------------------- /FU-013
 
         def _on_setting_trajectory_width(self, value: int) -> None:
             self._setting_trajectory_width = float(value) / 10.0
@@ -4636,6 +4877,18 @@ def _build_window_class() -> type:
                 if thread is not None:
                     thread.quit()
                     thread.wait(2000)
+            # FU-013 — persist settings AFTER the worker cancellation
+            # block above. The challenger flagged this ordering: a sim
+            # / prerender worker writing into ``_last_trajectory`` while
+            # ``saveGeometry`` runs would race; cancelling first
+            # prevents the race. Failure is non-fatal — a broken
+            # settings file should never crash the close path.
+            try:
+                from chaotic_systems.gui.preferences_dialog import save_settings
+
+                save_settings(self._persisted_settings_snapshot())
+            except (OSError, RuntimeError, ImportError):  # pragma: no cover
+                pass
             if self.viewer is not None:
                 try:
                     self.viewer.close()
