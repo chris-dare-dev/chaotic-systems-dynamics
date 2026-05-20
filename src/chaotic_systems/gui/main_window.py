@@ -762,15 +762,15 @@ def _build_window_class() -> type:
             self._toggle.setFlat(True)
             self._toggle.setProperty("variant", "section-toggle")
             self._toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-            # Layout-friendly: align text to left + add minimal padding. The
-            # color / hover state lives in the QSS so theme switches "just
-            # work".
-            self._toggle.setStyleSheet(
-                "QPushButton[variant=\"section-toggle\"] {"
-                " text-align: left; padding: 4px 6px;"
-                " font-weight: 600; border: none; background: transparent;"
-                " color: #c0caf5; font-size: 12pt; }"
-            )
+            # FU-004 — the section-toggle visuals (text-align, padding,
+            # font-weight, font-size, transparent background, no border,
+            # PALETTE.text_primary colour) now live in
+            # ``assets/dark.qss`` under
+            # ``QPushButton[variant="section-toggle"]`` so a future
+            # light-theme stylesheet can override them without touching
+            # Python and the inline ``font-size: 12pt`` (an
+            # undocumented third type size) is replaced by
+            # ``font-ctrl=13pt`` per docs/ui_design.md §typography.
             self._toggle.toggled.connect(self._on_toggled)
             self._title = title
 

@@ -201,6 +201,51 @@ QPushButton[variant="danger"]:hover {
     border-color: #f7768e;
 }
 
+/*
+ * Section-toggle header buttons inside ``_CollapsibleSection`` (FU-004).
+ *
+ * Pre-FU-004 ``_CollapsibleSection.__init__`` carried an inline
+ * ``setStyleSheet`` with a hardcoded ``color: #c0caf5; font-size: 12pt``
+ * — a literal that bypassed PALETTE and a third undocumented type
+ * size that contradicted the spec (docs/ui_design.md lists
+ * ``font-ctrl=13pt`` for buttons / ``font-h2=14pt`` for card
+ * titles + section headings; 12pt was neither). Moving the rule
+ * here:
+ *   1. Routes the colour through ``#c0caf5`` (PALETTE.text_primary)
+ *      so a future light-theme stylesheet can override it without
+ *      touching Python.
+ *   2. Pins the font size at 13pt (``font-ctrl``) — section
+ *      headers are buttons, not card titles, per the synthesis's
+ *      content-hierarchy call.
+ *   3. Leaves the existing ``font-weight: 600`` / ``text-align:
+ *      left`` / ``padding: 4px 6px`` / ``border: none`` / transparent
+ *      background unchanged.
+ *
+ * No hover / pressed override — the section-toggle is a borderless
+ * affordance and the default ``QPushButton:hover`` would draw a
+ * panel-coloured pill behind the chevron that reads as a button.
+ * ``background: transparent`` on every state keeps the row clean
+ * (visual scout F-04).
+ */
+QPushButton[variant="section-toggle"] {
+    color: #c0caf5;                 /* PALETTE.text_primary */
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: 4px 6px;
+    font-weight: 600;
+    font-size: 13pt;                /* font-ctrl */
+    min-height: 0;                  /* override the QPushButton base */
+}
+
+QPushButton[variant="section-toggle"]:hover,
+QPushButton[variant="section-toggle"]:pressed,
+QPushButton[variant="section-toggle"]:focus,
+QPushButton[variant="section-toggle"]:checked {
+    background: transparent;
+    border: none;
+}
+
 /* Combo box. */
 QComboBox {
     background-color: #2a2e42;

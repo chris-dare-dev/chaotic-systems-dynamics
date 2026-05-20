@@ -177,6 +177,48 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-004 — ``_CollapsibleSection`` ``variant="section-toggle"``
+  QSS rule.** S-sized theme / typography fix from the
+  2026-05-19-initial frontend-uplift (RICE 0.30 — MINOR severity;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-004 ``_CollapsibleSection.__init__`` carried an inline
+  ``setStyleSheet`` with two leaks: a literal ``color: #c0caf5``
+  bypassing PALETTE and a ``font-size: 12pt`` that contradicted
+  the spec (``docs/ui_design.md §typography`` lists
+  ``font-ctrl=13pt`` for buttons and ``font-h2=14pt`` for card
+  titles + section headings; 12pt was neither). Post-FU-004 the
+  rule lives in ``assets/dark.qss`` under
+  ``QPushButton[variant="section-toggle"]`` so a future
+  light-theme stylesheet can override it without touching Python,
+  the colour routes through ``PALETTE.text_primary`` (``#c0caf5``)
+  in QSS rather than as a Python literal, and the font size is
+  pinned at the canonical ``font-ctrl=13pt`` per the synthesis's
+  content-hierarchy call (section headers are buttons, not card
+  titles). The remaining visual semantics
+  (``text-align: left``, ``padding: 4px 6px``, ``font-weight: 600``,
+  ``border: none``, ``background: transparent``) are preserved
+  verbatim. A companion ``:hover`` / ``:pressed`` / ``:focus`` /
+  ``:checked`` block re-pins ``background: transparent`` /
+  ``border: none`` so the borderless affordance doesn't inherit
+  the default ``QPushButton:hover`` ``#343a55`` pill (visual scout
+  F-04). The toggle's ``setProperty("variant", "section-toggle")``
+  remains the matching selector for the QSS rule.
+  ``_CollapsibleSection`` is closure-local inside
+  ``_build_window_class()``, so the contract tests reach it via
+  ``window._ode_section`` (the ODE Mathematics-panel section,
+  always present). Reference observables
+  (tests/gui/test_collapsible_section_qss.py — 7 new tests): the
+  toggle button's inline stylesheet is empty (the rule moved to
+  QSS); the ``variant="section-toggle"`` property is preserved;
+  ``dark.qss`` declares the ``QPushButton[variant="section-toggle"]``
+  rule; the rule's colour matches ``PALETTE.text_primary``; the
+  rule pins ``font-size: 13pt`` (no ``12pt`` literal anywhere in
+  the rule body); the ``:hover`` / ``:pressed`` overrides exist
+  (otherwise the default hover pill bleeds through); the
+  collapse / expand behavioural contract survives the refactor
+  (toggle state ↔ body visibility, chevron glyph switching). Full
+  backend + visualization + GUI suite at 753 passed / 14 skipped,
+  ruff clean. Commit ``REPLACE_ME``.
 - **FU-008 — "Analyse…" toolbar submenu.** S-sized information-
   architecture / affordance fix from the 2026-05-19-initial
   frontend-uplift (RICE 1.13 — MAJOR severity at synthesis time;
