@@ -227,7 +227,7 @@ follow-ups:
   surface at the top level; Analyse… button carries a
   non-null icon (AP-04 contract). Full backend + visualization
   + GUI suite at 746 passed / 14 skipped, ruff clean. Commit
-  ``REPLACE_ME``.
+  ``cb98773``.
 - **FU-018 — Promote 5 dialog panels to QDockWidget.** M-sized
   interaction-pattern migration from the 2026-05-19-initial
   frontend-uplift (RICE 0.71 — MAJOR severity at synthesis time;
