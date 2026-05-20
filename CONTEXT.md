@@ -148,7 +148,7 @@ follow-ups:
   behavioural pin); ``test_reposition_overlay_method_exists``
   sanity-checks the slot name. 4 new tests; full backend +
   visualization + GUI suite at 675 passed / 14 skipped, ruff
-  clean. Commit ``<FU-011_SHA>``.
+  clean. Commit ``7f61d9e``.
 - **FU-025 — Sync ``docs/ui_design.md`` to current code.** XS-sized
   doc fix from the 2026-05-19-initial frontend-uplift (RICE 0.72 —
   NONE on every challenger axis;
