@@ -173,7 +173,7 @@ follow-ups:
   at 635 passed / 14 skipped, ruff clean. Completes PR-1 +
   PR-2 + PR-3 of the recommended sequencing — every
   foundational + a11y candidate from the top-5 has now
-  shipped. Commit ``<FU-016_SHA>``.
+  shipped. Commit ``8a793bd``.
 - **FU-014 — Command palette (Ctrl+Shift+P).** Foundational M-sized
   discoverability surface from the 2026-05-19-initial frontend-uplift
   (RICE 4.88 — tied for highest in the synthesis;
