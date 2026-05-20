@@ -160,7 +160,7 @@ follow-ups:
   names); the QSS rule routes through ``PALETTE.text_secondary``
   + a monospace font; ``_refresh_param_strip`` is idempotent.
   7 new tests; full backend + visualization + GUI suite at 666
-  passed / 14 skipped, ruff clean. Commit ``<FU-029_SHA>``.
+  passed / 14 skipped, ruff clean. Commit ``10e2821``.
 - **FU-017 — Promote live-preview to a toolbar "Auto" pill.**
   S-sized discoverability uplift from the 2026-05-19-initial
   frontend-uplift (RICE 1.08 — NONE on every challenger axis;
