@@ -117,9 +117,10 @@ def _build_panel_class() -> type:
                 else str(getattr(trajectory, "system", "") or "trajectory")
             )
 
+            from chaotic_systems.gui._panel_helpers import apply_panel_margins
+
             outer = QVBoxLayout(self)
-            outer.setContentsMargins(8, 8, 8, 8)
-            outer.setSpacing(6)
+            apply_panel_margins(outer)
 
             # --- Axis pickers + plot button -----------------------------------
             controls = QFormLayout()
@@ -268,12 +269,11 @@ def _build_panel_class() -> type:
             self._swap_canvas(fig)
 
         def _swap_canvas(self, fig: Any) -> None:
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("phase_canvas")
-            old = self.canvas
-            self.layout().replaceWidget(old, new_canvas)
-            old.setParent(None)
-            old.deleteLater()
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
             self.canvas = new_canvas
 
     return PhasePanel
@@ -321,40 +321,29 @@ def build_phase_dialog(
     (``"phase_dialog"``) and the ``.phase_panel`` attribute survive
     the migration so existing tests + scripted callers keep working.
     """
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QDockWidget
+    from chaotic_systems.gui._panel_helpers import make_panel_dialog
 
-    dock = QDockWidget(parent)
-    dock.setObjectName("phase_dialog")
     title = system_name or str(
         getattr(trajectory, "system", "") or "trajectory"
     )
-    dock.setWindowTitle(f"Phase portrait — {title}")
-    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-    dock.setAllowedAreas(
-        Qt.DockWidgetArea.LeftDockWidgetArea
-        | Qt.DockWidgetArea.RightDockWidgetArea
-        | Qt.DockWidgetArea.BottomDockWidgetArea
-        | Qt.DockWidgetArea.TopDockWidgetArea
-    )
-    dock.setFeatures(
-        QDockWidget.DockWidgetFeature.DockWidgetMovable
-        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        | QDockWidget.DockWidgetFeature.DockWidgetClosable
-    )
-
+    # Build the inner panel BEFORE the dock so make_panel_dialog
+    # can adopt it directly (mirrors pre-FU-022 ordering).
+    # ``make_panel_dialog`` reparents the panel to the dock.
     panel = build_phase_panel(
         trajectory,
         axes_labels=axes_labels,
         system_name=system_name,
         facecolor=facecolor,
-        parent=dock,
+        parent=parent,
     )
-    dock.setWidget(panel)
-    dock.resize(720, 720)  # initial size when floating
-    # Expose the embedded panel for tests and scripted callers.
-    dock.phase_panel = panel  # type: ignore[attr-defined]
-    return dock
+    return make_panel_dialog(
+        object_name="phase_dialog",
+        title=f"Phase portrait — {title}",
+        panel=panel,
+        size=(720, 720),  # initial size when floating
+        parent=parent,
+        panel_attr="phase_panel",
+    )
 
 
 def __getattr__(name: str) -> type:

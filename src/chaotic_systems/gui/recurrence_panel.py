@@ -126,9 +126,10 @@ def _build_panel_class() -> type:
             self._last_stats: RQAStats | None = None
             self._last_matrix: np.ndarray | None = None
 
+            from chaotic_systems.gui._panel_helpers import apply_panel_margins
+
             outer = QVBoxLayout(self)
-            outer.setContentsMargins(8, 8, 8, 8)
-            outer.setSpacing(6)
+            apply_panel_margins(outer)
 
             controls = QFormLayout()
             controls.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -249,12 +250,11 @@ def _build_panel_class() -> type:
         def _swap_canvas(self, fig: Any) -> None:
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("recurrence_canvas")
-            old = self.canvas
-            self.layout().replaceWidget(old, new_canvas)
-            old.setParent(None)
-            old.deleteLater()
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
             self.canvas = new_canvas
 
     return RecurrencePanel
@@ -281,35 +281,22 @@ def build_recurrence_dialog(
     parent: QWidget | None = None,
 ) -> QWidget:
     """Build a ``QDockWidget`` wrapping :class:`RecurrencePanel` (FU-018)."""
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QDockWidget
+    from chaotic_systems.gui._panel_helpers import make_panel_dialog
 
-    dock = QDockWidget(parent)
-    dock.setObjectName("recurrence_dialog")
     title = system_name or str(
         getattr(trajectory, "system", "") or "trajectory"
     )
-    dock.setWindowTitle(f"Recurrence plot — {title}")
-    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-    dock.setAllowedAreas(
-        Qt.DockWidgetArea.LeftDockWidgetArea
-        | Qt.DockWidgetArea.RightDockWidgetArea
-        | Qt.DockWidgetArea.BottomDockWidgetArea
-        | Qt.DockWidgetArea.TopDockWidgetArea
-    )
-    dock.setFeatures(
-        QDockWidget.DockWidgetFeature.DockWidgetMovable
-        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        | QDockWidget.DockWidgetFeature.DockWidgetClosable
-    )
-
     panel = build_recurrence_panel(
-        trajectory, system_name=system_name, dark=dark, parent=dock
+        trajectory, system_name=system_name, dark=dark, parent=parent
     )
-    dock.setWidget(panel)
-    dock.resize(780, 820)
-    dock.recurrence_panel = panel  # type: ignore[attr-defined]
-    return dock
+    return make_panel_dialog(
+        object_name="recurrence_dialog",
+        title=f"Recurrence plot — {title}",
+        panel=panel,
+        size=(780, 820),
+        parent=parent,
+        panel_attr="recurrence_panel",
+    )
 
 
 def __getattr__(name: str) -> type:

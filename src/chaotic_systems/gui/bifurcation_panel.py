@@ -208,9 +208,10 @@ def _build_panel_class() -> type:
             self._thread: QThread | None = None
             self._last_diagram: BifurcationDiagram | None = None
 
+            from chaotic_systems.gui._panel_helpers import apply_panel_margins
+
             outer = QVBoxLayout(self)
-            outer.setContentsMargins(8, 8, 8, 8)
-            outer.setSpacing(6)
+            apply_panel_margins(outer)
 
             # --- Controls row -----------------------------------------
             controls = QFormLayout()
@@ -425,15 +426,13 @@ def _build_panel_class() -> type:
             """Rebuild the figure and re-bind a Qt canvas."""
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
             projection = int(self.projection_spin.value())
             fig = plot_bifurcation(diagram, projection=projection)
-            # Replace the canvas in the layout.
-            old = self.canvas
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("bifurcation_canvas")
-            self.layout().replaceWidget(old, new_canvas)
-            old.setParent(None)
-            old.deleteLater()
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
             self.canvas = new_canvas
 
         # ----- public read-only accessors used by tests ---------------
@@ -469,14 +468,17 @@ def build_bifurcation_dialog(
     different map. The dialog owns its lifetime; show it with
     ``.show()`` and let Qt's normal close behaviour clean it up.
     """
-    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import (
         QComboBox,
-        QDockWidget,
         QHBoxLayout,
         QLabel,
         QVBoxLayout,
         QWidget,
+    )
+
+    from chaotic_systems.gui._panel_helpers import (
+        apply_panel_margins,
+        make_panel_dialog,
     )
 
     panel_cls = _build_panel_class()
@@ -497,26 +499,13 @@ def build_bifurcation_dialog(
     # explorer beside the viewport. The widget container that used
     # to be the QMainWindow's centralWidget becomes the dock's
     # single ``setWidget`` payload.
-    dock = QDockWidget(parent)
-    dock.setObjectName("bifurcation_dialog")
-    dock.setWindowTitle("Bifurcation diagram")
-    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-    dock.setAllowedAreas(
-        Qt.DockWidgetArea.LeftDockWidgetArea
-        | Qt.DockWidgetArea.RightDockWidgetArea
-        | Qt.DockWidgetArea.BottomDockWidgetArea
-        | Qt.DockWidgetArea.TopDockWidgetArea
-    )
-    dock.setFeatures(
-        QDockWidget.DockWidgetFeature.DockWidgetMovable
-        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        | QDockWidget.DockWidgetFeature.DockWidgetClosable
-    )
-
-    central = QWidget(dock)
+    central = QWidget(parent)
     outer = QVBoxLayout(central)
-    outer.setContentsMargins(8, 8, 8, 8)
-    outer.setSpacing(8)
+    # FU-022 — outer panel uses the canonical 8/8 panel margin but
+    # overrides spacing to 8 because the map-picker row sits flush
+    # against the panel host (the rest of the panels have a single
+    # vertical run and use the default 6).
+    apply_panel_margins(outer, spacing=8)
 
     picker_row = QHBoxLayout()
     picker_row.addWidget(QLabel("Map", central))
@@ -531,8 +520,7 @@ def build_bifurcation_dialog(
     panel_host = QWidget(central)
     panel_host.setObjectName("bifurcation_panel_host")
     panel_layout = QVBoxLayout(panel_host)
-    panel_layout.setContentsMargins(0, 0, 0, 0)
-    panel_layout.setSpacing(0)
+    apply_panel_margins(panel_layout, margin=0, spacing=0)
     outer.addWidget(panel_host, 1)
 
     current_panel: dict[str, QWidget | None] = {"panel": None}
@@ -552,9 +540,19 @@ def build_bifurcation_dialog(
     picker_box.currentIndexChanged.connect(_swap)
     _swap(0)
 
-    dock.setWidget(central)
-    dock.resize(900, 700)
+    dock = make_panel_dialog(
+        object_name="bifurcation_dialog",
+        title="Bifurcation diagram",
+        panel=central,
+        size=(900, 700),
+        parent=parent,
+    )
     # Expose the picker so callers (tests, future scripts) can drive it.
+    # The bifurcation dialog uses ``.map_picker`` instead of the
+    # canonical ``.<name>_panel`` because the dialog hosts a
+    # map-picker combobox + swappable BifurcationPanel internally
+    # — the tests + command palette consume the picker, not the
+    # inner panel.
     dock.map_picker = picker_box  # type: ignore[attr-defined]
     return dock
 

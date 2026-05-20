@@ -191,9 +191,10 @@ def _build_panel_class() -> type:
             self._thread: QThread | None = None
             self._last_diagram: BasinDiagram | None = None
 
+            from chaotic_systems.gui._panel_helpers import apply_panel_margins
+
             outer = QVBoxLayout(self)
-            outer.setContentsMargins(8, 8, 8, 8)
-            outer.setSpacing(6)
+            apply_panel_margins(outer)
 
             # --- Controls -------------------------------------------------
             controls = QFormLayout()
@@ -386,16 +387,15 @@ def _build_panel_class() -> type:
             """Rebuild the figure and re-bind a Qt canvas."""
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
             fig = plot_basin(
                 diagram,
                 axes_labels=("x", "v"),
             )
-            old = self.canvas
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("basin_canvas")
-            self.layout().replaceWidget(old, new_canvas)
-            old.setParent(None)
-            old.deleteLater()
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
             self.canvas = new_canvas
 
         # ----- public read-only accessors used by tests ---------------
@@ -419,29 +419,17 @@ def build_basin_dialog(parent: QWidget | None = None) -> QWidget:
     C++ object via the normal Qt lifecycle. ObjectName + ``.basin_panel``
     attribute survive the migration so existing tests still find them.
     """
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QDockWidget
+    from chaotic_systems.gui._panel_helpers import make_panel_dialog
 
-    dock = QDockWidget(parent)
-    dock.setObjectName("basin_dialog")
-    dock.setWindowTitle("Basins of attraction — Duffing double well")
-    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-    dock.setAllowedAreas(
-        Qt.DockWidgetArea.LeftDockWidgetArea
-        | Qt.DockWidgetArea.RightDockWidgetArea
-        | Qt.DockWidgetArea.BottomDockWidgetArea
-        | Qt.DockWidgetArea.TopDockWidgetArea
+    panel = build_basin_panel(parent)
+    return make_panel_dialog(
+        object_name="basin_dialog",
+        title="Basins of attraction — Duffing double well",
+        panel=panel,
+        size=(840, 760),
+        parent=parent,
+        panel_attr="basin_panel",
     )
-    dock.setFeatures(
-        QDockWidget.DockWidgetFeature.DockWidgetMovable
-        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        | QDockWidget.DockWidgetFeature.DockWidgetClosable
-    )
-    panel = build_basin_panel(dock)
-    dock.setWidget(panel)
-    dock.resize(840, 760)
-    dock.basin_panel = panel  # type: ignore[attr-defined]
-    return dock
 
 
 def __getattr__(name: str) -> type:

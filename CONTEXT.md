@@ -177,6 +177,78 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-022 — ``_panel_helpers.py`` shared utilities.** M-sized
+  refactor / developer-ergonomics ship from the 2026-05-19-initial
+  frontend-uplift (RICE 0.20 — MINOR severity;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-022 the five analysis-panel modules (``phase_panel``,
+  ``basin_panel``, ``bifurcation_panel``, ``recurrence_panel``,
+  ``poincare_panel``) carried verbatim copies of three patterns
+  the current-state-critic brief enumerated as HR-01 through
+  HR-04: an 8-line ``_swap_canvas`` (five copies, none guarded
+  against AP-02 — ``replaceWidget`` silently failing on a
+  missing ``old``), a ``QDockWidget`` scaffolding block in every
+  ``build_*_dialog`` factory (five copies — ``setObjectName`` /
+  ``setWindowTitle`` / ``WA_DeleteOnClose`` / four
+  ``setAllowedAreas`` / three ``DockWidgetFeature`` flags /
+  ``setWidget`` / ``resize`` / panel-attr expose), and the
+  literals ``setContentsMargins(8, 8, 8, 8)`` / ``setSpacing(6)``
+  unnamed across the five panel ``__init__`` bodies. Post-FU-022
+  the three duplications collapse into a single helper module
+  ``src/chaotic_systems/gui/_panel_helpers.py`` exporting:
+  ``PANEL_MARGIN`` (``8``) and ``PANEL_SPACING`` (``6``) named
+  constants, ``apply_panel_margins(layout, *, margin=PANEL_MARGIN,
+  spacing=PANEL_SPACING)`` for the canonical layout setup
+  (bifurcation's nested panel-host passes ``margin=0, spacing=0``
+  for its borderless inner container, demonstrating the override
+  path), ``swap_mpl_canvas(layout, old, new) -> bool`` with the
+  AP-02 ``layout.indexOf(old) < 0`` guard baked in — returns
+  ``False`` without raising when ``old`` was concurrently
+  detached so the caller can recover instead of orphan-installing
+  ``new``, and ``make_panel_dialog(*, object_name, title, panel,
+  size, parent, panel_attr)`` for the FU-018 ``QDockWidget``
+  scaffolding (all four allowed areas, three feature flags,
+  ``WA_DeleteOnClose``, optional ``setattr(dock, panel_attr,
+  panel)`` for the existing back-compat attribute paths
+  ``dock.phase_panel`` / ``.basin_panel`` / ``.recurrence_panel`` /
+  ``.poincare_panel``). The five panel modules adopt all three
+  helpers — every ``_swap_canvas`` body is now 4 lines instead
+  of 8 and the ``replaceWidget`` AP-02 guard ships for free,
+  every ``build_*_dialog`` factory is now ≤ 15 lines instead of
+  35+, and no ``setContentsMargins(8, 8, 8, 8)`` literal survives
+  in any panel module. **Partial ship** vs the synthesis's full
+  FU-022: the prescribed ``run_in_qthread`` helper is DEFERRED
+  because the three panels that run workers (``basin_panel``,
+  ``bifurcation_panel``, ``poincare_panel``) have heterogeneous
+  signal wiring (progress vs no-progress, cancel vs no-cancel,
+  custom cleanup chains) and unifying them would either lose
+  flexibility or grow the helper's signature past the value of
+  the abstraction — mirrors the FU-006 partial-ship pattern.
+  The three helpers that *did* land carry the bulk of HR-01
+  through HR-04's value. Reference observables
+  (tests/gui/test_panel_helpers.py — 25 new tests):
+  ``PANEL_MARGIN == 8`` and ``PANEL_SPACING == 6`` (constants
+  pinned); ``apply_panel_margins`` writes the canonical values
+  by default and honours overrides; ``swap_mpl_canvas`` returns
+  ``True`` and performs the swap when ``old`` is in the layout;
+  ``swap_mpl_canvas`` returns ``False`` and leaves the layout
+  untouched when ``old`` is missing (AP-02 guard contract); the
+  10 ``make_panel_dialog`` contract tests pin every FU-018 dock
+  bit (objectName, title, ``WA_DeleteOnClose``, all four
+  allowed areas, ``Movable | Floatable | Closable`` features,
+  panel-as-widget, ``resize`` applied, ``panel_attr`` exposed
+  when given, no surprise attribute when ``panel_attr=None`` —
+  the bifurcation-dialog pattern); 5 parametrised
+  source-grep tests pin that every panel module imports from
+  ``_panel_helpers``; 5 more pin that the verbatim
+  ``setContentsMargins(8, 8, 8, 8)`` literal is gone from each
+  panel module. Pre-existing 76 panel + dock-widget tests
+  (``test_phase_panel.py`` / ``test_basin_panel.py`` /
+  ``test_recurrence_panel.py`` / ``test_poincare_panel.py`` /
+  ``test_bifurcation_panel.py`` / ``test_dock_widgets.py``)
+  all pass — the refactor preserves every external contract.
+  Full backend + visualization + GUI suite at 807 passed / 14
+  skipped (was 782), ruff clean. Commit ``REPLACE_ME``.
 - **FU-015 — Drag-to-scrub parameter spinboxes.** M-sized
   affordance / workflow uplift from the 2026-05-19-initial
   frontend-uplift (RICE 0.23 — MAJOR severity at synthesis time;

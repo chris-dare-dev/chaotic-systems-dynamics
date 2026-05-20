@@ -238,9 +238,10 @@ def _build_panel_class() -> type:
                     f"got state_dim={self._state_dim}"
                 )
 
+            from chaotic_systems.gui._panel_helpers import apply_panel_margins
+
             outer = QVBoxLayout(self)
-            outer.setContentsMargins(8, 8, 8, 8)
-            outer.setSpacing(6)
+            apply_panel_margins(outer)
 
             # --- Controls -------------------------------------------------
             controls = QFormLayout()
@@ -553,12 +554,11 @@ def _build_panel_class() -> type:
         def _swap_canvas(self, fig: Any) -> None:
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("poincare_canvas")
-            old = self.canvas
-            self.layout().replaceWidget(old, new_canvas)
-            old.setParent(None)
-            old.deleteLater()
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
             self.canvas = new_canvas
 
     return PoincarePanel
@@ -598,37 +598,23 @@ def build_poincare_dialog(
     explorer beside the 3D viewport. ``WA_DeleteOnClose`` cleans up
     on close via the normal Qt lifecycle.
     """
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QDockWidget
+    from chaotic_systems.gui._panel_helpers import make_panel_dialog
 
-    dock = QDockWidget(parent)
-    dock.setObjectName("poincare_dialog")
     title = str(getattr(system, "name", "") or "system")
-    dock.setWindowTitle(f"Poincaré section — {title}")
-    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-    dock.setAllowedAreas(
-        Qt.DockWidgetArea.LeftDockWidgetArea
-        | Qt.DockWidgetArea.RightDockWidgetArea
-        | Qt.DockWidgetArea.BottomDockWidgetArea
-        | Qt.DockWidgetArea.TopDockWidgetArea
-    )
-    dock.setFeatures(
-        QDockWidget.DockWidgetFeature.DockWidgetMovable
-        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        | QDockWidget.DockWidgetFeature.DockWidgetClosable
-    )
-
     panel = build_poincare_panel(
         system,
         axes_labels=axes_labels,
         facecolor=facecolor,
-        parent=dock,
+        parent=parent,
     )
-    dock.setWidget(panel)
-    dock.resize(760, 800)
-    # Expose the embedded panel for tests and scripted callers.
-    dock.poincare_panel = panel  # type: ignore[attr-defined]
-    return dock
+    return make_panel_dialog(
+        object_name="poincare_dialog",
+        title=f"Poincaré section — {title}",
+        panel=panel,
+        size=(760, 800),
+        parent=parent,
+        panel_attr="poincare_panel",
+    )
 
 
 def __getattr__(name: str) -> type:
