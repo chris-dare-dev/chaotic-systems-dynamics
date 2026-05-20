@@ -113,6 +113,54 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-029 — Inline parameter labels under equation rows.**
+  S-sized educational uplift from the 2026-05-19-initial
+  frontend-uplift (RICE 0.90 — MINOR severity on token discipline;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the inspiration brief's A5 anti-pattern ("equation panel
+  as pure read-only display") at S cost — the cheap 80%-of-FU-028
+  variant the synthesis explicitly named as worth keeping when
+  full LaTeX hit-testing was parked. New ``self._param_strip``
+  ``QLabel`` lives BELOW the rendered LaTeX rows but INSIDE the
+  "Equations of motion" ``_CollapsibleSection`` so the strip
+  folds with the equations. Renders a single monospace line such
+  as ``sigma = 10.000    rho = 28.000    beta = 2.667`` —
+  parameter tokens joined by four spaces (pinned by test).
+  Format reuses the FU-019 ``_format_param_readout`` helper so
+  the three-decimals / scientific-notation contract is identical
+  to the parameter-row chips; the strip is the system-level
+  rollup of the per-row chips. ``main_window.py`` grows
+  ``_refresh_param_strip()``: reads ``self._param_widgets`` in
+  registration order, builds tokens, joins with the 4-space
+  separator, hides the strip when no parameters exist (defensive
+  for future parameterless systems). Hooked from
+  ``_on_param_changed_for_preview`` (every spinbox change refreshes
+  regardless of live-preview being armed — the strip is a passive
+  display, not a compute trigger) and from the end of
+  ``_rebuild_for_current_system`` (system flips rebuild the
+  strip's contents). Mathematics-card construction grows a thin
+  ``ode_wrapper`` ``QWidget`` that holds ``self.ode_scroll`` +
+  ``self._param_strip`` in a 4 px-spaced ``QVBoxLayout``; the
+  wrapper is passed to ``_CollapsibleSection("Equations of
+  motion", …)`` so collapsing the section hides the strip too.
+  ``assets/dark.qss`` adds a ``QLabel[role="param-strip"]`` rule
+  using ``PALETTE.text_secondary`` (the strip reads as
+  supplementary information, not as a competing focus with the
+  rendered LaTeX above) + the same monospace font cascade as the
+  FU-019 chip. Reference observables
+  (tests/gui/test_param_strip.py): strip widget exists with
+  ``role="param-strip"``; Lorenz at startup renders all three
+  canonical parameter tokens with their default values
+  (``sigma = 10.000``, ``rho = 28.000``, ``beta = 2.667``);
+  the 4-space-separator contract is pinned;
+  ``setValue`` on a parameter spinbox refreshes the strip live
+  with live-preview off (proves the strip refreshes regardless
+  of the E2 compute path); switching to Rossler rebuilds the
+  strip with ``a = ... b = ... c = ...`` (different parameter
+  names); the QSS rule routes through ``PALETTE.text_secondary``
+  + a monospace font; ``_refresh_param_strip`` is idempotent.
+  7 new tests; full backend + visualization + GUI suite at 666
+  passed / 14 skipped, ruff clean. Commit ``<FU-029_SHA>``.
 - **FU-017 — Promote live-preview to a toolbar "Auto" pill.**
   S-sized discoverability uplift from the 2026-05-19-initial
   frontend-uplift (RICE 1.08 — NONE on every challenger axis;

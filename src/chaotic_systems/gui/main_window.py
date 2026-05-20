@@ -1876,8 +1876,40 @@ def _build_window_class() -> type:
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff
             )
 
+            # FU-029 — inline parameter-value token strip. Lives below
+            # the rendered LaTeX rows but inside the "Equations of
+            # motion" collapsible so it folds with the equations. Text
+            # is set live by ``_refresh_param_strip`` whenever a
+            # spinbox value changes (E2's existing
+            # ``_on_param_changed_for_preview`` is the hook). The
+            # strip closes the inspiration-brief A5 anti-pattern
+            # ("equation panel as pure read-only display") at S cost
+            # without requiring image-region hit-testing of the LaTeX
+            # rendering — a future FU-028 milestone could layer that on.
+            ode_wrapper = QWidget(math_card)
+            ode_wrapper_layout = QVBoxLayout(ode_wrapper)
+            ode_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+            ode_wrapper_layout.setSpacing(4)
+            ode_wrapper_layout.addWidget(self.ode_scroll, 1)
+            self._param_strip = QLabel("", ode_wrapper)
+            self._param_strip.setObjectName("param_strip")
+            self._param_strip.setProperty("role", "param-strip")
+            self._param_strip.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            self._param_strip.setWordWrap(True)
+            self._param_strip.setToolTip(
+                "Current parameter values for the active system. "
+                "Updates live as the parameter spinboxes / sliders "
+                "change. FU-029 — closes the read-only-equations "
+                "anti-pattern noted in the frontend-uplift "
+                "inspiration brief A5."
+            )
+            self._param_strip.setVisible(False)
+            ode_wrapper_layout.addWidget(self._param_strip, 0)
+
             self._ode_section = _CollapsibleSection(
-                "Equations of motion", self.ode_scroll, math_card, expanded=True
+                "Equations of motion", ode_wrapper, math_card, expanded=True
             )
             self._lagr_section = _CollapsibleSection(
                 "Lagrangian / Hamiltonian",
@@ -2213,6 +2245,12 @@ def _build_window_class() -> type:
             self._set_educational_notes(
                 getattr(system, "educational_notes", "") or ""
             )
+
+            # FU-029 — refresh the parameter-value strip below the
+            # equations card. Must happen AFTER the parameter form
+            # is rebuilt above so ``_param_widgets`` reflects the
+            # new system's spinboxes.
+            self._refresh_param_strip()
 
             # Refresh status-bar lyapunov chip + Diagnostics card —
             # hide / reset on system change until/unless a value is
@@ -2740,13 +2778,47 @@ def _build_window_class() -> type:
             Called from every ``_ParamWidget._spin.valueChanged`` —
             the slider also routes through here because its drag
             handler sets the spinbox value, which re-emits the signal.
+            FU-029 also pivots through this hook to refresh the
+            parameter-value strip beneath the equations of motion.
             """
+            # FU-029 — always refresh the strip, regardless of whether
+            # live-preview is armed (the strip is a passive display,
+            # not a compute trigger).
+            self._refresh_param_strip()
             if not self._setting_live_preview:
                 return
             # ``QTimer.start`` on an already-started single-shot timer
             # resets the countdown, which is exactly the debounce
             # semantics we want.
             self._preview_timer.start(self._preview_debounce_ms)
+
+        def _refresh_param_strip(self) -> None:
+            """Repopulate the FU-029 parameter-value strip.
+
+            Reads the current ``_param_widgets`` (in registration
+            order — Python 3.7+ dict iteration is insertion-ordered),
+            formats each as ``name = value`` via the FU-019
+            ``_format_param_readout`` helper, and joins with a
+            4-space separator. If the current system exposes no
+            parameters (e.g. systems with only initial conditions)
+            the strip hides itself so the layout stays tight.
+            """
+            if not hasattr(self, "_param_strip"):
+                # Defensive: called before the Mathematics card is
+                # fully constructed.
+                return
+            tokens: list[str] = []
+            for name, widget in self._param_widgets.items():
+                try:
+                    tokens.append(_format_param_readout(name, widget.value()))
+                except (TypeError, ValueError):  # pragma: no cover
+                    continue
+            if not tokens:
+                self._param_strip.setVisible(False)
+                self._param_strip.setText("")
+                return
+            self._param_strip.setText("    ".join(tokens))
+            self._param_strip.setVisible(True)
 
         def _fire_preview(self) -> None:
             """Kick off a low-res preview sim if conditions allow.

@@ -601,6 +601,19 @@ QLabel[role="readout-chip"] {
     min-width: 96px;
 }
 
+/* FU-029 — parameter-value strip beneath the "Equations of motion"
+ * section in the Mathematics card. Reads as a single monospace
+ * line such as ``sigma = 10.000    rho = 28.000    beta = 2.667``.
+ * Uses text-secondary so it reads as supplementary information
+ * rather than competing with the rendered LaTeX above. */
+QLabel[role="param-strip"] {
+    color: #9aa5ce;                /* text-secondary */
+    background-color: transparent;
+    padding: 4px 6px;
+    font-family: "Consolas", "Menlo", "DejaVu Sans Mono", monospace;
+    font-size: 9pt;
+}
+
 /* Tooltips. */
 QToolTip {
     background-color: #1f2335;
