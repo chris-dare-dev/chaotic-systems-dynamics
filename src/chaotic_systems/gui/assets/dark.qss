@@ -702,6 +702,35 @@ QLabel[role="param-strip"] {
     font-size: 9pt;
 }
 
+/* FU-012 — transport-strip play/pause state indicator. Sits at
+ * the left of the scrubber row and reads "Idle" / "Playing" /
+ * "Paused"; the colour switches per state so the scrubber's
+ * is-this-playing affordance reads from across the room (visual
+ * scout F-09 — the only existing cue was the disabled-state of
+ * the toolbar's Pause action). Logic Pro / Ableton co-locate
+ * transport state with controls; mirrors that pattern. The base
+ * rule uses text-secondary; the [state="playing"] selector
+ * promotes to ``accent`` (#7aa2f7) — same Tokyo Night blue that
+ * marks primary actions across the chrome. Token-grounded:
+ * accent + accent_pressed for the two active variants,
+ * text_secondary for the idle baseline. */
+QLabel[role="transport-state"] {
+    color: #9aa5ce;                /* text-secondary */
+    background-color: transparent;
+    padding: 1px 8px;
+    font-weight: 600;
+    font-size: 10pt;
+    min-width: 56px;
+}
+
+QLabel[role="transport-state"][state="playing"] {
+    color: #7aa2f7;                /* accent */
+}
+
+QLabel[role="transport-state"][state="paused"] {
+    color: #6788d8;                /* accent-pressed */
+}
+
 /* Tooltips. */
 QToolTip {
     background-color: #1f2335;

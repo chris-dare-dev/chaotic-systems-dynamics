@@ -177,6 +177,59 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-012 — Transport-strip play/pause state indicator.** S-sized
+  affordance fix from the 2026-05-19-initial frontend-uplift
+  (RICE 0.30 — MINOR severity;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-012 the transport strip beneath the viewport read
+  ``Speed: [1× v]   [=====O==========] t = 12.3 / 40.0`` — no
+  in-strip cue for whether playback was running, paused, or
+  idle. The only "is this playing?" affordance was the disabled
+  state of the *toolbar's* Pause action, invisible while the
+  user's gaze was on the scrubber (visual scout F-09,
+  ``screenshots/lorenz-running.png``). Post-FU-012 the strip
+  ships a read-only ``QLabel`` indicator at its left edge
+  (``objectName="transport_state"``, ``role="transport-state"``)
+  that reads ``Idle`` / ``Playing`` / ``Paused``; a new
+  ``_MainWindow._set_transport_state(state)`` helper updates
+  both the text and the dynamic ``state`` property and forces
+  a style refresh via ``style().unpolish/polish`` so the QSS
+  paints the new colour immediately. The QSS rule in
+  ``dark.qss`` (``QLabel[role="transport-state"]`` plus the two
+  ``[state="…"]`` variant selectors) routes all three colours
+  through PALETTE — ``text_secondary`` (``#9aa5ce``) for idle,
+  ``accent`` (``#7aa2f7``) for playing, ``accent_pressed``
+  (``#6788d8``) for paused — closing the challenger's §3 MINOR
+  token-discipline concern. State transitions land on the four
+  canonical edges: ``_set_transport_enabled(False)`` →
+  ``"idle"`` (no trajectory loaded), ``_set_transport_enabled(True)``
+  → ``"paused"`` (trajectory finished simulating, ready to
+  play), ``_play()`` → ``"playing"``, ``_pause()`` →
+  ``"paused"``; the latter pair also fires from ``_on_stop`` /
+  ``_on_jump_to_end`` which call ``_pause()`` internally, so
+  Stop and Jump-to-end correctly drop the indicator back. The
+  label is read-only (a ``QLabel``, not a button), so no a11y
+  focus regression (challenger §6 MINOR mitigation) — the
+  existing Space shortcut + toolbar Pause action remain the
+  keyboard-driven path. Logic Pro / Ableton co-locate
+  transport state with controls; this mirrors that pattern.
+  Reference observables (tests/gui/test_transport_state_indicator.py
+  — 11 new tests): the ``transport_state`` ``QLabel`` exists on
+  the main window via ``findChild`` and matches
+  ``window.transport_state_label``; the ``role`` property is
+  ``"transport-state"``; at construction the indicator reads
+  ``"Idle"`` (since ``_set_transport_enabled(False)`` fires
+  during init); each of the three ``_set_transport_state``
+  inputs (``playing`` / ``paused`` / ``idle``) updates both
+  text and ``state`` property in lock-step;
+  ``_set_transport_enabled(True)`` flips to ``"paused"`` and
+  ``_set_transport_enabled(False)`` to ``"idle"``; the label
+  sits before ``speed_box`` in the transport-strip layout
+  (leftmost position); ``dark.qss`` carries the base rule plus
+  both state-variant selectors with PALETTE-grounded colours
+  (text_secondary / accent / accent_pressed). Full backend +
+  visualization + GUI suite at 769 passed / 14 skipped (was
+  758), ruff clean. Commit ``REPLACE_ME``.
 - **FU-010 — Force LaTeX reflow on ``showEvent`` + via deferred
   ``singleShot``.** S-sized typography / motion fix from the
   2026-05-19-initial frontend-uplift (RICE 0.30 — NONE severity

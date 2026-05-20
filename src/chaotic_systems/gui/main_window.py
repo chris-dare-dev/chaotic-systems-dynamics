@@ -5367,13 +5367,58 @@ def _build_window_class() -> type:
             self.time_label.setMinimumWidth(140)
             self.time_label.setToolTip("Current playback time / trajectory length")
 
+            # FU-012 — play/pause state indicator at the left of the
+            # transport strip. Reads "Idle" (no trajectory loaded /
+            # transport disabled), "Playing" (timer running), or
+            # "Paused" (timer stopped, trajectory loaded). The QSS
+            # rule in ``dark.qss`` swaps the foreground colour per
+            # ``state`` property so the affordance reads from across
+            # the room — pre-FU-012 the only "is this playing?" cue
+            # was the disabled state of the *toolbar's* Pause action,
+            # which is not visible while the user is looking at the
+            # scrubber. Logic Pro / Ableton co-locate transport state
+            # with controls (synthesis §FU-012 inspiration). Read-only
+            # label so no a11y focus regression (challenger §6 MINOR).
+            self.transport_state_label = QLabel("Idle", host)
+            self.transport_state_label.setObjectName("transport_state")
+            self.transport_state_label.setProperty("role", "transport-state")
+            self.transport_state_label.setProperty("state", "idle")
+            self.transport_state_label.setToolTip(
+                "Transport state: Idle (no trajectory loaded), Playing "
+                "(animating the scrubber), or Paused (trajectory loaded "
+                "but timer stopped). Toggle via the toolbar Run / Pause "
+                "actions or the Space shortcut."
+            )
+
             speed_label = QLabel("Speed:", host)
             speed_label.setProperty("role", "caption")
+            row.addWidget(self.transport_state_label)
             row.addWidget(speed_label)
             row.addWidget(self.speed_box)
             row.addWidget(self.frame_scrubber, 1)
             row.addWidget(self.time_label)
             return host
+
+        def _set_transport_state(self, state: str) -> None:
+            """Update the FU-012 ``transport_state_label`` to ``state``.
+
+            ``state`` must be one of ``"idle"`` / ``"playing"`` /
+            ``"paused"``. The QSS rule
+            ``QLabel[role="transport-state"][state="…"]`` paints
+            the foreground colour per state (text-secondary for
+            idle, ``accent`` for playing, ``accent_pressed`` for
+            paused). The dynamic property is re-evaluated via
+            ``style().unpolish/polish`` so the new colour applies
+            immediately rather than at the next full repaint.
+            """
+
+            label = getattr(self, "transport_state_label", None)
+            if label is None:  # defensive — should never happen post-init
+                return
+            label.setText(state.title())
+            label.setProperty("state", state)
+            label.style().unpolish(label)
+            label.style().polish(label)
 
         def _set_transport_enabled(self, enabled: bool) -> None:
             for w in (
@@ -5386,6 +5431,14 @@ def _build_window_class() -> type:
                 w.setEnabled(enabled)
             if not enabled:
                 self.play_button.setChecked(False)
+                # FU-012 — transport disabled means no trajectory is
+                # loaded; collapse the state indicator back to "Idle".
+                self._set_transport_state("idle")
+            else:
+                # FU-012 — newly enabled transport (a trajectory just
+                # finished simulating) sits in the Paused state until
+                # the user presses Play.
+                self._set_transport_state("paused")
 
         def _recompute_tick_cadence(self) -> None:
             """Pick a fractional ``_frames_per_tick_base`` for fluid playback.
@@ -5478,6 +5531,9 @@ def _build_window_class() -> type:
             self._is_playing = True
             self.play_button.setChecked(True)
             self.play_button.setText("Pause")
+            # FU-012 — promote the transport-strip indicator to
+            # the accent-coloured "Playing" state.
+            self._set_transport_state("playing")
             # Reset the arc-length integrator to match the current
             # integer-frame position. This makes Play-from-mid-scrub
             # behave correctly — playback resumes from where the
@@ -5520,6 +5576,9 @@ def _build_window_class() -> type:
             self.play_button.setChecked(False)
             self.play_button.setText("Play")
             self._anim_timer.stop()
+            # FU-012 — drop the transport-strip indicator back to
+            # the accent-pressed "Paused" colour.
+            self._set_transport_state("paused")
 
         def _on_stop(self) -> None:
             if self._current_renderer is None:
