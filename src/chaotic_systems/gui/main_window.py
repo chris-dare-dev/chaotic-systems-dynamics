@@ -1918,6 +1918,14 @@ def _build_window_class() -> type:
                 self,
                 activated=self._open_preferences_dialog,
             )
+            # FU-014 — Command palette (Ctrl+Shift+P). Same shortcut
+            # napari / VS Code / Houdini all use; opens a fuzzy
+            # searchable list of every registered QAction.
+            QShortcut(
+                QKeySequence("Ctrl+Shift+P"),
+                self,
+                activated=self._open_command_palette,
+            )
 
             self._set_transport_enabled(False)
             # Initialize export tooltip to the "Run a simulation first"
@@ -3979,6 +3987,23 @@ def _build_window_class() -> type:
                 window_state=window_state,
                 system_parameters=system_parameters,
             )
+
+        def _open_command_palette(self) -> None:
+            """Open the FU-014 command palette (Ctrl+Shift+P).
+
+            Lazy-imports the module so the no-palette code path
+            pays no PySide6.QtWidgets-on-dialog cost. The palette
+            collects every named ``QAction`` registered on this
+            window via ``findChildren`` — the canonical napari
+            PR #5483 pattern — and Enter activates the highlighted
+            row.
+            """
+            from chaotic_systems.gui.command_palette import (
+                build_command_palette,
+            )
+
+            palette = build_command_palette(self)
+            palette.exec()
 
         def _open_preferences_dialog(self) -> None:
             """Open the Preferences dialog; persist + re-apply on OK."""
