@@ -229,7 +229,7 @@ follow-ups:
   both state-variant selectors with PALETTE-grounded colours
   (text_secondary / accent / accent_pressed). Full backend +
   visualization + GUI suite at 769 passed / 14 skipped (was
-  758), ruff clean. Commit ``REPLACE_ME``.
+  758), ruff clean. Commit ``799e3b0``.
 - **FU-010 — Force LaTeX reflow on ``showEvent`` + via deferred
   ``singleShot``.** S-sized typography / motion fix from the
   2026-05-19-initial frontend-uplift (RICE 0.30 — NONE severity
