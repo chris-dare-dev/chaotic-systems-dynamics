@@ -218,7 +218,7 @@ follow-ups:
   the new width (pre-FU-010 it stayed clipped at the stale
   200 px scale). Full backend + visualization + GUI suite at
   758 passed / 14 skipped (was 753), ruff clean. Commit
-  ``REPLACE_ME``.
+  ``f1bd5c7``.
 - **FU-004 — ``_CollapsibleSection`` ``variant="section-toggle"``
   QSS rule.** S-sized theme / typography fix from the
   2026-05-19-initial frontend-uplift (RICE 0.30 — MINOR severity;
