@@ -192,6 +192,64 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-011 — 0-1 test for chaos (Gottwald-Melbourne).** S-sized
+  scalar chaos indicator from the 2026-q2-broadening
+  capability-scout (RICE 3.0;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  First inhabitant of a new ``chaotic_systems.core.diagnostics``
+  module, which the challenger's "Chaos Indicator Suite" framing
+  earmarked as the right home for the cluster of small
+  scalar-chaos-indicator functions (WBA, permutation entropy,
+  Hurst — pending CSC-012/013/014). Complementary to
+  :func:`lyapunov_spectrum` and :func:`largest_lyapunov_two_trajectory`
+  in two ways: (1) the input is a *scalar* projection (e.g. just
+  ``x(t)`` of Lorenz), not the full state vector, so it works on
+  exported single-column data; (2) the output is a single
+  ``K in [0, 1]`` that classifies regime directly without
+  per-exponent interpretation. New public surface:
+  ``chaotic_systems.core.chaos_zero_one_test(timeseries, *, n_c=100,
+  c_range=(pi/5, 4 pi/5), n_cut=None, rng=None) -> float`` re-exported
+  from ``chaotic_systems.core``. The implementation follows
+  Gottwald-Melbourne 2009 §3 eqs. 4-13 verbatim: build the
+  auxiliary translation variables
+  ``p_c(n) = cumsum(phi(j) cos(c j))`` and
+  ``q_c(n) = cumsum(phi(j) sin(c j))``; compute the *modified*
+  mean-square displacement
+  ``D_c(n) = M_c(n) - <phi>^2 (1 - cos(c n)) / (1 - cos(c))`` for
+  lags ``n = 1..n_cut`` (the oscillatory subtraction in eq. 11
+  isolates the growth rate); take the Pearson correlation of
+  ``(n, D_c(n))`` to get the single-c statistic ``K_c``; report
+  the **median** of ``K_c`` over ``n_c=100`` random ``c`` draws
+  in ``(pi/5, 4 pi/5)``. Default seed (``0xC0FFEE``) makes outputs
+  reproducible without an explicit rng. Reference observables
+  (``tests/core/test_chaos_zero_one_test.py``, 13 tests):
+  ``sin(2 pi t / 10)`` on ``t in [0, 200]`` with 2000 samples →
+  ``K = 0.0000`` (periodic, regular); IID standard-normal noise
+  of length 2000 → ``K = 0.9980`` (random walk in ``(p_c, q_c)``);
+  Lorenz canonical IC integrated to ``t = 2000`` and downsampled
+  to ``dt ~ 1`` (one sample per natural orbital period) → ``K =
+  0.998+`` (canonical chaotic Lorenz, Sprott Table 5.1).
+  Docstring carries an explicit oversampling warning: at
+  ``dt = 0.04`` the same Lorenz trajectory gives ``K = 0.025``
+  (the oscillatory autocorrelation dominates ``M_c``); the user
+  must downsample to roughly one sample per dominant oscillation
+  period before calling. Edge cases pinned by tests:
+  zero-variance / constant-signal input → ``K = 0`` exactly via
+  the degenerate Pearson-correlation branch; too-short input
+  (< 100 samples) raises ``ValueError`` with a "Run the system
+  longer" hint; malformed ``c_range`` (outside ``(0, 2 pi)`` or
+  inverted) raises; ``n_cut`` outside ``[1, N-1]`` raises;
+  Python list input is accepted; the return type is Python
+  ``float`` (not ``np.floating``) so ``f"K = {K}"`` renders cleanly.
+  GUI surface deliberately deferred — the challenger's
+  cross-candidate note endorsed batching the four scalar
+  chaos indicators (CSC-011 + CSC-012 + CSC-013 + CSC-014)
+  behind a single Diagnostics-card section, so this milestone
+  ships the core function + tests without touching ``main_window.py``;
+  the GUI button lands when the cluster is complete. Non-GUI
+  suite up to 303 passed / 10 skipped / 0 failed (+13 new tests).
+  ruff clean. Commit ``TBD``.
+
 - **CSC-032 [T1] — Quick λ₁ GUI toggle.** XS wire-up from the
   2026-q2-broadening capability-scout (tied for RICE 7.20 with the
   ``docs/systems.md`` refresh that already shipped as CSC-034;

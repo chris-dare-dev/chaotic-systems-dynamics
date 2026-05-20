@@ -28,6 +28,7 @@ from chaotic_systems.core.bifurcation import (
     as_scatter,
     bifurcation_diagram,
 )
+from chaotic_systems.core.diagnostics import chaos_zero_one_test
 from chaotic_systems.core.diagnostics_protocol import (
     PostSimDiagnosticProvider,
     format_post_sim_diagnostics,
@@ -66,6 +67,7 @@ __all__ = [
     "as_scatter",
     "basin_diagram",
     "bifurcation_diagram",
+    "chaos_zero_one_test",
     "compile_rhs",
     "double_well_rhs",
     "format_post_sim_diagnostics",
