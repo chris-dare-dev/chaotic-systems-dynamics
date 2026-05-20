@@ -2037,7 +2037,10 @@ def _build_window_class() -> type:
             # Position the hint at bottom-center of the viewport as soon
             # as the frame's geometry settles. ``_reposition_overlay`` is
             # also called from the viewport-frame ``resizeEvent`` filter
-            # for subsequent layout changes.
+            # for subsequent layout changes AND from ``showEvent`` once
+            # the window is shown (FU-011 — the reliable anchor point).
+            # The single-shot here is a belt-and-suspenders backstop
+            # for builds that never call ``show()`` (some headless tests).
             QTimer.singleShot(0, self._reposition_overlay)
             # Draw the welcome state once the viewer's OpenGL context is up.
             # Deferring to the event loop avoids racing the QtInteractor's
@@ -5085,6 +5088,28 @@ def _build_window_class() -> type:
             QMessageBox.critical(self, title, message)
 
         # ------------------------------------------------------------------
+
+        def showEvent(self, event: Any) -> None:  # type: ignore[override]
+            """Re-anchor the viewport hint once the window is actually shown.
+
+            FU-011 — the prior ``QTimer.singleShot(0, self._reposition_overlay)``
+            in ``__init__`` deferred the hint repositioning to "after
+            Qt processes the current event queue", which usually
+            settled in time. Under the offscreen Qt platform plugin
+            (CI / screenshot runs), the first paint sometimes
+            happens *before* the layout pass finishes and the hint
+            sits at its initial ``(0, 0)`` position until a resize
+            event re-anchors it — the visual scout's F-10 finding
+            from ``screenshots/initial.png``. ``showEvent`` fires
+            after Qt has computed the window's final geometry, so
+            calling ``_reposition_overlay`` here is the reliable
+            anchor point. The single-shot timer is kept as a
+            belt-and-suspenders backstop because ``showEvent`` is
+            skipped on builds that never call ``show()`` (some
+            tests).
+            """
+            super().showEvent(event)
+            self._reposition_overlay()
 
         def closeEvent(self, event: Any) -> None:  # type: ignore[override]
             # Stop the animation first — its timer fires on the GUI thread

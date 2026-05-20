@@ -113,6 +113,42 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-011 — Viewport hint label showEvent anchoring.** XS-sized
+  layout hardening from the 2026-05-19-initial frontend-uplift
+  (RICE 0.60 — NONE on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes visual-scout finding F-10: the viewport "Press Ctrl-R to
+  simulate" hint was positioned once at construction via
+  ``QTimer.singleShot(0, self._reposition_overlay)``. Under the
+  offscreen Qt platform plugin (CI / screenshot runs) the first
+  paint sometimes happened *before* the layout pass finished, so
+  the hint sat at its initial ``(0, 0)`` position until the next
+  resize event re-anchored it — exactly the regression visible
+  in the visual scout's ``screenshots/initial.png``.
+  ``_MainWindow`` gains a ``showEvent`` override that calls
+  ``super().showEvent(event)`` (preserving Qt's first-paint
+  machinery) then ``self._reposition_overlay()`` (anchors the
+  hint to the viewport's bottom-center). ``showEvent`` fires
+  AFTER Qt has computed the window's final geometry, so this is
+  the reliable anchor point — the prior single-shot timer is
+  kept as a belt-and-suspenders backstop for builds that never
+  call ``show()`` (headless tests). Reference observables
+  (tests/gui/test_viewport_hint.py):
+  ``test_main_window_overrides_show_event`` walks the
+  ``_MainWindow`` MRO and pins the override-locally contract
+  (a future refactor that removes it surfaces immediately);
+  ``test_show_event_calls_super_and_repositions`` spies on
+  ``_reposition_overlay`` and verifies the override drives it
+  on every ``showEvent`` invocation;
+  ``test_show_positions_hint_near_bottom_of_viewport``
+  resizes the window to 1200x800, calls ``show()``, processes
+  events, and asserts the hint widget's ``y()`` is in the
+  viewport frame's bottom half (the F-10 regression placed it
+  in the top half pre-FU-011, so this is the headline
+  behavioural pin); ``test_reposition_overlay_method_exists``
+  sanity-checks the slot name. 4 new tests; full backend +
+  visualization + GUI suite at 675 passed / 14 skipped, ruff
+  clean. Commit ``<FU-011_SHA>``.
 - **FU-025 — Sync ``docs/ui_design.md`` to current code.** XS-sized
   doc fix from the 2026-05-19-initial frontend-uplift (RICE 0.72 —
   NONE on every challenger axis;
