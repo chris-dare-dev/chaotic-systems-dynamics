@@ -177,6 +177,58 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-006 — superqt adoption (system picker only; partial ship).**
+  S-sized library uplift from the 2026-05-19-initial
+  frontend-uplift (RICE 0.68 — MAJOR severity at synthesis time;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Adds ``superqt>=0.8`` (pyapp-kit, BSD-3-Clause, ~0.8 MB wheel,
+  deps on ``qtpy`` only) to the runtime ``dependencies`` list in
+  ``pyproject.toml``. Migrates the system picker
+  (``self.system_box``, the toolbar's ``QComboBox`` over the 13+
+  registered systems Lorenz / Rossler / RosslerHyper /
+  DoublePendulum / Chua / Duffing / HenonHeiles / Kuramoto /
+  MackeyGlass / logistic / henon_map / ikeda / standard_map)
+  from a plain ``QComboBox`` to ``superqt.QSearchableComboBox``,
+  which subclasses ``QComboBox`` and adds a type-to-filter
+  completer on the dropdown — past the scroll-vs-search
+  threshold the project has crossed since CSC-029 / N3 / N4
+  landed. **Reduced scope vs the synthesis's full FU-006**: the
+  challenger's MAJOR-severity concern about
+  ``QLabeledDoubleSlider`` lacking log-scale support was
+  verified directly against ``superqt 0.8.2``
+  (``hasattr(QLabeledDoubleSlider(), 'setLogarithmic') == False``);
+  per the challenger's mitigation #1, the ``_ParamWidget``
+  migration is DEFERRED because Kuramoto's K parameter (range
+  ``0.01-50``, 4 decades, currently log-scale via
+  ``_ParamWidget._use_log``) would silently lose precision
+  otherwise. The Notes-section ``QCollapsible`` migration is
+  also deferred — the existing custom ``_CollapsibleSection``
+  works correctly and replacing it would be churn without a
+  clear user win. ``superqt`` is added to runtime deps now so
+  any future migration (drag-to-scrub spinboxes per FU-015,
+  Notes ``QCollapsible`` once a clear win surfaces, log-scale
+  via a future superqt release) ships as a one-import change.
+  ``QSearchableComboBox`` is a drop-in: full ``QComboBox`` API
+  (``addItem``, ``findText``, ``setCurrentIndex``,
+  ``currentIndexChanged``) so no caller changes are needed; the
+  picker's tooltip is updated to mention "Type to filter."
+  Reference observables (tests/gui/test_system_picker.py):
+  ``test_system_box_is_a_searchable_combobox`` pins the
+  migration contract; ``test_system_box_is_still_a_qcombobox``
+  pins backwards-compat for external callers that introspect
+  the picker as a ``QComboBox``;
+  ``test_system_box_keeps_canonical_object_name`` pins
+  ``"system_picker"`` for FU-014's command palette + the
+  ``docs/ui_design.md`` table; the canonical 5 system names
+  (Lorenz / Rossler / DoublePendulum / HenonHeiles / Kuramoto)
+  still appear in the picker; ``currentIndexChanged`` still
+  drives ``_on_system_changed``;
+  ``test_searchable_combobox_carries_a_completer`` pins the
+  user-visible value of the migration (a non-null completer);
+  ``test_preselect_argument_still_works`` pins the
+  ``preselect="Rossler"`` kwarg's continued effect. 7 new
+  tests; full backend + visualization + GUI suite at 711
+  passed / 14 skipped, ruff clean. Commit ``<FU-006_SHA>``.
 - **FU-003 — Theme-aware Notes-panel document stylesheet.** S-sized
   wire-up from the 2026-05-19-initial frontend-uplift (RICE 0.60 —
   MINOR severity on the test-grep axis;

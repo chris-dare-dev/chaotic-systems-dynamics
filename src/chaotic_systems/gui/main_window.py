@@ -1833,9 +1833,22 @@ def _build_window_class() -> type:
             # switch, not a side-panel form field). We allocate the
             # combobox here, before the toolbar build, so other cards can
             # depend on it; the toolbar builder takes ownership of layout.
-            self.system_box = QComboBox(self)
+            #
+            # FU-006 — ``QSearchableComboBox`` (superqt) subclasses
+            # ``QComboBox`` and adds a filter input on the dropdown so
+            # the user can type a few letters of the system name
+            # instead of scrolling through 13+ entries (Lorenz /
+            # Rossler / RosslerHyper / DoublePendulum / Chua / Duffing
+            # / HenonHeiles / Kuramoto / MackeyGlass / logistic /
+            # henon_map / ikeda / standard_map). Full ``QComboBox``
+            # API surface so no caller changes are needed.
+            from superqt import QSearchableComboBox
+
+            self.system_box = QSearchableComboBox(self)
             self.system_box.setObjectName("system_picker")
-            self.system_box.setToolTip("Switch to a different dynamical system")
+            self.system_box.setToolTip(
+                "Switch to a different dynamical system. Type to filter."
+            )
             for sys_obj in self._systems:
                 self.system_box.addItem(getattr(sys_obj, "name", repr(sys_obj)))
             if preselect is not None:

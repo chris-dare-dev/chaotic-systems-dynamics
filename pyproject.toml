@@ -70,6 +70,16 @@ dependencies = [
     # the installed package. Pure-Python, MIT-licensed, ~12 MB
     # wheel (bundles three icon fonts; no compiled extensions).
     "qtawesome>=1.4",
+    # FU-006 — superqt (napari ecosystem; pyapp-kit). The initial
+    # rollout consumes ``QSearchableComboBox`` to filter the
+    # 13+ system picker; future passes can adopt other superqt
+    # primitives (``QCollapsible``, ``QEnumComboBox``, ``QFlowLayout``)
+    # as needed. ``QLabeledDoubleSlider`` is intentionally NOT
+    # adopted for the parameter form yet: superqt 0.8 doesn't
+    # support logarithmic scale and the project's Kuramoto K
+    # parameter (range 0.01-50) depends on log-scale fidelity.
+    # BSD-3-Clause, 0.8 MB wheel, deps on ``qtpy`` only.
+    "superqt>=0.8",
 ]
 
 [project.scripts]
