@@ -3574,6 +3574,34 @@ def _build_window_class() -> type:
             # critic AP-04) cannot recur.
             from chaotic_systems.gui.icons import icon_for_stem
 
+            # FU-017 — Build the live-preview ("Auto") QAction BEFORE
+            # the toolbar spec loop so we can insert it adjacent to
+            # Run as a checkable pill (ParaView's Auto-Apply
+            # vocabulary, hoisted out of the Settings dropdown to
+            # match the inspiration brief's P02 recommendation).
+            # The same QAction is re-added to the Settings menu in
+            # ``_build_settings_button`` so the menu still surfaces
+            # the toggle for users who browse Settings.
+            self.action_live_preview = QAction("Auto", self)
+            self.action_live_preview.setObjectName("action_live_preview")
+            self.action_live_preview.setCheckable(True)
+            self.action_live_preview.setChecked(self._setting_live_preview)
+            self.action_live_preview.setIcon(icon_for_stem("live-preview"))
+            self.action_live_preview.setToolTip(
+                "Auto-Apply — re-simulate after every parameter "
+                "change with a "
+                f"{self._preview_n_points}-sample, "
+                f"{self._preview_t_end:g} s preview. Debounced by "
+                f"{self._preview_debounce_ms} ms so dragging the "
+                "slider is smooth. Off by default; turn on for "
+                "'drag-and-explore' use. Run remains the explicit "
+                "path. ParaView's Auto-Apply vocabulary. "
+                "See docs/proposals/capability-roadmap-2026-05-17.md E2."
+            )
+            self.action_live_preview.toggled.connect(
+                self._on_setting_live_preview
+            )
+
             for i, spec in enumerate(self._toolbar_action_specs()):
                 obj_name, label, icon_stem, tip, slot, enabled = spec
                 # Separators before Export and Toggle-theme group related
@@ -3594,6 +3622,9 @@ def _build_window_class() -> type:
                         btn.setProperty("variant", "primary")
                         btn.style().unpolish(btn)
                         btn.style().polish(btn)
+                    # FU-017 — drop the "Auto" pill right after Run so
+                    # the explicit / auto-apply pair reads as a unit.
+                    toolbar.addAction(self.action_live_preview)
                 self._transport_actions[obj_name] = action
 
             # --- Settings dropdown ----------------------------------------
@@ -3730,29 +3761,14 @@ def _build_window_class() -> type:
             )
             menu.addAction(self.action_compare_perturbed_ic)
 
-            # E2 — live parameter-slider preview --------------------------
-            # When toggled on, every parameter spinbox / slider change
-            # restarts a debounce timer; on timeout the GUI fires a
-            # low-res re-sim and overlays the resulting attractor in the
-            # viewport. The full Run pipeline is unaffected.
-            self.action_live_preview = QAction(
-                "Live preview (slider drag re-simulates)", self
-            )
-            self.action_live_preview.setObjectName("action_live_preview")
-            self.action_live_preview.setCheckable(True)
-            self.action_live_preview.setChecked(self._setting_live_preview)
-            self.action_live_preview.setToolTip(
-                "Re-simulate after every parameter change with a "
-                f"{self._preview_n_points}-sample, "
-                f"{self._preview_t_end:g} s preview. Debounced by "
-                f"{self._preview_debounce_ms} ms so dragging the slider "
-                "is smooth. Off by default; turn on for "
-                "'drag-and-explore' use. See "
-                "docs/proposals/capability-roadmap-2026-05-17.md E2."
-            )
-            self.action_live_preview.toggled.connect(
-                self._on_setting_live_preview
-            )
+            # E2 / FU-017 — live parameter-slider preview ----------------
+            # The ``action_live_preview`` QAction is now created in
+            # ``_build_toolbar`` and surfaced as a checkable "Auto"
+            # pill adjacent to Run (FU-017 — ParaView's Auto-Apply
+            # vocabulary, lifted out of this Settings dropdown so
+            # users discover it). The same QAction is added here too
+            # so the Settings menu retains a discoverable entry —
+            # checked state stays in sync automatically.
             menu.addAction(self.action_live_preview)
 
             menu.addSeparator()

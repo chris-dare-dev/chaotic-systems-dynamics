@@ -1,12 +1,14 @@
-"""Tests for the E2 live parameter-slider preview.
+"""Tests for the E2 live parameter-slider preview (+ FU-017 promotion).
 
 GUI tests inherit the ``CHAOTIC_GUI_TESTS_USE_DISPLAY`` gate from
 ``tests/gui/conftest.py``.
 
 We pin:
 
-- The Settings menu exposes a checkable ``action_live_preview``
-  QAction, default off.
+- The main toolbar carries a checkable ``action_live_preview``
+  QAction with ``text="Auto"``, an ``mdi6.flash`` icon, and a
+  position adjacent to Run (FU-017 — the Settings menu still hosts
+  the same QAction as a secondary discoverability path).
 - Toggling the action flips ``_setting_live_preview`` and the
   status label echoes the armed/disarmed message.
 - With the setting off, a parameter spinbox change does NOT start
@@ -180,3 +182,108 @@ def test_fire_preview_suppressed_when_full_sim_in_flight(qtbot) -> None:  # type
     assert window._preview_worker is None  # noqa: SLF001
     # Clean up so other tests don't see a fake thread reference.
     window._sim_thread = None  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# FU-017 — toolbar promotion
+# ---------------------------------------------------------------------------
+
+
+def test_live_preview_is_on_the_main_toolbar(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """FU-017 — the Auto pill lands on the main toolbar.
+
+    Promoting the toggle to a top-level affordance is the headline
+    change. The QAction must appear in the toolbar's ``actions()``
+    list so users see the pill at startup instead of needing two
+    clicks into the Settings dropdown.
+    """
+    from chaotic_systems.gui.main_window import _build_window_class
+
+    Window = _build_window_class()
+    window = Window()
+    qtbot.addWidget(window)
+
+    toolbar = window.findChild(object, "toolbar_main")
+    assert toolbar is not None, "main toolbar must exist"
+    toolbar_actions = list(toolbar.actions())
+    assert window.action_live_preview in toolbar_actions, (
+        "FU-017 — action_live_preview must appear in the main "
+        "toolbar's actions() list (was Settings-menu-only pre-FU-017)"
+    )
+
+
+def test_live_preview_pill_text_is_auto(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """FU-017 — the pill's display text is "Auto".
+
+    Synthesis-prescribed label. The pre-FU-017 menu entry's text
+    was "Live preview (slider drag re-simulates)" — too long for a
+    toolbar pill.
+    """
+    from chaotic_systems.gui.main_window import _build_window_class
+
+    Window = _build_window_class()
+    window = Window()
+    qtbot.addWidget(window)
+
+    assert window.action_live_preview.text() == "Auto", (
+        f"FU-017 — action text should be 'Auto', got "
+        f"{window.action_live_preview.text()!r}"
+    )
+
+
+def test_live_preview_pill_has_lightning_icon(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """FU-017 — the pill carries the mdi6.flash glyph from qtawesome.
+
+    The icon mapping is centralised in ``icons.STEM_TO_GLYPH``
+    (FU-005); ``"live-preview"`` resolves to ``mdi6.flash``. The
+    icon must be non-null and rasterisable at toolbar size.
+    """
+    from PySide6.QtCore import QSize
+
+    from chaotic_systems.gui.icons import STEM_TO_GLYPH
+    from chaotic_systems.gui.main_window import _build_window_class
+
+    Window = _build_window_class()
+    window = Window()
+    qtbot.addWidget(window)
+
+    assert STEM_TO_GLYPH["live-preview"] == "mdi6.flash"
+    icon = window.action_live_preview.icon()
+    assert not icon.isNull(), "FU-017 — Auto pill must carry an icon"
+    pix = icon.pixmap(QSize(18, 18))
+    assert not pix.isNull(), (
+        "FU-017 — Auto pill icon must rasterise at toolbar size (18 px)"
+    )
+
+
+def test_live_preview_pill_sits_adjacent_to_run(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """FU-017 — synthesis-prescribed position: directly after Run.
+
+    The explicit Run action and the Auto-Apply pill read as a unit
+    ("run on demand" vs "run on every parameter change"), so they
+    sit next to each other in the toolbar's action order.
+    """
+    from chaotic_systems.gui.main_window import _build_window_class
+
+    Window = _build_window_class()
+    window = Window()
+    qtbot.addWidget(window)
+
+    toolbar = window.findChild(object, "toolbar_main")
+    actions = list(toolbar.actions())
+    # Filter out separators / widget-actions; we only care about
+    # the action objects that have an objectName.
+    named = [a for a in actions if a.objectName()]
+    object_names = [a.objectName() for a in named]
+    assert "transport_run" in object_names, (
+        "sanity — Run action must be on the toolbar"
+    )
+    assert "action_live_preview" in object_names, (
+        "FU-017 — Auto pill must be on the toolbar"
+    )
+    run_idx = object_names.index("transport_run")
+    auto_idx = object_names.index("action_live_preview")
+    assert auto_idx == run_idx + 1, (
+        f"FU-017 — Auto pill must sit directly after Run; got "
+        f"run at index {run_idx}, auto at index {auto_idx}"
+    )

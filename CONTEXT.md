@@ -113,6 +113,51 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-017 — Promote live-preview to a toolbar "Auto" pill.**
+  S-sized discoverability uplift from the 2026-05-19-initial
+  frontend-uplift (RICE 1.08 — NONE on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Wire-up candidate: the E2 backend (commit ``1b131e2``) ships
+  the debounce + preview pipeline; FU-017 is purely a UI
+  relocation. Closes the inspiration brief's P02 pattern
+  ("ParaView's 'Auto Apply' vocabulary"). Pre-FU-017 the
+  toggle lived inside the Settings dropdown as a long action
+  ``"Live preview (slider drag re-simulates)"`` — two clicks
+  deep and easy to miss; post-FU-017 it surfaces as a
+  checkable "Auto" pill adjacent to Run on the main toolbar
+  with a lightning-bolt icon (``mdi6.flash`` via the FU-005
+  qtawesome stack). The same ``action_live_preview`` QAction
+  is added to both surfaces — Qt's multi-host model lets the
+  Settings-menu entry stay (for users who learned to look
+  there) and stay state-synced with the toolbar pill
+  automatically. ``icons.STEM_TO_GLYPH`` grows a
+  ``"live-preview" -> "mdi6.flash"`` entry — synthesis-
+  prescribed glyph. ``main_window.py``: ``_build_toolbar``
+  now creates the QAction inline (before the spec loop)
+  and inserts it onto the toolbar inside the Run-action
+  branch of the spec loop, so the pill always lands at
+  exactly position-after-Run regardless of how the spec list
+  reorders. ``_build_settings_button`` drops its prior local
+  creation block and just calls ``menu.addAction(
+  self.action_live_preview)`` — the QAction's now defined
+  earlier in the build flow. The tooltip is shortened and
+  re-grounded against ParaView's vocabulary so the pill reads
+  the same way as comparable scientific tools. Reference
+  observables (tests/gui/test_live_preview.py — 4 new tests
+  appended to the existing 11):
+  ``test_live_preview_is_on_the_main_toolbar`` asserts the
+  QAction appears in ``toolbar_main.actions()``;
+  ``test_live_preview_pill_text_is_auto`` pins the
+  synthesis-prescribed "Auto" label;
+  ``test_live_preview_pill_has_lightning_icon`` verifies the
+  ``mdi6.flash`` mapping + non-null rasterisable icon;
+  ``test_live_preview_pill_sits_adjacent_to_run`` pins the
+  exact-position contract (``action_live_preview`` index is
+  ``transport_run`` index + 1). All 11 pre-existing E2 tests
+  continue to pass — the state-machine wiring is unchanged.
+  4 new tests; full backend + visualization + GUI suite at
+  659 passed / 14 skipped, ruff clean. Commit
+  ``<FU-017_SHA>``.
 - **FU-019 — Inline parameter value readout chip.** XS-sized
   pedagogical polish from the 2026-05-19-initial frontend-uplift
   (RICE 1.80 — MINOR severity on token-discipline axis only;
