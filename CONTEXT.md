@@ -170,7 +170,10 @@ follow-ups:
   asserts all six keys (``K`` / ``digit_loss`` / ``H_PE`` /
   ``H_Hurst`` / ``dt`` / ``n_samples``) appear in the finished
   payload. Non-GUI suite unchanged at 354 passed / 10 skipped /
-  0 failed (no core changes). ruff clean. Commit ``TBD``.
+  0 failed (no core changes). ruff clean. Code-side landed in
+  commit ``c66f94d`` (mixed with FU-020 due to a parallel-session
+  ``git add`` race that swept up the in-flight CIS-1 main_window.py
+  edits); docs + tests + proposal landed cleanly in ``aa9ecfe``.
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
