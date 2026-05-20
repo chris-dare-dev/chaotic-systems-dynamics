@@ -13,9 +13,15 @@ shipped so far:
 - :func:`chaos_permutation_entropy` — Bandt-Pompe 2002 ordinal
   entropy; normalised Shannon entropy of the empirical
   ordinal-pattern distribution in ``[0, 1]`` (CSC-013).
+- :func:`chaos_hurst` — Hurst 1951 / Feder 1988 rescaled-range
+  exponent. ``H ~ 0.5`` for memoryless / Brownian-increment
+  signals, ``H > 0.5`` for persistent (long-range positively
+  correlated) processes, ``H < 0.5`` for anti-persistent (CSC-014).
 
-Follow-up candidate from the 2026-q2-broadening capability-scout —
-Hurst exponent (CSC-014) — will slot in here behind the same shape.
+The four indicators together (CSC-011/012/013/014) form the
+"Chaos Indicator Suite" cluster the 2026-q2-broadening
+challenger's cross-candidate note earmarked for a single batched
+Diagnostics-card section.
 
 References (for this module overall)
 ------------------------------------
@@ -33,6 +39,11 @@ References (for this module overall)
 - C. Bandt, B. Pompe, *Permutation entropy: A natural complexity measure
   for time series*, Phys. Rev. Lett. 88 (2002), 174102. — canonical
   reference for :func:`chaos_permutation_entropy` (CSC-013).
+- H. E. Hurst, *Long-term storage capacity of reservoirs*, Trans.
+  Am. Soc. Civil Eng. 116 (1951), 770-799 — the original R/S
+  analysis paper. J. Feder, *Fractals*, Plenum 1988, ch. 8 — the
+  standard modern implementation recipe cited verbatim in
+  :func:`chaos_hurst` below.
 - J. C. Sprott, *Chaos and Time-Series Analysis*, Oxford University
   Press, 2003, ch. 5 — overall pedagogical context for scalar chaos
   indicators.
@@ -633,7 +644,222 @@ def chaos_permutation_entropy(
     return h
 
 
+# ---------------------------------------------------------------------------
+# CSC-014 — Hurst exponent via rescaled-range (R/S) analysis.
+# ---------------------------------------------------------------------------
+
+# Smallest chunk size the R/S regression treats as meaningful. Feder
+# 1988 §8.3 notes the small-chunk regime is dominated by short-time
+# noise; a floor of 8 keeps the regression on the asymptotic
+# (R/S)_n ~ n^H power law.
+_HURST_MIN_CHUNK_FLOOR: int = 8
+# Default number of points on the log-log regression ladder. Feder
+# §8.3 uses ~10-20; 20 strikes a balance between regression stability
+# and runtime on Lorenz-scale (N ~ 2000) trajectories.
+_HURST_DEFAULT_NUM_CHUNKS: int = 20
+# Minimum samples below which the R/S statistic is not statistically
+# meaningful. The two-decade chunk ladder needs N >= ~4 * min_chunk
+# at the low end and N // 2 at the top — 200 is a safe floor.
+_HURST_MIN_SAMPLES: int = 200
+
+
+def chaos_hurst(
+    timeseries: Sequence[float] | np.ndarray,
+    *,
+    min_chunk: int = _HURST_MIN_CHUNK_FLOOR,
+    max_chunk: int | None = None,
+    num_chunks: int = _HURST_DEFAULT_NUM_CHUNKS,
+) -> float:
+    """Hurst exponent via Feder's rescaled-range (R/S) analysis.
+
+    Implements the classical Hurst-Mandelbrot R/S recipe (Hurst 1951;
+    Feder, *Fractals*, Plenum 1988, ch. 8):
+
+    1. Choose a geometric ladder of chunk sizes ``n`` from
+       ``min_chunk`` to ``max_chunk`` (default ``N // 2``).
+    2. For each ``n``, partition the series into ``N // n``
+       non-overlapping chunks; for each chunk:
+
+       a. Compute the per-chunk mean :math:`\\bar{x}`.
+       b. Form the cumulative deviation
+          :math:`Y_i = \\sum_{j \\le i} (x_j - \\bar{x})`.
+       c. The rescaled range is
+          :math:`(R/S)_n = (\\max Y - \\min Y) / \\sigma`
+          where :math:`\\sigma` is the per-chunk sample std.
+
+    3. Average :math:`(R/S)_n` across chunks of equal size.
+    4. Fit :math:`\\log (R/S)_n = H \\log n + c` by linear
+       regression; the slope is the Hurst exponent :math:`H`.
+
+    Interpretation:
+
+    - :math:`H \\approx 0.5`: memoryless / IID-Gaussian increments.
+      The rescaled range grows as :math:`\\sqrt{n}` (random walk).
+    - :math:`H > 0.5`: persistent (long-range positively
+      correlated). Past trends predict future trends.
+    - :math:`H < 0.5`: anti-persistent (negative correlation).
+      Mean-reverting.
+    - :math:`H \\approx 1`: ballistic / coherent accumulation,
+      as in fully integrated Brownian motion.
+
+    Parameters
+    ----------
+    timeseries
+        1-D real-valued time series. Length must be at least 200
+        (the two-decade chunk ladder needs that floor for the
+        regression to converge per Feder §8.3).
+    min_chunk
+        Smallest chunk size considered. Defaults to 8. Lower
+        values are dominated by short-time noise (Feder §8.3).
+    max_chunk
+        Largest chunk size considered. Defaults to ``N // 2`` —
+        the standard upper bound that keeps at least 2 chunks per
+        size on the ladder.
+    num_chunks
+        Target number of points on the log-log regression ladder.
+        Defaults to 20. Duplicates (after ``int()`` rounding of
+        the geometric ladder) are deduplicated, so the actual
+        regression may use fewer points.
+
+    Returns
+    -------
+    float
+        The estimated Hurst exponent :math:`H`. Typically in
+        ``[0, 1]`` but not clamped — empirical estimates can
+        slightly exceed the theoretical range on short or
+        atypical series, and that information is diagnostic.
+
+    Raises
+    ------
+    ValueError
+        If the time series is too short, or ``min_chunk`` /
+        ``max_chunk`` are inconsistent, or if every candidate
+        chunk has zero variance (constant signal) and the
+        regression has fewer than two points.
+
+    Notes
+    -----
+    R/S analysis is known to have a small-N bias (Annis & Lloyd,
+    *Biometrika* 1976) — the estimator over-reports :math:`H` for
+    IID series on short samples by ~0.05-0.10. The default
+    parameters target Lorenz-scale trajectories (N ~ 2000) where
+    that bias is acceptable. For high-precision Hurst estimation
+    on long series, the DFA (detrended fluctuation analysis)
+    family is generally preferred — out of scope for this
+    indicator-level module.
+
+    For a strictly constant signal every chunk has :math:`\\sigma
+    = 0` and the rescaled range is undefined; the regression has
+    no valid points and the function raises.
+
+    References
+    ----------
+    - H. E. Hurst, *Long-term storage capacity of reservoirs*,
+      Trans. Am. Soc. Civil Eng. 116 (1951), 770-799.
+    - J. Feder, *Fractals*, Plenum 1988, ch. 8 "Hurst analysis".
+    - B. Mandelbrot, J. R. Wallis, *Robustness of the rescaled
+      range R/S in the measurement of noncyclic long run
+      statistical dependence*, Water Resour. Res. 5 (1969),
+      967-988.
+    """
+    arr = np.asarray(timeseries, dtype=np.float64).ravel()
+    n = int(arr.size)
+    if n < _HURST_MIN_SAMPLES:
+        raise ValueError(
+            f"chaos_hurst requires at least {_HURST_MIN_SAMPLES} samples "
+            f"(Feder §8.3 minimum for a two-decade chunk ladder); got {n}. "
+            "Run the system longer."
+        )
+    if int(min_chunk) < _HURST_MIN_CHUNK_FLOOR:
+        raise ValueError(
+            f"min_chunk must be >= {_HURST_MIN_CHUNK_FLOOR}; got {min_chunk}. "
+            "Smaller chunks are dominated by short-time noise."
+        )
+    if max_chunk is None:
+        max_chunk_val = n // 2
+    else:
+        max_chunk_val = int(max_chunk)
+    if max_chunk_val <= min_chunk:
+        raise ValueError(
+            f"max_chunk must be > min_chunk; got min={min_chunk}, "
+            f"max={max_chunk_val}"
+        )
+    if max_chunk_val > n // 2:
+        raise ValueError(
+            f"max_chunk must be <= N // 2 = {n // 2}; got {max_chunk_val}. "
+            "Chunks larger than N/2 leave only one window per size — the "
+            "regression collapses."
+        )
+    if int(num_chunks) < 2:
+        raise ValueError(f"num_chunks must be >= 2; got {num_chunks}")
+
+    # Geometric ladder from min_chunk to max_chunk; dedupe after
+    # int-casting since geomspace can produce duplicates at small
+    # values.
+    chunk_sizes = np.unique(
+        np.round(
+            np.geomspace(
+                float(min_chunk), float(max_chunk_val), int(num_chunks)
+            )
+        ).astype(int)
+    )
+    chunk_sizes = chunk_sizes[chunk_sizes >= _HURST_MIN_CHUNK_FLOOR]
+
+    log_n_pts: list[float] = []
+    log_rs_pts: list[float] = []
+    for chunk_size in chunk_sizes:
+        n_chunks = n // chunk_size
+        if n_chunks < 1:
+            continue
+        rs_per_chunk: list[float] = []
+        for k in range(n_chunks):
+            chunk = arr[k * chunk_size : (k + 1) * chunk_size]
+            # A *signal-level* constant detection: the chunk's literal
+            # max minus min is exactly zero. The downstream
+            # cumulative-deviation and std computations both incur
+            # ~1e-15 float-epsilon noise on a constant input (the
+            # summation in ``chunk.mean()`` rounds differently for
+            # chunk sizes that don't divide N evenly), so a naive
+            # ``std <= 0`` guard misses these and the R/S ratio
+            # silently picks up O(1) noise from the regression.
+            if float(chunk.max() - chunk.min()) <= 0.0:
+                continue
+            mean = float(chunk.mean())
+            deviations = chunk - mean
+            cumulative = np.cumsum(deviations)
+            rng = float(cumulative.max() - cumulative.min())
+            std = float(chunk.std())
+            if std <= 0.0:
+                # Defensive — should be caught by the chunk-range
+                # check above, but keep the guard for genuinely tiny
+                # non-constant chunks whose std underflows to 0.
+                continue
+            rs_per_chunk.append(rng / std)
+        if not rs_per_chunk:
+            continue
+        mean_rs = float(np.mean(rs_per_chunk))
+        # The case mean_rs == 0 only happens when all chunks have R = 0,
+        # which is the constant-signal degenerate path the std check
+        # above usually catches; guard once more to keep ``log`` finite.
+        if mean_rs <= 0.0:
+            continue
+        log_n_pts.append(float(np.log(chunk_size)))
+        log_rs_pts.append(float(np.log(mean_rs)))
+
+    if len(log_n_pts) < 2:
+        raise ValueError(
+            "R/S regression has fewer than 2 valid chunk sizes — "
+            "the input is likely constant or has near-zero variance. "
+            "Hurst exponent is undefined for such signals."
+        )
+    log_n_arr = np.asarray(log_n_pts, dtype=np.float64)
+    log_rs_arr = np.asarray(log_rs_pts, dtype=np.float64)
+    slope, _intercept = np.polyfit(log_n_arr, log_rs_arr, 1)
+    return float(slope)
+
+
 __all__ = [
+    "chaos_hurst",
     "chaos_permutation_entropy",
     "chaos_weighted_birkhoff",
     "chaos_zero_one_test",

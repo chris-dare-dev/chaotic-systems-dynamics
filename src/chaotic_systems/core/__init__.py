@@ -29,6 +29,7 @@ from chaotic_systems.core.bifurcation import (
     bifurcation_diagram,
 )
 from chaotic_systems.core.diagnostics import (
+    chaos_hurst,
     chaos_permutation_entropy,
     chaos_weighted_birkhoff,
     chaos_zero_one_test,
@@ -71,6 +72,7 @@ __all__ = [
     "as_scatter",
     "basin_diagram",
     "bifurcation_diagram",
+    "chaos_hurst",
     "chaos_permutation_entropy",
     "chaos_weighted_birkhoff",
     "chaos_zero_one_test",

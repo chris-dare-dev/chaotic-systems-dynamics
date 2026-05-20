@@ -113,6 +113,55 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-014 — Command palette (Ctrl+Shift+P).** Foundational M-sized
+  discoverability surface from the 2026-05-19-initial frontend-uplift
+  (RICE 4.88 — tied for highest in the synthesis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the convergent C3 pattern the inspiration brief catalogues
+  across napari (PR #5483), VS Code, and Houdini: every app that
+  outgrows its toolbar discovers menus become a UX cliff; the
+  command palette is the standard answer. The chaotic-systems
+  toolbar carries 12 actions today, putting it squarely in
+  "needs a palette" territory. New module
+  ``chaotic_systems.gui.command_palette`` ships a
+  ``CommandPalette(QDialog)`` modal opened on Ctrl+Shift+P, plus
+  the ``collect_actions(host)`` helper that gathers every named
+  ``QAction`` via :meth:`QWidget.findChildren(QAction)` — the
+  canonical napari PR #5483 pattern (filters out anonymous /
+  textless actions, dedupes by ``objectName`` so a single
+  ``QAction`` appearing in both toolbar and menu surfaces once,
+  alphabetises case-insensitively). The palette ships a
+  ``QLineEdit`` filter (case-insensitive substring; clear-button
+  enabled), a ``QListWidget`` of matched rows, and an event
+  filter on the search field that routes Up/Down/Enter to the
+  list so the user never has to leave the keyboard. Each row
+  surfaces the action's text, its keyboard shortcut (when
+  defined), and an ``(unavailable)`` suffix + tooltip on
+  disabled actions so users see what *exists* even when guards
+  haven't been satisfied — the synthesis explicitly called for
+  this. ``main_window`` grows a ``Ctrl+Shift+P`` shortcut + an
+  ``_open_command_palette()`` slot. Challenger-flagged
+  theme-container concern mitigated via FU-002 (already shipped):
+  the dialog's ``setStyleSheet`` binds the frame to
+  ``PALETTE.bg_panel`` so the popup matches dark Tokyo Night
+  chrome on Windows instead of falling back to the system-light
+  frame. No "central registry" refactor needed (the challenger's
+  worry) — ``findChildren`` is a one-liner. Reference
+  observables (tests/gui/test_command_palette.py): the canonical
+  Ctrl+Shift+P binding via ``palette_shortcut()``;
+  ``collect_actions`` dedupes a QAction shared by toolbar+menu;
+  textless and anonymous actions are filtered; full alphabetical
+  order; the palette built against the real main window
+  discovers all seven documented transport actions
+  (``transport_run`` / ``transport_pause`` / ``transport_stop`` /
+  ``transport_jump_end`` / ``action_export`` /
+  ``action_reset_view`` / ``action_toggle_theme``) plus
+  FU-013's ``action_preferences``; case-insensitive filter
+  narrows the list; Enter triggers the selected action and
+  accepts the dialog; disabled actions appear with the
+  ``(unavailable)`` suffix and cannot be triggered. 10 new
+  tests; full backend + visualization + GUI suite at 614 passed
+  / 14 skipped, ruff clean. Commit ``<FU-014_SHA>``.
 - **FU-013 — Persistent settings via ``QSettings`` + Preferences dialog.**
   Foundational M-sized workflow uplift from the 2026-05-19-initial
   frontend-uplift (RICE 4.88 — highest in the synthesis;
@@ -244,6 +293,72 @@ follow-ups:
   ``6e38df0``.
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
+
+- **CSC-014 — Hurst exponent via rescaled-range (R/S) analysis.**
+  Fourth and final inhabitant of the
+  ``chaotic_systems.core.diagnostics`` module from the
+  2026-q2-broadening capability-scout (RICE 3.0;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``)
+  — completes the "Chaos Indicator Suite" cluster
+  (CSC-011/012/013/014) the challenger's cross-candidate note
+  earmarked for an eventual single batched Diagnostics-card
+  section. Implements Hurst's 1951 R/S statistic via the modern
+  Feder 1988 (*Fractals*, Plenum, ch. 8) recipe: partition the
+  series into ``N // n`` non-overlapping chunks of size ``n``;
+  for each chunk compute the cumulative-deviation range
+  :math:`R = \\max Y - \\min Y` and the per-chunk std
+  :math:`\\sigma`; average :math:`R/\\sigma` across chunks of
+  equal size; repeat over a 20-point geometric ladder of ``n``
+  from ``min_chunk=8`` up to ``N//2``; fit
+  :math:`\\log(R/S)_n = H \\log n + c` by ``np.polyfit`` linear
+  regression — the slope is the Hurst exponent ``H``. The
+  indicator separates regimes by *memory* (not chaos vs. noise
+  directly): ``H ~ 0.5`` memoryless IID Gaussian, ``H > 0.5``
+  persistent (long-range positive correlation), ``H < 0.5``
+  anti-persistent (mean-reverting), ``H ~ 1`` ballistic /
+  fully-integrated Brownian-motion accumulation. New public
+  surface:
+  ``chaotic_systems.core.chaos_hurst(timeseries, *, min_chunk=8,
+  max_chunk=None, num_chunks=20) -> float``, re-exported from
+  ``chaotic_systems.core``. Module-level constants enforce
+  ``min_chunk >= 8`` (Feder §8.3: smaller chunks are
+  noise-dominated), ``max_chunk <= N // 2`` (so each size has
+  at least 2 chunks for the average), and ``N >= 200`` (the
+  two-decade ladder needs that floor). Reference observables
+  (``tests/core/test_chaos_hurst.py``, 17 tests): IID standard
+  Gaussian noise (length 4000) → ``H = 0.5607`` (clearly in
+  the random-walk band; the upward bias above 0.5 is the
+  well-known Annis-Lloyd 1976 small-sample bias of the R/S
+  estimator); Brownian motion (cumsum of IID Gaussian) →
+  ``H = 0.9881`` (ballistic, > 0.9); AR(1) with positive lag-1
+  coefficient ``phi = 0.85`` (persistent short-memory) →
+  ``H = 0.7292`` (> 0.6); Lorenz x at the canonical IC,
+  sampled at dt~1 → ``H = 0.5570`` (random-walk band, distinct
+  from the clearly-ballistic Brownian regime). Brownian-vs-IID
+  separation is at least 0.2 of Hurst units
+  (``test_brownian_motion_well_above_iid_gaussian``). Edge
+  cases pinned: constant signal raises
+  ``ValueError("undefined")`` — including the subtle
+  float-precision case where chunks that don't divide N evenly
+  produce std ~ 1e-15 noise (the implementation uses a
+  signal-level ``chunk.max() == chunk.min()`` guard to catch
+  these before they pollute the regression); too-short input
+  (< 200 samples) raises with a Feder §8.3 hint; malformed
+  ``min_chunk`` / ``max_chunk`` / ``num_chunks`` all raise
+  with clear messages; Python list input accepted; return type
+  is Python ``float``; chunk-ladder density is robust (the
+  regression agrees to within 0.1 between ``num_chunks=10`` and
+  ``num_chunks=30`` on the same input). Module docstring carries
+  an explicit Annis-Lloyd 1976 small-sample-bias caveat and
+  notes that for high-precision Hurst on long series the DFA
+  family is generally preferred (out of scope for this
+  indicator module). With CSC-014 the four-indicator suite is
+  complete: ``chaos_zero_one_test`` + ``chaos_weighted_birkhoff``
+  + ``chaos_permutation_entropy`` + ``chaos_hurst`` form a
+  coherent diagnostic set that can be invoked from a single
+  Diagnostics-card section the GUI will batch in a follow-up
+  milestone. Non-GUI suite up to 354 passed / 10 skipped / 0
+  failed (+17 new tests). ruff clean. Commit ``TBD``.
 
 - **CSC-013 — Bandt-Pompe permutation entropy chaos indicator.**
   Third inhabitant of the ``chaotic_systems.core.diagnostics``
