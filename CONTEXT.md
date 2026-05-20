@@ -113,6 +113,48 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-024 — Clear dialog window references on close.** XS-sized
+  hygiene fix from the 2026-05-19-initial frontend-uplift (RICE 0.72
+  — NONE on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the critic's DV-03 finding: all five analysis dialogs
+  (Bifurcation / Recurrence / Basin / Poincaré / Phase) are
+  constructed with ``Qt.WA_DeleteOnClose``, so closing the dialog
+  frees the underlying C++ object — but the main window's
+  ``self._<name>_window`` Python attribute kept pointing at the
+  dangling shiboken wrapper, raising ``RuntimeError: wrapped C++
+  object has been deleted`` on any access between close and reopen.
+  The synthesis flagged only ``_poincare_window`` and
+  ``_phase_window`` but auditing showed all 5 dialogs have the same
+  bug since CSC-029 (Poincaré) landed; this commit fixes the whole
+  family for consistency. ``_MainWindow.__init__`` now declares all
+  5 ``_*_window`` attributes as ``None`` up front so introspection
+  before the user opens the dialog (e.g. Preferences-dialog readers,
+  the FU-014 command palette, tests) gets a clean ``None`` rather
+  than ``AttributeError``. New helper ``_wire_window_cleanup(dialog,
+  attr_name)`` connects ``QObject.destroyed`` so closing the dialog
+  resets ``self.<attr_name>`` back to ``None`` at the right moment
+  (the lambda captures ``attr_name`` as a default argument to dodge
+  Python's late-binding closure trap that would otherwise make
+  multiple wires in the same scope collide on the last-bound name).
+  All 5 ``_on_open_*`` slots gain a single ``self._wire_window_cleanup
+  (dialog, "_<name>_window")`` line between the reference stamp and
+  the ``dialog.show()`` call. No public API changed. Reference
+  observables (tests/gui/test_dialog_cleanup.py):
+  ``test_all_five_dialog_window_attrs_default_to_none`` — every
+  attribute pre-exists as ``None`` after construction (no more
+  pre-open ``AttributeError``); ``test_wire_window_cleanup_resets_attr_on_destroyed``
+  — emitting ``destroyed`` on a wired dialog nulls the named
+  attribute; ``test_wire_window_cleanup_handles_multiple_dialogs_independently``
+  — wires two fake dialogs to different attrs and destroys them
+  independently, pinning the default-argument late-binding fix
+  (a naïve closure capture would make Dialog A's destroy null
+  Dialog B's attr — this test would catch that regression);
+  ``test_wire_window_cleanup_accepts_every_documented_attr``
+  iterates all 5 canonical attribute names and exercises each
+  destroy path end-to-end. 5 new tests; full backend +
+  visualization + GUI suite at 671 passed / 14 skipped, ruff
+  clean. Commit ``<FU-024_SHA>``.
 - **FU-029 — Inline parameter labels under equation rows.**
   S-sized educational uplift from the 2026-05-19-initial
   frontend-uplift (RICE 0.90 — MINOR severity on token discipline;

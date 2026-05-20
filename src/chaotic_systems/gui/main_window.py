@@ -1398,6 +1398,20 @@ def _build_window_class() -> type:
             self._param_widgets: dict[str, _ParamWidget] = {}
             self._last_trajectory: Any = None
 
+            # FU-024 — dialog-window references initialised to None so
+            # external introspection (Preferences dialog, tests, future
+            # FU-018 dock-state restoration) can read them safely
+            # before the user has opened the dialog. Each ``_on_open_*``
+            # slot stamps the real reference; ``_wire_window_cleanup``
+            # connects ``dialog.destroyed`` so closing the dialog (which
+            # triggers ``WA_DeleteOnClose``) restores the attribute to
+            # ``None`` rather than leaving a dangling C++ wrapper.
+            self._bifurcation_window: Any = None
+            self._recurrence_window: Any = None
+            self._basin_window: Any = None
+            self._poincare_window: Any = None
+            self._phase_window: Any = None
+
             # Worker-thread state.
             self._sim_thread: QThread | None = None
             self._sim_worker: _SimulateWorker | None = None
@@ -3270,6 +3284,28 @@ def _build_window_class() -> type:
             if self._current_renderer is not None:
                 self._current_renderer.reset_camera()
 
+        def _wire_window_cleanup(self, dialog: Any, attr_name: str) -> None:
+            """Null out ``self.<attr_name>`` when ``dialog`` is destroyed (FU-024).
+
+            All five analysis dialogs (Bifurcation / Recurrence /
+            Basin / Poincaré / Phase) are constructed with
+            ``Qt.WA_DeleteOnClose`` so the underlying C++ object is
+            freed when the user closes the window. Without this hook
+            the Python attribute that stored the dialog reference
+            still points at the dangling shiboken wrapper — any
+            access between close and reopen raises ``RuntimeError:
+            wrapped C++ object has been deleted``. Connecting to
+            ``QObject.destroyed`` resets the attribute back to
+            ``None`` at the right moment.
+
+            The lambda captures ``attr_name`` as a default-argument
+            value so multiple dialogs wired in the same scope don't
+            collide on the late-binding of the free variable.
+            """
+            dialog.destroyed.connect(
+                lambda _obj=None, name=attr_name: setattr(self, name, None)
+            )
+
         def _on_open_bifurcation(self) -> None:
             """Open the bifurcation-diagram explorer in a top-level window.
 
@@ -3297,7 +3333,11 @@ def _build_window_class() -> type:
                 return
             # Hold a reference so the window isn't GC'd before it's shown;
             # WA_DeleteOnClose handles cleanup once the user closes it.
+            # FU-024 — clear the reference on close so introspecting
+            # the attribute between close and reopen doesn't hit a
+            # dangling C++ wrapper.
             self._bifurcation_window = dialog
+            self._wire_window_cleanup(dialog, "_bifurcation_window")
             dialog.show()
 
         def _on_open_recurrence(self) -> None:
@@ -3339,6 +3379,7 @@ def _build_window_class() -> type:
                 )
                 return
             self._recurrence_window = dialog
+            self._wire_window_cleanup(dialog, "_recurrence_window")  # FU-024
             dialog.show()
 
         def _on_open_basins(self) -> None:
@@ -3364,6 +3405,7 @@ def _build_window_class() -> type:
                 )
                 return
             self._basin_window = dialog
+            self._wire_window_cleanup(dialog, "_basin_window")  # FU-024
             dialog.show()
 
         def _on_open_poincare(self) -> None:
@@ -3420,6 +3462,7 @@ def _build_window_class() -> type:
                 )
                 return
             self._poincare_window = dialog
+            self._wire_window_cleanup(dialog, "_poincare_window")  # FU-024
             dialog.show()
 
         def _on_open_phase_portrait(self) -> None:
@@ -3480,6 +3523,7 @@ def _build_window_class() -> type:
                 )
                 return
             self._phase_window = dialog
+            self._wire_window_cleanup(dialog, "_phase_window")  # FU-024
             dialog.show()
 
         # ------------------------------------------------------------ toolbar
