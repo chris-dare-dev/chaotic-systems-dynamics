@@ -620,6 +620,59 @@ def _build_window_class() -> type:
                 self._install_fallback(
                     "renderer cannot display this expression — see docs"
                 )
+                return
+
+            # FU-010 — queue one deferred reflow pass after the
+            # current event-loop tick so Qt's layout machinery has a
+            # chance to settle on the widget's *final* width. Without
+            # this, ``set_latex`` called during construction (before
+            # the widget is shown) measures ``self.width()`` while the
+            # layout is mid-pass, decides "the row fits" against a
+            # stale figure, and the first row clips at the card edge
+            # on initial render — visible on DoublePendulum's
+            # kinetic-energy expression (visual scout F-07,
+            # ``screenshots/double-pendulum-latex.png``). The deferred
+            # pass re-measures and re-scales each row at the true
+            # available width. Idempotent: ``_reflow`` already
+            # short-circuits if the source pixmap fits.
+            QTimer.singleShot(0, self._reflow_all)
+
+        def _reflow_all(self) -> None:
+            """Trigger ``_reflow`` on every row.
+
+            FU-010 entry point — called from ``QTimer.singleShot(0,
+            ...)`` after ``set_latex`` returns, and from
+            ``showEvent`` the first time the widget becomes visible.
+            Both paths land here so the reflow logic stays in one
+            place.
+
+            Each row's ``_reflow`` is idempotent (no-op if pixmap
+            already fits at the current width) so calling this
+            multiple times has no visual cost.
+            """
+
+            for row in self._rows:
+                row._reflow()  # noqa: SLF001 — sibling-class internal
+
+        def showEvent(self, event: Any) -> None:  # type: ignore[override]
+            """Re-flow rows the first time the widget becomes visible.
+
+            FU-010 belt-and-suspenders: the ``QTimer.singleShot(0,
+            ...)`` queued at the end of ``set_latex`` covers the
+            common case (rows already exist when the widget shows),
+            but if ``set_latex`` ran *before* the parent dock /
+            scroll area had any width assigned, the deferred pass
+            re-measured at zero width and still under-laid out the
+            row. ``showEvent`` fires after the geometry has been
+            assigned, so reflowing here catches that residual case.
+            ``QTimer.singleShot(0, ...)`` defers to after Qt's own
+            post-show layout pass — without that defer the
+            ``self.width()`` read inside ``_LatexRow._reflow`` still
+            sees the pre-layout value on some platforms.
+            """
+
+            super().showEvent(event)
+            QTimer.singleShot(0, self._reflow_all)
 
         def rerender_at(self, *, color: str, dpr: float) -> None:
             """Re-render with the previously-set LaTeX but a new color/DPI ratio."""

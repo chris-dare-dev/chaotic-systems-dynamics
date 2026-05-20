@@ -177,6 +177,48 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-010 — Force LaTeX reflow on ``showEvent`` + via deferred
+  ``singleShot``.** S-sized typography / motion fix from the
+  2026-05-19-initial frontend-uplift (RICE 0.30 — NONE severity
+  on every axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-010 the ``_FlowingLatex`` widget rendered rows
+  immediately during ``set_latex`` and measured ``self.width()``
+  *at that moment* to decide whether each row pixmap needed
+  scaling down. When ``set_latex`` ran during window construction
+  (before the parent layout had settled the widget's final
+  width), the row pixmap was sized against a stale measurement
+  and the first row clipped at the card edge on initial render
+  — visible on DoublePendulum's kinetic-energy expression
+  (visual scout F-07, ``screenshots/double-pendulum-latex.png``).
+  Post-FU-010 the timing is patched in two places:
+  ``set_latex`` now queues a deferred ``QTimer.singleShot(0,
+  self._reflow_all)`` after the row inserts so Qt's layout pass
+  has a chance to settle before each row pixmap is re-measured;
+  and an overridden ``showEvent`` queues a second
+  ``singleShot(0, self._reflow_all)`` as a belt-and-suspenders
+  backstop so the *first* paint after the parent dock / scroll
+  area assigns a real width still picks up the corrected
+  layout. The new ``_reflow_all`` helper iterates ``self._rows``
+  and calls ``_LatexRow._reflow`` on each — idempotent because
+  ``_reflow`` short-circuits when the pixmap already fits at
+  the current width. Empty-LaTeX inputs short-circuit before
+  scheduling (no rows to reflow). The widget's underlying
+  algorithm is untouched — FU-010 only changes *when* the
+  reflow fires, not the result. Reference observables
+  (tests/gui/test_latex_reflow_on_show.py — 5 new tests):
+  ``_reflow_all`` exists and is callable; ``set_latex`` queues
+  at least one deferred ``_reflow_all`` call (caught via a
+  ``processEvents`` + spy pattern); empty ``set_latex`` does
+  *not* schedule (regression-guards the early-return path);
+  ``showEvent`` queues a deferred ``_reflow_all`` once the
+  widget becomes visible; and the F-07 behavioural fix —
+  rendering LaTeX at a squeezed 200 px width then resizing to
+  900 px and reflowing now produces a row pixmap that fits at
+  the new width (pre-FU-010 it stayed clipped at the stale
+  200 px scale). Full backend + visualization + GUI suite at
+  758 passed / 14 skipped (was 753), ruff clean. Commit
+  ``REPLACE_ME``.
 - **FU-004 — ``_CollapsibleSection`` ``variant="section-toggle"``
   QSS rule.** S-sized theme / typography fix from the
   2026-05-19-initial frontend-uplift (RICE 0.30 — MINOR severity;
