@@ -192,6 +192,64 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-012 — Weighted Birkhoff Average chaos indicator
+  (Sander-Yorke).** Second inhabitant of the
+  ``chaotic_systems.core.diagnostics`` module from the
+  2026-q2-broadening capability-scout (RICE 3.0;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  Implements the super-Gaussian Weighted Birkhoff Average from
+  Sander & Yorke (Int. J. Bifurc. Chaos 22 (2012) 1250022) and
+  Das et al. (Europhys. Lett. 114 (2016) 40005) and exposes it as
+  a *digit-loss* chaos indicator: the WBA on the full trajectory
+  is compared against the WBA on the first half, and the negative
+  log10 of their difference becomes the indicator scalar in
+  ``[0, ~16]``. Regular (Diophantine quasi-periodic) orbits show
+  super-exponential WBA convergence → the two halves agree to
+  near machine precision → digit-loss saturates at 16; chaotic
+  orbits show only polynomial WBA convergence → the two halves
+  disagree at the 1e-2 to 1e-5 level → digit-loss ~2-5. New
+  public surface:
+  ``chaotic_systems.core.chaos_weighted_birkhoff(timeseries, *,
+  observable=None) -> float``, re-exported from
+  ``chaotic_systems.core``. Default observable is
+  ``cos(2 pi x)`` per Das et al. 2016 §3 — smooth, bounded,
+  oscillatory, well behaved for ``[0, 1)``-wrapped iterates.
+  Module-level constants ``_WBA_MAX_DIGITS = 16`` (the float64
+  precision cap) and ``_WBA_MIN_SAMPLES = 200`` (the two-halves
+  test needs each half to contain the super-Gaussian's support).
+  Reference observables (``tests/core/test_chaos_weighted_birkhoff.py``,
+  14 tests): the canonical golden-ratio rotation
+  ``x_{n+1} = x_n + (sqrt(5)-1)/2 (mod 1)`` → digit-loss
+  saturates at 16; the logistic map at the period-4 cycle
+  ``r = 3.5`` → digit-loss saturates at 16 (also regular); the
+  logistic map at ``r = 4`` (Lebesgue-ergodic hard chaos) →
+  digit-loss = 1.688; IID uniform noise → digit-loss = 1.336;
+  Lorenz x-coordinate at the canonical IC, integrated to t=1000
+  and wrapped to [0, 1) → digit-loss = 2.404. All regular
+  classifications are at least 5 digits above all chaotic
+  classifications on this test set
+  (``test_regular_and_chaotic_classifications_are_well_separated``).
+  Module docstring carries an explicit numerical caveat: the
+  doubling map ``x_{n+1} = 2 x_n (mod 1)``, while
+  *theoretically* chaotic, gives a misleadingly high digit-loss
+  (~8.8) because float64 loses precision after ~52 iterates — a
+  well-known artefact in the Sander-Yorke literature that is
+  computational, not dynamical, and the logistic map at
+  ``r = 4`` is the correct hard-chaos test case to use instead.
+  Edge cases pinned: constant signal → digit-loss = 16 exactly
+  (two halves bit-identical); custom-observable hook accepts a
+  ``Callable[[ndarray], ndarray]`` and rejects observables that
+  return the wrong length with a clear ``ValueError``; too-short
+  input (< 200 samples) raises with a "Run the system longer"
+  hint; Python list input accepted; return type is Python
+  ``float``. GUI surface still deferred — the WBA is the second
+  of four scalar chaos indicators (CSC-011, CSC-012, plus
+  pending CSC-013 permutation entropy and CSC-014 Hurst) that
+  the challenger's cross-candidate note earmarked for a single
+  batched "Chaos Indicator Suite" Diagnostics-card section.
+  Non-GUI suite up to 317 passed / 10 skipped / 0 failed (+14
+  new tests). ruff clean. Commit ``TBD``.
+
 - **CSC-011 — 0-1 test for chaos (Gottwald-Melbourne).** S-sized
   scalar chaos indicator from the 2026-q2-broadening
   capability-scout (RICE 3.0;
