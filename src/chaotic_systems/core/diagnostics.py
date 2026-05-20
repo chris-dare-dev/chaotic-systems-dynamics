@@ -10,10 +10,12 @@ shipped so far:
 - :func:`chaos_weighted_birkhoff` — Sander-Yorke 2017 super-Gaussian
   weighted Birkhoff average; digit-loss between two halves
   diagnoses regular vs. chaotic dynamics (CSC-012).
+- :func:`chaos_permutation_entropy` — Bandt-Pompe 2002 ordinal
+  entropy; normalised Shannon entropy of the empirical
+  ordinal-pattern distribution in ``[0, 1]`` (CSC-013).
 
-Follow-up candidates from the 2026-q2-broadening capability-scout —
-permutation entropy (CSC-013) and Hurst exponent (CSC-014) — will
-slot in here behind the same shape.
+Follow-up candidate from the 2026-q2-broadening capability-scout —
+Hurst exponent (CSC-014) — will slot in here behind the same shape.
 
 References (for this module overall)
 ------------------------------------
@@ -29,8 +31,8 @@ References (for this module overall)
   Weighted Birkhoff Average, cited verbatim in
   :func:`chaos_weighted_birkhoff` below.
 - C. Bandt, B. Pompe, *Permutation entropy: A natural complexity measure
-  for time series*, Phys. Rev. Lett. 88 (2002), 174102. — pending
-  CSC-013.
+  for time series*, Phys. Rev. Lett. 88 (2002), 174102. — canonical
+  reference for :func:`chaos_permutation_entropy` (CSC-013).
 - J. C. Sprott, *Chaos and Time-Series Analysis*, Oxford University
   Press, 2003, ch. 5 — overall pedagogical context for scalar chaos
   indicators.
@@ -38,6 +40,7 @@ References (for this module overall)
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 
 import numpy as np
@@ -444,7 +447,194 @@ def chaos_weighted_birkhoff(
     return min(_WBA_MAX_DIGITS, max(0.0, digit_loss))
 
 
+# ---------------------------------------------------------------------------
+# CSC-013 — Bandt-Pompe permutation entropy.
+# ---------------------------------------------------------------------------
+
+# Bandt-Pompe 2002 §3 recommends order m in {3, 4, 5, 6, 7}; values
+# outside this band either lose discriminating power (m=2: only 2
+# patterns) or require statistically intractable sample counts
+# (m=8 needs N >> 8! = 40320 samples for the empirical pattern
+# distribution to converge).
+_PE_MIN_ORDER: int = 2
+_PE_MAX_ORDER: int = 7
+# Default order. 4 is the standard "sweet spot" — 4! = 24 patterns,
+# resolves the smooth-vs-noisy gap on Lorenz-scale trajectories
+# (~2000 samples) without hitting the m! >> N sparsity wall the
+# paper warns against (§3).
+_PE_DEFAULT_ORDER: int = 4
+# Minimum samples per pattern. The paper recommends >= 5 m! samples
+# for the empirical pattern frequencies to converge; we enforce that
+# rule as a guard so callers don't get noise-dominated entropy.
+_PE_MIN_SAMPLES_PER_PATTERN: int = 5
+
+
+def chaos_permutation_entropy(
+    timeseries: Sequence[float] | np.ndarray,
+    *,
+    order: int = _PE_DEFAULT_ORDER,
+    delay: int = 1,
+    normalize: bool = True,
+) -> float:
+    """Bandt-Pompe permutation entropy of a scalar time series.
+
+    For each sliding window of ``order`` samples (taken at lag
+    ``delay``), the window is reduced to its **ordinal pattern** —
+    the permutation that sorts its values. Across the
+    ``N - (order - 1) * delay`` windows, the empirical frequency of
+    each of the ``order!`` possible patterns is counted, and the
+    Shannon entropy of that distribution is the indicator scalar:
+
+    .. math::
+
+        H_{\\mathrm{PE}}(m, \\tau) = - \\sum_{\\pi \\in S_m} p_\\pi \\ln p_\\pi,
+
+    where the sum runs over the :math:`m!` ordinal patterns and
+    :math:`p_\\pi` is the empirical frequency of pattern
+    :math:`\\pi`. The interpretation:
+
+    - **Regular** orbits (constant signal, monotonic ramp, periodic
+      orbit with simple shape): only a handful of ordinal patterns
+      appear, so :math:`H_{\\mathrm{PE}}` is small. A truly constant
+      or strictly monotonic input has *one* pattern and
+      :math:`H_{\\mathrm{PE}} = 0`.
+    - **Chaotic / stochastic** orbits: the ordinal-pattern
+      distribution is broad — close to uniform — so
+      :math:`H_{\\mathrm{PE}}` approaches the maximum
+      :math:`\\ln(m!)`. With ``normalize=True`` (the default) the
+      output is divided by :math:`\\ln(m!)` so the indicator lies
+      in :math:`[0, 1]`.
+
+    Parameters
+    ----------
+    timeseries
+        1-D real-valued time series :math:`\\phi(n)`. Length must
+        satisfy ``N - (order - 1) * delay >= 5 * order!`` per
+        Bandt-Pompe §3 — otherwise the empirical pattern frequencies
+        are too sparse.
+    order
+        Pattern order :math:`m` in :math:`[2, 7]`. Defaults to 4
+        (24 patterns; sweet spot for typical chaotic-systems-dynamics
+        trajectories at ``N = 2000`` samples). The paper recommends
+        :math:`m \\in [3, 7]` for real data; we allow :math:`m = 2`
+        for completeness (only 2 patterns — useful only as a smoke
+        test).
+    delay
+        Sampling lag :math:`\\tau \\ge 1` between consecutive samples
+        inside one window. Defaults to 1 (the Bandt-Pompe canonical
+        choice). Larger ``delay`` is appropriate when consecutive
+        samples are autocorrelated (e.g. an oversampled flow); set
+        ``delay`` to roughly the dominant oscillation period.
+    normalize
+        If ``True`` (default) return :math:`H_{\\mathrm{PE}} /
+        \\ln(m!)` in :math:`[0, 1]`. If ``False`` return the
+        unnormalised entropy in :math:`[0, \\ln(m!)]`.
+
+    Returns
+    -------
+    float
+        Permutation entropy in :math:`[0, 1]` (normalised) or
+        :math:`[0, \\ln(m!)]` (unnormalised). 0 means strictly
+        regular; 1 means maximally random.
+
+    Raises
+    ------
+    ValueError
+        If ``order`` is outside ``[2, 7]``, ``delay`` is < 1, or
+        the time series is too short to satisfy the
+        ``N >= 5 * order!`` rule of thumb.
+
+    Notes
+    -----
+    Equal values inside a window are tie-broken by ``numpy.argsort``
+    (stable sort, so the tie goes to the earlier-indexed sample).
+    For noiseless data with frequent exact ties (e.g. quantised
+    integer sequences) Bandt-Pompe recommend adding a tiny amount
+    of jitter to the time series before calling — this implementation
+    does *not* add jitter automatically because the canonical
+    behaviour on a strictly-constant input (every pattern is
+    ``(0, 1, ..., m-1)``, ``H = 0``) is the right answer for
+    diagnosis purposes.
+
+    References
+    ----------
+    - C. Bandt, B. Pompe, *Permutation entropy: A natural complexity
+      measure for time series*, Phys. Rev. Lett. 88 (2002), 174102.
+      DOI: 10.1103/PhysRevLett.88.174102.
+    """
+    arr = np.asarray(timeseries, dtype=np.float64).ravel()
+    n = int(arr.size)
+    if not _PE_MIN_ORDER <= int(order) <= _PE_MAX_ORDER:
+        raise ValueError(
+            f"order must be in [{_PE_MIN_ORDER}, {_PE_MAX_ORDER}]; "
+            f"got {order}. Bandt-Pompe §3 recommends m in {{3, 4, 5, 6, 7}}."
+        )
+    if int(delay) < 1:
+        raise ValueError(f"delay must be >= 1; got {delay}")
+    m = int(order)
+    tau = int(delay)
+    n_windows = n - (m - 1) * tau
+    if n_windows < 1:
+        raise ValueError(
+            f"timeseries too short for order={m}, delay={tau}: need at "
+            f"least {(m - 1) * tau + 1} samples; got {n}"
+        )
+    m_factorial = math.factorial(m)
+    min_required = _PE_MIN_SAMPLES_PER_PATTERN * m_factorial
+    if n_windows < min_required:
+        raise ValueError(
+            f"timeseries too short for order={m}: need >= "
+            f"{min_required} sliding windows (Bandt-Pompe §3: at least "
+            f"5 * m! samples per pattern); got {n_windows}. Lower the "
+            f"order or run the system longer."
+        )
+
+    # Build the (n_windows, m) array of delay-embedded windows. Using
+    # a Python-level loop over ``m`` (always small: 2..7) keeps the
+    # memory layout contiguous and is faster than a stride-trick view
+    # for the typical N ~ 2000-20000 range.
+    windows = np.empty((n_windows, m), dtype=np.float64)
+    for k in range(m):
+        start = k * tau
+        windows[:, k] = arr[start : start + n_windows]
+    # argsort each row to get the ordinal pattern. Stable sort breaks
+    # ties by index — see the docstring note.
+    perms = np.argsort(windows, axis=1, kind="stable")
+    # Hash each permutation row into a unique integer code via the
+    # factorial number system (Lehmer code). This is O(m^2) per row
+    # but ``m`` is at most 7, so it's effectively O(n_windows).
+    factorials = np.array(
+        [math.factorial(m - 1 - i) for i in range(m)], dtype=np.int64
+    )
+    codes = np.zeros(n_windows, dtype=np.int64)
+    remaining = perms.astype(np.int64).copy()
+    for i in range(m):
+        # The i-th Lehmer digit is the rank of remaining[:, i] among
+        # the (m - i) values left. Since the permutation columns
+        # contain integers in [0, m), we count how many of the
+        # *prior* columns held a smaller value than this position —
+        # equivalent to ranking the remaining elements.
+        pos = remaining[:, i]
+        # Count, for each row, how many entries in remaining[:, i+1:]
+        # are less than pos. That's the Lehmer-code digit at position i.
+        if i < m - 1:
+            tail = remaining[:, i + 1 :]
+            digit = np.sum(tail < pos[:, None], axis=1)
+        else:
+            digit = np.zeros(n_windows, dtype=np.int64)
+        codes += digit * factorials[i]
+    # Bin counts of the m_factorial possible codes.
+    counts = np.bincount(codes, minlength=m_factorial)
+    # Only non-empty bins contribute to the Shannon sum.
+    probs = counts[counts > 0] / float(n_windows)
+    h = float(-np.sum(probs * np.log(probs)))
+    if normalize:
+        h /= float(np.log(m_factorial))
+    return h
+
+
 __all__ = [
+    "chaos_permutation_entropy",
     "chaos_weighted_birkhoff",
     "chaos_zero_one_test",
 ]
