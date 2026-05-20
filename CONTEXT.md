@@ -164,7 +164,7 @@ follow-ups:
   + ``monospace`` font-family all appear — closes the synthesis
   token-discipline MINOR risk. 10 new tests; full backend +
   visualization + GUI suite at 655 passed / 14 skipped, ruff
-  clean. Commit ``<FU-019_SHA>``.
+  clean. Commit ``7245bcf``.
 - **FU-007 — Left-panel splitter stretch factor.** XS-sized layout
   fix from the 2026-05-19-initial frontend-uplift (RICE 1.44 —
   NONE on every challenger axis;
