@@ -154,7 +154,7 @@ follow-ups:
   iterates all 5 canonical attribute names and exercises each
   destroy path end-to-end. 5 new tests; full backend +
   visualization + GUI suite at 671 passed / 14 skipped, ruff
-  clean. Commit ``<FU-024_SHA>``.
+  clean. Commit ``fcc60ff``.
 - **FU-029 — Inline parameter labels under equation rows.**
   S-sized educational uplift from the 2026-05-19-initial
   frontend-uplift (RICE 0.90 — MINOR severity on token discipline;
