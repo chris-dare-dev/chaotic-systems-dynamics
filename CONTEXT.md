@@ -161,7 +161,7 @@ follow-ups:
   accepts the dialog; disabled actions appear with the
   ``(unavailable)`` suffix and cannot be triggered. 10 new
   tests; full backend + visualization + GUI suite at 614 passed
-  / 14 skipped, ruff clean. Commit ``<FU-014_SHA>``.
+  / 14 skipped, ruff clean. Commit ``7d4aaa0``.
 - **FU-013 — Persistent settings via ``QSettings`` + Preferences dialog.**
   Foundational M-sized workflow uplift from the 2026-05-19-initial
   frontend-uplift (RICE 4.88 — highest in the synthesis;
