@@ -268,6 +268,82 @@ def _format_lyapunov_spectrum(spectrum: np.ndarray) -> tuple[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# CIS-1 — Chaos Indicator Suite formatter
+# (docs/proposals/chaos-indicator-suite-gui-2026-05-20.md)
+# ---------------------------------------------------------------------------
+
+# Threshold below which the 0-1 test is at risk of underestimating K because
+# the trajectory is oversampled relative to the dominant orbital period.
+# Calibrated against the ``chaos_zero_one_test`` docstring: Lorenz at
+# ``dt = 0.04`` gives ``K ~ 0.025`` (chaotic but reads as regular);
+# ``dt >= 0.5`` lands ``K ~ 0.998``. A floor of ``0.1`` triggers the
+# sampling-rate banner well before the misclassification regime.
+_CHAOS_SAMPLING_DT_THRESHOLD: float = 0.1
+
+
+def _format_chaos_indicators(payload: dict[str, float]) -> tuple[str, bool]:
+    """Format the chaos-indicators worker payload for the Diagnostics card.
+
+    Returns ``(display_text, oversampling_warning)``. ``payload`` is the
+    dict the :class:`_ChaosIndicatorsWorker` emits via its
+    ``finished`` signal — keys ``"K"``, ``"digit_loss"``, ``"H_PE"``,
+    ``"H_Hurst"``, ``"dt"``, ``"n_samples"``. The four indicator
+    values may be ``NaN`` if that specific indicator failed (e.g.
+    Hurst raises on a constant signal); ``NaN`` renders as ``"n/a"``
+    rather than ``"nan"`` so the card stays readable.
+
+    The ``oversampling_warning`` boolean is ``True`` iff
+    ``dt < _CHAOS_SAMPLING_DT_THRESHOLD`` AND the trajectory's
+    sampling looks like it would push the 0-1 test below the
+    docstring-documented misclassification threshold. The GUI uses
+    this signal to show / hide the sampling-rate guard banner.
+
+    Quick interpretation cues (from the four ``diagnostics.py``
+    references):
+
+    - **K**: 0-1 test (Gottwald-Melbourne 2009). ~0 = regular,
+      ~1 = chaotic.
+    - **digit-loss**: WBA (Sander-Yorke 2012 / Das et al. 2016).
+      Cap = 16 (machine precision); >= 10 = regular, < 6 = chaotic.
+    - **H_PE**: permutation entropy (Bandt-Pompe 2002), normalised
+      to ``[0, 1]``. 0 = strictly regular, 1 = maximally random;
+      Lorenz x at dt~1 -> ~0.99.
+    - **H_Hurst**: Hurst exponent (Hurst 1951 / Feder 1988).
+      ~0.5 = memoryless / random-walk, > 0.5 = persistent, < 0.5
+      = anti-persistent, ~1 = ballistic Brownian motion.
+    """
+
+    def _fmt(value: float, spec: str) -> str:
+        if isinstance(value, float) and not np.isfinite(value):
+            return "n/a"
+        return format(value, spec)
+
+    k = float(payload.get("K", float("nan")))
+    digit_loss = float(payload.get("digit_loss", float("nan")))
+    h_pe = float(payload.get("H_PE", float("nan")))
+    h_hurst = float(payload.get("H_Hurst", float("nan")))
+    dt_val = float(payload.get("dt", float("nan")))
+    n_samples = int(payload.get("n_samples", 0))
+
+    lines = [
+        f"  K       = {_fmt(k, '.4f')}      (0-1 test; ~1 chaotic)",
+        f"  d-loss  = {_fmt(digit_loss, '.3f')}     (WBA; <6 chaotic, >=10 regular)",
+        f"  H_PE    = {_fmt(h_pe, '.4f')}      (Bandt-Pompe norm.; ~1 chaotic)",
+        f"  H_Hurst = {_fmt(h_hurst, '.4f')}      (R/S; 0.5 memoryless, ~1 ballistic)",
+    ]
+    header = (
+        f"Chaos indicators (N = {n_samples} samples"
+        + (f", dt = {dt_val:.4g}" if np.isfinite(dt_val) else "")
+        + "):"
+    )
+    text = header + "\n" + "\n".join(lines)
+    oversampling = bool(
+        np.isfinite(dt_val) and dt_val < _CHAOS_SAMPLING_DT_THRESHOLD
+    )
+    return (text, oversampling)
+
+
+# ---------------------------------------------------------------------------
 # Module-level window-class cache so isinstance checks across import paths
 # match. Without this, `__getattr__("MainWindow")` in this module and the one
 # in `chaotic_systems.gui.__init__` would each build a fresh class.
@@ -335,6 +411,7 @@ def _build_window_class() -> type:
         QTextBrowser,
         QToolBar,
         QToolButton,
+        QToolTip,
         QVBoxLayout,
         QWidget,
         QWidgetAction,
@@ -790,6 +867,78 @@ def _build_window_class() -> type:
             self.show()
             self.raise_()
             self.update()
+
+    # -----------------------------------------------------------------------
+    # Scrubber slider — surfaces a frame / time tooltip while dragging.
+    # -----------------------------------------------------------------------
+
+    class _ScrubSlider(QSlider):
+        """``QSlider`` that shows a live readout tooltip while the user drags.
+
+        The status bar already carries the canonical "t = X.XXX / X.XXX"
+        readout, but the scrubber sits well below it — users mid-drag
+        have to dart their eyes between the slider handle and the
+        status row. FU-020 fixes this by surfacing the same readout
+        as a floating ``QToolTip`` anchored to the cursor while the
+        slider is being driven.
+
+        The widget stays decoupled from the trajectory state model by
+        taking a ``format_fn(value: int) -> str`` callback from the
+        host (``main_window``). The callback returns the canonical
+        ``"t = <time> s    frame <i> / <n>"`` string assembled from
+        the live ``_last_trajectory`` and the scrubber's current
+        integer value. Empty / ``None`` returns suppress the tooltip
+        — useful pre-Run when there is no trajectory yet.
+
+        Borrowed from the Ableton 12 arrangement-view scrub area and
+        ParaView animation timeline ``Time`` entry-box patterns
+        (inspiration brief P12). PySide6 imports stay at module level
+        per current-state-critic anti-pattern AP-03 (no imports in
+        paint / event paths).
+        """
+
+        def __init__(
+            self,
+            orientation: Qt.Orientation,
+            parent: QWidget | None = None,
+        ) -> None:
+            super().__init__(orientation, parent)
+            self._format_fn: Any = None
+
+        def set_format_fn(
+            self, fn: Any
+        ) -> None:
+            """Inject the host-side ``(int) -> str`` readout formatter.
+
+            ``None`` disables the tooltip entirely (the slider still
+            works as a plain ``QSlider``). The host calls this once
+            from ``_build_transport_panel``; the closure captures
+            ``self._last_trajectory`` and the time-axis at call time
+            so the tooltip stays current as trajectories change.
+            """
+            self._format_fn = fn
+
+        def _show_tooltip(self, global_pos: Any) -> None:
+            """Render the formatter's text at ``global_pos`` (if available)."""
+            fn = self._format_fn
+            if fn is None or not self.isSliderDown():
+                return
+            try:
+                text = fn(self.value())
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                return
+            if text:
+                QToolTip.showText(global_pos, text, self)
+
+        def mousePressEvent(self, event: Any) -> None:  # type: ignore[override]
+            super().mousePressEvent(event)
+            # ``globalPosition()`` returns a QPointF; ``toPoint()``
+            # converts to the QPoint QToolTip.showText expects.
+            self._show_tooltip(event.globalPosition().toPoint())
+
+        def mouseMoveEvent(self, event: Any) -> None:  # type: ignore[override]
+            super().mouseMoveEvent(event)
+            self._show_tooltip(event.globalPosition().toPoint())
 
     # -----------------------------------------------------------------------
     # Parameter widget — spinbox + slider, optional log scale.
@@ -1278,6 +1427,105 @@ def _build_window_class() -> type:
             self.quick_finished.emit(float(lam1))
 
     # -----------------------------------------------------------------------
+    # CIS-1 — Chaos Indicator Suite worker
+    # (docs/proposals/chaos-indicator-suite-gui-2026-05-20.md)
+    #
+    # Runs the four scalar chaos indicators shipped in
+    # ``chaotic_systems.core.diagnostics`` (CSC-011 / CSC-012 / CSC-013 /
+    # CSC-014) on the first-component column of the most recent
+    # trajectory and emits a single ``finished(dict)`` payload with all
+    # four values. Per-indicator try/except so a single math failure
+    # (e.g. constant-signal ValueError from Hurst) does not abort the
+    # whole compute — failed indicators surface as ``"n/a"`` in the
+    # display and the dict carries ``NaN``.
+    # -----------------------------------------------------------------------
+
+    class _ChaosIndicatorsWorker(QObject):
+        """Run the four scalar chaos indicators on a worker thread (CIS-1).
+
+        Inputs:
+        - ``timeseries`` — 1-D ``np.ndarray`` of the projection to
+          analyse (typically the trajectory's first-component column).
+        - ``dt`` — sampling interval in seconds. Used only for the
+          sampling-rate guard echoed back in the result payload; the
+          indicator functions themselves consume the timeseries
+          directly without dt awareness.
+
+        Emits ``finished(dict)`` on completion with keys
+        ``"K"`` / ``"digit_loss"`` / ``"H_PE"`` / ``"H_Hurst"`` /
+        ``"dt"`` / ``"n_samples"`` — the four indicator values are
+        each ``float`` (``NaN`` if that specific indicator failed),
+        ``dt`` echoes the input for the UI's sampling-rate guard,
+        and ``n_samples`` is the length of the input timeseries.
+        The error signal is reserved for a total failure (timeseries
+        shorter than the most-restrictive indicator floor of 200
+        samples); per-indicator failures are bundled into the
+        finished payload so the user sees a partial result.
+        """
+
+        finished = Signal(dict)
+        error = Signal(str, str)  # (kind, message)
+
+        def __init__(
+            self,
+            timeseries: np.ndarray,
+            dt: float | None = None,
+        ) -> None:
+            super().__init__()
+            self._timeseries = np.asarray(timeseries, dtype=np.float64).ravel()
+            self._dt = float(dt) if dt is not None else None
+
+        def run(self) -> None:
+            try:
+                from chaotic_systems.core.diagnostics import (
+                    chaos_hurst,
+                    chaos_permutation_entropy,
+                    chaos_weighted_birkhoff,
+                    chaos_zero_one_test,
+                )
+            except ImportError as exc:  # pragma: no cover - core always ships
+                self.error.emit("ImportError", str(exc))
+                return
+
+            ts = self._timeseries
+            n = int(ts.size)
+            # Each indicator carries its own minimum-sample-count guard;
+            # the most-restrictive floor is the WBA / Hurst pair at 200.
+            # Surface the failure cleanly before any compute.
+            if n < 200:
+                self.error.emit(
+                    "ValueError",
+                    "timeseries too short for chaos indicators "
+                    f"(got {n}; need >= 200 samples). Run a longer "
+                    "simulation (raise t_end or shrink dt).",
+                )
+                return
+
+            results: dict[str, float] = {}
+            # Each indicator gets its own try/except so a single failure
+            # (e.g. constant signal in Hurst -> ValueError) doesn't kill
+            # the other three.
+            for name, fn in (
+                ("K", chaos_zero_one_test),
+                ("digit_loss", chaos_weighted_birkhoff),
+                ("H_PE", chaos_permutation_entropy),
+                ("H_Hurst", chaos_hurst),
+            ):
+                try:
+                    results[name] = float(fn(ts))
+                except (ValueError, RuntimeError):
+                    # Math-side failure for this indicator only;
+                    # surface as NaN and continue.
+                    results[name] = float("nan")
+                except Exception:  # pragma: no cover - last-resort guard
+                    results[name] = float("nan")
+            results["dt"] = (
+                float(self._dt) if self._dt is not None else float("nan")
+            )
+            results["n_samples"] = float(n)
+            self.finished.emit(results)
+
+    # -----------------------------------------------------------------------
     # Busy spinner — a tiny rotating-arc widget for indeterminate work.
     # Mounted in the bottom status bar; visible during simulation or during
     # export warm-up. Once the export emits its first determinate progress
@@ -1429,6 +1677,9 @@ def _build_window_class() -> type:
             # ``docs/proposals/capability-roadmap-2026-05-17.md`` D1.
             self._lyapunov_thread: QThread | None = None
             self._lyapunov_worker: _LyapunovWorker | None = None
+            # CIS-1 — chaos-indicator suite worker state.
+            self._chaos_indicators_thread: QThread | None = None
+            self._chaos_indicators_worker: _ChaosIndicatorsWorker | None = None
 
             # Transport / animation state. The animation timer ticks on the
             # GUI thread; each tick advances the renderer's visible polyline
@@ -1725,6 +1976,58 @@ def _build_window_class() -> type:
             self.system_observables_label.setProperty("role", "caption")
             self.system_observables_label.setVisible(False)
             diag_layout.addWidget(self.system_observables_label)
+            # CIS-1 — Chaos Indicator Suite Diagnostics-card sub-section
+            # (docs/proposals/chaos-indicator-suite-gui-2026-05-20.md).
+            # Surfaces the four scalar chaos indicators shipped in
+            # `chaotic_systems.core.diagnostics` (CSC-011 / CSC-012 /
+            # CSC-013 / CSC-014) behind a single click-to-compute
+            # button + worker thread, with a sampling-rate guard
+            # banner that warns when dt is below the 0-1 test's
+            # documented misclassification threshold.
+            self.chaos_indicators_button = QPushButton(
+                "Compute chaos indicators", diag_card
+            )
+            self.chaos_indicators_button.setObjectName(
+                "button_chaos_indicators"
+            )
+            self.chaos_indicators_button.setToolTip(
+                "Run the four scalar chaos indicators (0-1 test, "
+                "weighted Birkhoff average, permutation entropy, "
+                "Hurst exponent) on the first coordinate of the most "
+                "recent trajectory. Requires a prior Run; takes "
+                "under ~10 s on a 2000-sample trajectory. Runs on a "
+                "worker thread; the GUI stays responsive."
+            )
+            self.chaos_indicators_button.clicked.connect(
+                self._on_compute_chaos_indicators
+            )
+            diag_layout.addWidget(self.chaos_indicators_button)
+            # Sampling-rate guard banner. Hidden by default; shown
+            # iff the trajectory's dt is below
+            # `_CHAOS_SAMPLING_DT_THRESHOLD`. The text cites the 0-1
+            # test docstring's calibration so the user knows whether
+            # to downsample or re-run with a larger dt.
+            self.chaos_indicators_banner = QLabel("", diag_card)
+            self.chaos_indicators_banner.setObjectName(
+                "chaos_indicators_banner"
+            )
+            self.chaos_indicators_banner.setWordWrap(True)
+            self.chaos_indicators_banner.setProperty("role", "caption")
+            self.chaos_indicators_banner.setVisible(False)
+            diag_layout.addWidget(self.chaos_indicators_banner)
+            self.chaos_indicators_result_label = QLabel(
+                "Click to compute. K ~ 1 / digit-loss < 6 / "
+                "H_PE ~ 1 ⇒ chaos; K ~ 0 / digit-loss ≥ 10 ⇒ regular.",
+                diag_card,
+            )
+            self.chaos_indicators_result_label.setObjectName(
+                "chaos_indicators_result_label"
+            )
+            self.chaos_indicators_result_label.setWordWrap(True)
+            self.chaos_indicators_result_label.setProperty(
+                "role", "caption"
+            )
+            diag_layout.addWidget(self.chaos_indicators_result_label)
             cards_layout.addWidget(diag_card)
 
             # Run / Export / Cancel buttons all live in the toolbar now,
@@ -2287,6 +2590,17 @@ def _build_window_class() -> type:
             if hasattr(self, "system_observables_label"):
                 self.system_observables_label.setText("")
                 self.system_observables_label.setVisible(False)
+            # CIS-1 — chaos-indicators are trajectory-derived; reset
+            # the result label to its prompt copy and hide the
+            # sampling-rate banner on system change.
+            if hasattr(self, "chaos_indicators_result_label"):
+                self.chaos_indicators_result_label.setText(
+                    "Click to compute. K ~ 1 / digit-loss < 6 / "
+                    "H_PE ~ 1 ⇒ chaos; K ~ 0 / digit-loss ≥ 10 ⇒ regular."
+                )
+            if hasattr(self, "chaos_indicators_banner"):
+                self.chaos_indicators_banner.setText("")
+                self.chaos_indicators_banner.setVisible(False)
             # The pre-export estimate is trajectory-derived; clear it
             # when the system flips so we never show a stale value.
             if hasattr(self, "export_estimate_chip"):
@@ -3256,6 +3570,119 @@ def _build_window_class() -> type:
                 self._lyapunov_thread.deleteLater()
             self._lyapunov_thread = None
             self._lyapunov_worker = None
+
+        # ------------------------------------------------------------------
+        # CIS-1 — Chaos Indicator Suite Diagnostics-card slots
+        # (docs/proposals/chaos-indicator-suite-gui-2026-05-20.md)
+        # ------------------------------------------------------------------
+
+        def _on_compute_chaos_indicators(self) -> None:
+            """Kick off the chaos-indicators worker on the current trajectory.
+
+            Requires a prior Run — the indicators read the most
+            recent trajectory's first-component column. If no
+            trajectory exists, surface a friendly hint in the
+            result label and bail (button stays enabled so the user
+            can click again after running).
+            """
+            if self._chaos_indicators_thread is not None:
+                # Already computing — second click is a no-op.
+                return
+            traj = self._last_trajectory
+            if traj is None:
+                self.chaos_indicators_result_label.setText(
+                    "Run a simulation first — chaos indicators read "
+                    "the most recent trajectory's first coordinate."
+                )
+                return
+            try:
+                y = np.asarray(traj.y, dtype=float)
+            except (AttributeError, ValueError):
+                self.chaos_indicators_result_label.setText(
+                    "Could not read trajectory.y from the last run."
+                )
+                return
+            if y.ndim != 2 or y.shape[0] < 1 or y.shape[1] < 1:
+                self.chaos_indicators_result_label.setText(
+                    f"Trajectory shape {y.shape!r} cannot be projected "
+                    "to a 1-D signal."
+                )
+                return
+            timeseries = y[:, 0]
+            # Derive dt from the trajectory's t array for the
+            # sampling-rate guard. Two-sample diff is safe because
+            # every trajectory carries an equispaced t grid.
+            dt: float | None = None
+            try:
+                t = np.asarray(traj.t, dtype=float)
+                if t.size >= 2:
+                    dt = float(t[1] - t[0])
+            except (AttributeError, ValueError):
+                dt = None
+
+            self.chaos_indicators_button.setEnabled(False)
+            self.chaos_indicators_banner.setText("")
+            self.chaos_indicators_banner.setVisible(False)
+            self.chaos_indicators_result_label.setText(
+                "Computing chaos indicators (~5-10 s)…"
+            )
+            self._set_status(
+                "Computing chaos indicators (4 scalars; ~5-10 s)…",
+                busy=True,
+            )
+
+            worker = _ChaosIndicatorsWorker(timeseries, dt=dt)
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_chaos_indicators_finished)
+            worker.error.connect(self._on_chaos_indicators_error)
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_chaos_indicators_thread)
+            self._chaos_indicators_thread = thread
+            self._chaos_indicators_worker = worker
+            thread.start()
+
+        def _on_chaos_indicators_finished(
+            self, payload: dict[str, float]
+        ) -> None:
+            text, oversampling = _format_chaos_indicators(payload)
+            self.chaos_indicators_result_label.setText(text)
+            if oversampling:
+                dt_val = float(payload.get("dt", float("nan")))
+                self.chaos_indicators_banner.setText(
+                    f"⚠ dt = {dt_val:.4g} looks oversampled relative "
+                    f"to the natural orbital period (< {_CHAOS_SAMPLING_DT_THRESHOLD}). "
+                    "The 0-1 test (K) and Hurst exponent (H_Hurst) "
+                    "may underestimate / mis-classify. Downsample the "
+                    "trajectory or re-run with a larger dt."
+                )
+                self.chaos_indicators_banner.setVisible(True)
+            else:
+                self.chaos_indicators_banner.setText("")
+                self.chaos_indicators_banner.setVisible(False)
+            self.chaos_indicators_button.setEnabled(True)
+            self._set_status("Chaos indicators ready.", state="done")
+
+        def _on_chaos_indicators_error(self, kind: str, message: str) -> None:
+            self.chaos_indicators_result_label.setText(
+                f"{kind}: {message}"
+            )
+            self.chaos_indicators_banner.setText("")
+            self.chaos_indicators_banner.setVisible(False)
+            self.chaos_indicators_button.setEnabled(True)
+            self._set_status(
+                "Chaos indicators compute failed.", state="error"
+            )
+
+        def _cleanup_chaos_indicators_thread(self) -> None:
+            if self._chaos_indicators_worker is not None:
+                self._chaos_indicators_worker.deleteLater()
+            if self._chaos_indicators_thread is not None:
+                self._chaos_indicators_thread.deleteLater()
+            self._chaos_indicators_thread = None
+            self._chaos_indicators_worker = None
 
         # ------------------------------------------------------------------
 
@@ -4672,12 +5099,17 @@ def _build_window_class() -> type:
                 self.speed_box.setCurrentIndex(default_idx)
             self.speed_box.currentIndexChanged.connect(self._on_speed_changed)
 
-            self.frame_scrubber = QSlider(Qt.Orientation.Horizontal, host)
+            # FU-020 — the scrubber is a ``_ScrubSlider`` subclass that
+            # surfaces a frame/time tooltip while the user drags so the
+            # readout sits at the cursor rather than only in the status
+            # bar at the bottom of the window.
+            self.frame_scrubber = _ScrubSlider(Qt.Orientation.Horizontal, host)
             self.frame_scrubber.setRange(0, 0)
             self.frame_scrubber.setSingleStep(1)
             self.frame_scrubber.setPageStep(10)
             self.frame_scrubber.setTracking(True)
             self.frame_scrubber.setToolTip("Scrub through trajectory frames")
+            self.frame_scrubber.set_format_fn(self._scrubber_tooltip_text)
             self.frame_scrubber.sliderPressed.connect(self._on_scrubber_press)
             self.frame_scrubber.sliderReleased.connect(self._on_scrubber_release)
             self.frame_scrubber.valueChanged.connect(self._on_scrubber_value)
@@ -4952,6 +5384,42 @@ def _build_window_class() -> type:
                 self._pause()
             self._seek_to(int(value))
 
+        def _scrubber_tooltip_text(self, value: int) -> str:
+            """Format the FU-020 scrubber tooltip text.
+
+            Reads the live ``_last_trajectory`` for its time axis and
+            renders ``"t = <time> s    frame <i> / <n>"``. Returns an
+            empty string when no trajectory exists (pre-Run state) so
+            ``_ScrubSlider`` suppresses the tooltip in that case.
+            The injected callable keeps ``_ScrubSlider`` itself
+            decoupled from the trajectory state model.
+            """
+            traj = self._last_trajectory
+            if traj is None:
+                return ""
+            n_frames = self._renderer_total_frames()
+            if n_frames <= 0:
+                return ""
+            try:
+                t_axis = np.asarray(traj.t)
+            except (AttributeError, TypeError):  # pragma: no cover
+                return ""
+            if t_axis.size == 0:
+                return ""
+            idx = max(0, min(int(value), n_frames - 1))
+            # ``_anim_position`` is in samples; the scrubber's value is
+            # already the frame index, so look up the time directly.
+            # Saturate when the renderer's frame count differs from the
+            # raw trajectory length (e.g. after a stride-based prerender
+            # downsample).
+            t_idx = max(0, min(idx, t_axis.size - 1))
+            t_now = float(t_axis[t_idx])
+            t_end = float(t_axis[-1])
+            return (
+                f"t = {t_now:.3f} / {t_end:.3f} s    "
+                f"frame {idx + 1} / {n_frames}"
+            )
+
         def _axes_labels_for(self, system: SystemLike) -> tuple[str, str, str] | None:
             name = getattr(system, "name", "")
             if name == "HenonHeiles":
@@ -5148,6 +5616,9 @@ def _build_window_class() -> type:
     # FU-019 — side-attach the readout-chip formatter so tests can
     # exercise it without re-entering ``_build_window_class``.
     _MainWindow._format_param_readout = staticmethod(_format_param_readout)  # type: ignore[attr-defined]
+    # FU-020 — side-attach the scrubber slider class so tests can
+    # construct one without re-entering the factory.
+    _MainWindow._ScrubSlider = _ScrubSlider  # type: ignore[attr-defined]
     _window_class_cache = _MainWindow
     return _MainWindow
 

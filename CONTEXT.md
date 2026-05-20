@@ -111,8 +111,114 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-20, chaos-indicator-suite-gui rollout)
+
+- **CIS-1 — Chaos Indicator Suite Diagnostics-card section.**
+  S-sized GUI wire-up that completes the "Chaos Indicator Suite"
+  cluster the 2026-q2-broadening capability-scout challenger
+  earmarked for a single batched section
+  (``docs/proposals/chaos-indicator-suite-gui-2026-05-20.md``;
+  drafted by the ``/draft-proposal`` skill — its inaugural
+  end-to-end run, which caught a real defect: the drafter
+  initially used ID ``D2`` and the critic flagged it as a
+  collision with the already-shipped bifurcation tool, leading
+  to a clean REDESIGN to ``CIS-1`` before any code was written).
+  Surfaces the four shipped scalar chaos indicators
+  (``chaos_zero_one_test`` / ``chaos_weighted_birkhoff`` /
+  ``chaos_permutation_entropy`` / ``chaos_hurst`` from
+  CSC-011/012/013/014) in the GUI's Diagnostics card via a
+  single ``button_chaos_indicators`` push button + a new
+  ``_ChaosIndicatorsWorker`` ``QObject`` run on a ``QThread``,
+  with four indicator chips and a sampling-rate guard banner.
+  New worker class lives next to ``_LyapunovWorker`` in
+  ``gui/main_window.py``; new module-level helper
+  ``_format_chaos_indicators(payload) -> (text, oversampling)``
+  formats the dict payload with ``NaN``-as-``"n/a"`` rendering
+  for partial-failure cases (e.g. Hurst on a constant signal).
+  The sampling-rate guard threshold is
+  ``_CHAOS_SAMPLING_DT_THRESHOLD = 0.1``, calibrated against the
+  ``chaos_zero_one_test`` docstring (Lorenz at ``dt = 0.04``
+  gives ``K ~ 0.025``; ``dt >= 0.5`` lands ``K ~ 0.998``); when
+  ``traj.dt < 0.1`` the new ``chaos_indicators_banner`` becomes
+  visible with a downsample hint. Worker dispatches the four
+  indicator functions on the first-component column of
+  ``_last_trajectory.y``; per-indicator ``try/except`` so a
+  single math failure (e.g. constant-signal ``ValueError`` from
+  Hurst) surfaces as ``NaN`` for that scalar while the other
+  three still populate. Per-indicator floors enforce a total
+  failure when the trajectory is below 200 samples (the
+  most-restrictive WBA/Hurst minimum). Click-to-compute pattern
+  per the proposal's brief — explicitly NOT the ``CSC-033``
+  ``post_sim_diagnostics`` hook, because running all four
+  indicators on every Run would tax the 16 ms tick budget.
+  System-change reset hides the banner + clears the result
+  label following the same ``hasattr`` guard pattern as
+  ``lyapunov_result_label`` (D1) and ``system_observables_label``
+  (CSC-033). Reference observables
+  (``tests/gui/test_chaos_indicators.py``, 9 tests gated on
+  ``PySide6`` + ``pyvistaqt``): formatter renders chaotic
+  Lorenz-like payload (``K = 0.998``, ``digit-loss = 2.4``,
+  ``H_PE = 0.99``, ``H_Hurst = 0.56`` at ``dt = 1.0``) with
+  warn=False; oversampled payload (``dt = 0.04``) sets warn=True
+  and the banner text contains ``"oversampled"`` +
+  ``"downsample"``; partial-failure payload renders
+  ``H_Hurst = n/a`` (not ``"nan"``); compute without a
+  trajectory surfaces a "Run a simulation first" hint without
+  starting a worker; system-switch clears the result label and
+  hides the banner. Worker integration test runs the real
+  worker on an 800-sample IID-Gaussian synthetic trajectory and
+  asserts all six keys (``K`` / ``digit_loss`` / ``H_PE`` /
+  ``H_Hurst`` / ``dt`` / ``n_samples``) appear in the finished
+  payload. Non-GUI suite unchanged at 354 passed / 10 skipped /
+  0 failed (no core changes). ruff clean. Commit ``TBD``.
+
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-020 — Scrubber timestamp tooltip while dragging.** XS-sized
+  affordance polish from the 2026-05-19-initial frontend-uplift
+  (RICE 0.60 — MINOR severity on the AP-03 import-discipline axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Borrows the Ableton 12 arrangement-view + ParaView animation-
+  timeline pattern (inspiration brief P12): while the user drags
+  the transport scrubber, a floating ``QToolTip`` anchored to the
+  cursor shows ``t = 12.345 / 40.000 s    frame 1234 / 4001``
+  — the same readout the status bar carries, kept close to the
+  interaction point so the user doesn't have to dart their eyes
+  to the bottom of the window mid-drag. New ``_ScrubSlider``
+  subclass of ``QSlider`` lives at factory scope (near
+  ``_ViewportOverlay``), takes a ``format_fn(value: int) -> str``
+  callback injected by the host, and overrides ``mousePressEvent``
+  / ``mouseMoveEvent`` to call ``QToolTip.showText`` while
+  ``isSliderDown()``. Empty/``None`` return suppresses the
+  tooltip — useful pre-Run when no trajectory exists. Per AP-03
+  every PySide6 import stays at module level
+  (``QToolTip`` joins the existing PySide6.QtWidgets import block
+  alongside ``QSlider``); a dedicated test parses the class
+  source and asserts no ``from PySide6`` lines appear inside the
+  event-handler bodies. ``main_window.py`` swaps the prior
+  plain ``QSlider`` at ``frame_scrubber`` construction for
+  ``_ScrubSlider`` and wires ``set_format_fn(self._scrubber_tooltip_text)``.
+  The host-side formatter reads ``_last_trajectory.t`` (saturated
+  to the renderer's frame count), returns the empty string when no
+  trajectory exists, and clamps out-of-range indices to the final
+  frame. ``_MainWindow`` side-attaches ``_ScrubSlider`` so tests
+  can introspect the class without re-entering the factory.
+  Reference observables (tests/gui/test_scrubber_tooltip.py):
+  ``_ScrubSlider`` is a real ``QSlider`` subclass (pinned via
+  ``issubclass`` walk); ``frame_scrubber`` on the live window
+  ``isinstance(_, _ScrubSlider)`` (migration contract);
+  ``_format_fn`` defaults to ``None`` and ``set_format_fn`` stores
+  the callback; ``_scrubber_tooltip_text`` returns ``""`` pre-Run
+  (suppresses tooltip) and renders the canonical ``"t = X.XXX /
+  X.XXX s    frame I / N"`` for a synthetic trajectory + frame
+  index of 2 (also pins the saturate-past-end behaviour at index
+  999 → ``frame 11 / 11``); the slider's ``_show_tooltip``
+  is a safe no-op without a format fn (defensive); the AP-03
+  inline-import scan confirms ``mousePressEvent`` /
+  ``mouseMoveEvent`` / ``_show_tooltip`` carry no
+  ``from PySide6`` lines. 9 new tests; full backend +
+  visualization + GUI suite at 684 passed / 14 skipped, ruff
+  clean. Commit ``<FU-020_SHA>``.
 - **FU-011 — Viewport hint label showEvent anchoring.** XS-sized
   layout hardening from the 2026-05-19-initial frontend-uplift
   (RICE 0.60 — NONE on every challenger axis;
