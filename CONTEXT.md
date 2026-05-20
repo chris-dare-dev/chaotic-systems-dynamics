@@ -113,6 +113,52 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-025 — Sync ``docs/ui_design.md`` to current code.** XS-sized
+  doc fix from the 2026-05-19-initial frontend-uplift (RICE 0.72 —
+  NONE on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the five spec-vs-impl drifts the current-state-critic
+  catalogued (SD-01 / SD-02 / SD-03 / SD-04 / SD-05) plus a sweep
+  of additions made since the doc's 2026-05-15 date stamp. The
+  fixes: (SD-01) the toolbar QAction table now lists 13 actions —
+  the original 7 transport entries plus 5 analytics
+  (``action_bifurcation`` / ``action_phase_portrait`` /
+  ``action_recurrence`` / ``action_basins`` / ``action_poincare``)
+  plus the FU-017 ``action_live_preview`` ("Auto" pill) inserted
+  between Run and Pause — and the icon column is rewritten from
+  the obsolete ``QStyle.StandardPixmap`` vocabulary to the MDI6
+  glyph IDs the FU-005 qtawesome migration resolves through; the
+  obsolete ``theme.svg`` row is now ``mdi6.theme-light-dark`` and
+  the Settings gear is documented as ``mdi6.cog`` in prose.
+  (SD-02) the ASCII layout map drops the dead "Export" card from
+  the lower-left column (Export has lived on the toolbar only
+  since 2026-05-15) and gains the Diagnostics card + transport
+  strip + FU-029 parameter-strip line under the equations card.
+  (SD-03) ``font-h2`` corrects to ``14pt`` — the shipped QSS is
+  authoritative, the prior ``15pt`` spec number was the stale
+  end. (SD-04) icon column rewritten as above. (SD-05) primary-
+  variant rule clarified: "Run is the only **app-scoped**
+  primary; panel-internal Compute buttons may also use
+  ``variant='primary'`` because they are that panel's primary
+  action; the scope is the panel, not the app." Beyond the
+  critic-flagged drifts, the doc also gains: an FU-002 "Derived
+  interaction shades" subsection enumerating ``bg_deep`` /
+  ``bg_pill_track`` / ``accent_hover`` / ``accent_pressed`` /
+  ``accent_glow`` with their canonical hex values + use sites; a
+  splitter stretch-ratio note (1 : 3 : 1 per FU-007); FU-019 +
+  FU-029 monospace-chip mentions in the Typography section; an
+  FU-016 state-layer contract paragraph in the Affordance rules
+  (eight widget families pinned to ``:hover`` + ``:focus`` +
+  ``:pressed`` per WCAG 2.1 AA); a new "Global keyboard
+  shortcuts" table at the end of the doc capturing Ctrl-R /
+  Ctrl-E / Space / Ctrl-. / End / Esc / R plus the new FU-013
+  Ctrl+, (Preferences) and FU-014 Ctrl+Shift+P (command palette)
+  bindings. Status line bumps from 2026-05-15 to 2026-05-20.
+  Doc-only — zero source changes. Full backend + visualization
+  + GUI suite at 671 passed / 14 skipped (no test count delta;
+  the existing ``test_theme.py`` source-grep tests still pin
+  the live tokens against the doc's narrative). Ruff clean.
+  Commit ``<FU-025_SHA>``.
 - **FU-024 — Clear dialog window references on close.** XS-sized
   hygiene fix from the 2026-05-19-initial frontend-uplift (RICE 0.72
   — NONE on every challenger axis;
