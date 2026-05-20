@@ -1890,7 +1890,16 @@ def _build_window_class() -> type:
             splitter.addWidget(left)
             splitter.addWidget(viewer_widget)
             splitter.addWidget(right)
-            splitter.setStretchFactor(0, 0)
+            # FU-007 — give the left panel a stretch weight of 1 (was 0)
+            # so it grows proportionally with the window instead of
+            # starving at wide widths. Pre-FU-007 the left column held
+            # at its initial 320 px and parameter labels clipped at
+            # 1800 px (visual-scout F-06 / screenshots/wide.png).
+            # Ratio is now 1 : 3 : 1 (left : viewport : right) — the
+            # viewport still grows fastest because attractor visuals
+            # benefit most from extra pixels, but the parameter card
+            # and Mathematics panel both keep their controls readable.
+            splitter.setStretchFactor(0, 1)
             splitter.setStretchFactor(1, 3)
             splitter.setStretchFactor(2, 1)
             splitter.setSizes([320, 800, 340])

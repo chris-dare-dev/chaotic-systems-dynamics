@@ -113,6 +113,43 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-007 — Left-panel splitter stretch factor.** XS-sized layout
+  fix from the 2026-05-19-initial frontend-uplift (RICE 1.44 —
+  NONE on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the wide-window regression the visual scout caught at
+  ``screenshots/wide.png``: at 1800x1100 the left panel was
+  measured at ~125 px because the central ``QSplitter`` carried
+  ``setStretchFactor(0, 0)`` — every extra pixel went to the
+  viewport (stretch 3) + right Mathematics panel (stretch 1) in
+  3 : 1, leaving the parameter card with its initial 320 px
+  capped (and visibly clipped in practice). Single-integer change
+  at ``src/chaotic_systems/gui/main_window.py:1893``:
+  ``setStretchFactor(0, 0)`` → ``setStretchFactor(0, 1)``. The
+  new ratio is 1 : 3 : 1 (left : viewport : right) — extra width
+  at wide windows distributes 20% / 60% / 20% rather than the
+  pre-FU-007 0% / 75% / 25%. Viewport still grows fastest
+  because attractor visuals benefit most from extra pixels, but
+  the parameter card now keeps full rows readable as the window
+  grows past 1500 px. Pre-existing safeguards preserved:
+  ``setChildrenCollapsible(False)`` (handle can't be dragged to
+  zero width), ``left.setMinimumWidth(300)`` (300 px floor), and
+  ``setSizes([320, 800, 340])`` (initial layout still gives
+  viewport the dominant share at startup). Reference observables
+  (tests/gui/test_layout.py — new module):
+  ``test_splitter_stretch_ratio_is_left_one_viewport_three_right_one``
+  parses the splitter-construction block out of
+  ``main_window.py`` and pins the three ``setStretchFactor``
+  literals (Qt's ``QSplitter`` doesn't expose a public stretch-
+  factor getter, so we anchor the contract via source-grep —
+  brittle to whitespace but bulletproof against a future change
+  that re-zeroes the left column);
+  ``test_left_panel_keeps_minimum_width_when_window_shrinks``
+  pins the orthogonal contracts that ``childrenCollapsible``
+  stays False and the left widget's
+  ``minimumWidth() >= 300``. 2 new tests; full backend +
+  visualization + GUI suite at 645 passed / 14 skipped, ruff
+  clean. Commit ``<FU-007_SHA>``.
 - **FU-005 — Adopt qtawesome; retire the hand-rolled SVG icon set.**
   S-sized iconography uplift from the 2026-05-19-initial
   frontend-uplift (RICE 1.80 — MAJOR severity mitigated by FU-002
