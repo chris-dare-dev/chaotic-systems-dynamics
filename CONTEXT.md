@@ -177,6 +177,57 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-009 — Move orphan ``status_label`` / ``state_label``
+  into Diagnostics card.** S-sized information-architecture
+  fix from the 2026-05-19-initial frontend-uplift (RICE 0.19
+  — MAJOR severity at synthesis time; the §7 test-regression
+  axis flagged 6 confirmed test sites depending on
+  ``window.status_label.text()``;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-009 the left-panel cards rail ended with two orphan
+  ``QLabel`` widgets sitting directly in ``cards_layout``,
+  *not* inside any card: ``status_label`` (empty default
+  text) duplicated the ``QStatusBar`` chips at the bottom of
+  the window (current-state-critic DV-02), and ``state_label``
+  (``y(t_end) = (no simulation yet)``) was a diagnostics
+  readout living outside any container — inconsistent
+  card-rail rhythm and a faint background mismatch visible
+  in every left-panel screenshot (visual scout F-03 / F-12).
+  Post-FU-009 ``state_label`` lives inside the Diagnostics
+  card as a "Last state" row, keeping the canonical
+  ``y(t={t_last:.3f}) = [...]`` format ``_update_state_label``
+  already writes — the label also gains
+  ``objectName="state_label"`` (was empty pre-FU-009) so the
+  FU-014 command palette + ``docs/ui_design.md`` layout-spec
+  can resolve it. ``status_label`` is preserved as a Python
+  attribute on the window (challenger §7 MAJOR mitigation:
+  the 6 test sites in ``test_live_preview.py:62,129`` +
+  ``test_compare_setting.py:56,105,121,128`` that call
+  ``window.status_label.text()`` keep working unchanged), but
+  the widget is no longer added to the layout and is
+  ``setVisible(False)`` — the QStatusBar at the bottom of
+  the window remains the authoritative status surface. The
+  attribute keeps its ``objectName`` ("status_label") for the
+  command palette. Reference observables
+  (tests/gui/test_orphan_labels.py — 9 new tests):
+  ``window.status_label`` still exists and is a ``QLabel``
+  (preserves 6 test sites); ``status_label.isHidden() ==
+  True`` so the orphan-text band is gone; ``status_label`` is
+  *not* a child of any layout (``indexOf`` returns ``< 0``);
+  ``window.state_label`` still accessible and now carries
+  ``objectName == "state_label"``; ``findChild(QLabel,
+  "state_label")`` resolves; the placeholder text
+  ``y(t_end) = (no simulation yet)`` is preserved verbatim;
+  ``state_label`` has a ``QGroupBox`` ancestor whose ``title()``
+  is ``"Diagnostics"`` (the synthesis-prescribed placement);
+  ``_update_state_label(traj)`` still writes the canonical
+  ``y(t=...) = [v0, ..., vN]`` format. The 22 pre-existing
+  ``window.status_label``-dependent tests
+  (``test_live_preview.py`` + ``test_compare_setting.py``)
+  all pass unchanged — the relocation preserves every
+  behavioural contract. Full backend + visualization + GUI
+  suite at 816 passed / 14 skipped (was 807), ruff clean.
+  Commit ``REPLACE_ME``.
 - **FU-022 — ``_panel_helpers.py`` shared utilities.** M-sized
   refactor / developer-ergonomics ship from the 2026-05-19-initial
   frontend-uplift (RICE 0.20 — MINOR severity;

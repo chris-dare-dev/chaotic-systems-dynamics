@@ -2103,6 +2103,24 @@ def _build_window_class() -> type:
                 "role", "caption"
             )
             diag_layout.addWidget(self.chaos_indicators_result_label)
+
+            # FU-009 — terminal-state readout. Pre-FU-009 this lived
+            # as orphan text below the Diagnostics card, breaking
+            # the card-rail rhythm (visual scout F-03 / F-12). Now
+            # it's a "Last state" row inside Diagnostics: same
+            # ``y(t_end) = [v0, v1, ...]`` format the
+            # ``_update_state_label`` slot has always written.
+            # objectName added (was empty pre-FU-009) so the FU-014
+            # command palette + docs/ui_design.md can resolve it.
+            diag_layout.addSpacing(4)
+            self.state_label = QLabel(
+                "y(t_end) = (no simulation yet)", diag_card
+            )
+            self.state_label.setObjectName("state_label")
+            self.state_label.setWordWrap(True)
+            self.state_label.setProperty("role", "caption")
+            diag_layout.addWidget(self.state_label)
+
             cards_layout.addWidget(diag_card)
 
             # Run / Export / Cancel buttons all live in the toolbar now,
@@ -2135,18 +2153,29 @@ def _build_window_class() -> type:
             # ``__getattr__`` below; legacy callers see the status-bar
             # widget instead of a separate top-left bar.
 
-            # Inline status line (kept for back-compat; the real status
-            # surface is the QStatusBar at the bottom of the window).
+            # FU-009 — ``status_label`` is preserved as a Python
+            # attribute so the 6 test sites in
+            # ``test_live_preview.py`` (2) and
+            # ``test_compare_setting.py`` (4) that call
+            # ``window.status_label.text()`` keep working, but the
+            # widget is no longer added to the layout (and stays
+            # hidden). The QStatusBar chips at the bottom of the
+            # window (``status_message``, ``status_chip``,
+            # ``status_progress``) are the authoritative status
+            # surface — current-state-critic DV-02 explicitly
+            # flagged the inline QLabel as a duplicate. Keeping
+            # the attribute hidden-but-alive avoids a 6-site test
+            # migration while still closing the visual scout's
+            # F-03 / F-12 orphan-label finding.
             self.status_label = QLabel("", left_inner)
+            self.status_label.setObjectName("status_label")
             self.status_label.setWordWrap(True)
             self.status_label.setProperty("role", "caption")
-            cards_layout.addWidget(self.status_label)
-
-            # Current state readout.
-            self.state_label = QLabel("y(t_end) = (no simulation yet)", left_inner)
-            self.state_label.setWordWrap(True)
-            self.state_label.setProperty("role", "caption")
-            cards_layout.addWidget(self.state_label)
+            self.status_label.setVisible(False)
+            # FU-009 — ``state_label`` previously lived next to
+            # ``status_label`` here as orphan text; it now sits inside
+            # the Diagnostics card as a "Last state" row (see the
+            # ``diag_layout.addWidget(self.state_label)`` block above).
 
             cards_layout.addStretch(1)
             left_scroll.setWidget(left_inner)
