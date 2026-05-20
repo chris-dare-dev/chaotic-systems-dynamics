@@ -795,6 +795,29 @@ def _build_window_class() -> type:
     # Parameter widget — spinbox + slider, optional log scale.
     # -----------------------------------------------------------------------
 
+    # FU-019 — readout-chip formatter. Defined at the same scope as
+    # _ParamWidget so it survives the lazy class-build cycle without
+    # an extra closure capture. Public-shaped so tests can import it
+    # without going through the window factory.
+    _READOUT_SCI_HI = 1000.0    # |v| >= this -> scientific notation
+    _READOUT_SCI_LO = 0.001     # 0 < |v| < this -> scientific notation
+
+    def _format_param_readout(name: str, value: float) -> str:
+        """Render a parameter row's readout-chip text (FU-019).
+
+        Uses three-decimal fixed notation in the human-readable band
+        (0.001 ≤ |v| < 1000) and switches to scientific notation
+        outside it — the threshold matches the "spans three orders of
+        magnitude" criterion from the synthesis. Zero is rendered as
+        ``"0.000"`` rather than ``"0.000e+00"``.
+        """
+        av = abs(value)
+        if av != 0.0 and (av >= _READOUT_SCI_HI or av < _READOUT_SCI_LO):
+            text = f"{value:.3e}"
+        else:
+            text = f"{value:.3f}"
+        return f"{name} = {text}"
+
     class _ParamWidget(QWidget):
         """A composite (spinbox + slider) widget for a single parameter.
 
@@ -858,11 +881,31 @@ def _build_window_class() -> type:
             self._spin.valueChanged.connect(self._on_spin_changed)
             self._slider.valueChanged.connect(self._on_slider_changed)
 
+            # FU-019 — inline value-readout chip, monospace, sits at
+            # the right edge of the row. Format switches to
+            # scientific notation when |value| crosses three orders
+            # of magnitude (≥ 1000 or 0 < |v| < 0.001) so parameters
+            # like Kuramoto's coupling K (which spans several decades)
+            # stay readable without re-typing the spinbox.
+            self._readout = QLabel(self)
+            self._readout.setObjectName(f"param_readout_{p.name}")
+            self._readout.setProperty("role", "readout-chip")
+            self._readout.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            self._readout.setToolTip(
+                f"Current value of {p.name}. Switches to scientific "
+                "notation outside the 0.001-1000 range."
+            )
+            self._readout.setText(_format_param_readout(p.name, default))
+            self._spin.valueChanged.connect(self._on_readout_update)
+
             layout = QHBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(8)
             layout.addWidget(self._spin, 0)
             layout.addWidget(self._slider, 1)
+            layout.addWidget(self._readout, 0)
 
             self._syncing = False
 
@@ -917,6 +960,10 @@ def _build_window_class() -> type:
                 self._spin.setValue(self._from_slider(pos))
             finally:
                 self._syncing = False
+
+        def _on_readout_update(self, val: float) -> None:
+            """Refresh the FU-019 readout chip to match the spinbox."""
+            self._readout.setText(_format_param_readout(self._spec.name, val))
 
     # -----------------------------------------------------------------------
     # Worker objects — run sim and export on QThreads off the Qt main loop.
@@ -4941,6 +4988,9 @@ def _build_window_class() -> type:
 
     # Side-attach the inner widget class for testing.
     _MainWindow._ParamWidget = _ParamWidget  # type: ignore[attr-defined]
+    # FU-019 — side-attach the readout-chip formatter so tests can
+    # exercise it without re-entering ``_build_window_class``.
+    _MainWindow._format_param_readout = staticmethod(_format_param_readout)  # type: ignore[attr-defined]
     _window_class_cache = _MainWindow
     return _MainWindow
 

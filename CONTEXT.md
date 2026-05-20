@@ -113,6 +113,58 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-019 — Inline parameter value readout chip.** XS-sized
+  pedagogical polish from the 2026-05-19-initial frontend-uplift
+  (RICE 1.80 — MINOR severity on token-discipline axis only;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Borrows the Houdini channel list / napari layer-properties
+  pattern (inspiration brief P08): every parameter row now ends
+  with a monospace ``QLabel`` showing ``name = value`` formatted
+  to three decimals in the readable band (0.001 ≤ |v| < 1000)
+  and to scientific notation outside it. Particularly valuable
+  for systems like Kuramoto where the coupling K spans several
+  decades — the spinbox itself rounds at the parameter's
+  derived ``decimals`` granularity, but the readout chip
+  collapses to ``K = 1.000e-3`` style without losing readability.
+  ``main_window.py`` grows the ``_format_param_readout(name,
+  value) -> str`` helper at the same lexical scope as
+  ``_ParamWidget`` (so it survives the lazy class-build cycle)
+  with a guarded magnitude check —
+  ``av != 0.0 and (av >= 1000 or av < 0.001)`` —  so zero renders
+  as ``"0.000"`` rather than the noisy ``"0.000e+00"``. Each
+  ``_ParamWidget`` gains a ``self._readout`` field at the right
+  edge of the row layout (``[spin][slider][readout]``), wired to
+  ``self._spin.valueChanged`` so the chip updates live as the
+  user drags the slider or types in the spinbox. The chip carries
+  ``objectName=f"param_readout_{p.name}"`` so external agents can
+  introspect it via ``findChild``. ``_format_param_readout`` is
+  side-attached to ``_MainWindow`` as a staticmethod so tests
+  exercise it without rebuilding the window factory.
+  ``assets/dark.qss`` grows a ``QLabel[role="readout-chip"]``
+  rule mirroring the status-bar chip vocabulary (``bg-elevated``
+  background, ``border`` outline, 8 px corner radius, 96 px min-
+  width) plus an explicit monospace ``font-family`` cascade so
+  digits stay column-stable as values change. Pairs naturally
+  with FU-007 (left-panel stretch) — the readout adds ~96 px to
+  the row, which the now-wider left column accommodates without
+  clipping. Reference observables (tests/gui/test_param_readout.py):
+  five formatter-unit tests cover the three-decimal band,
+  scientific-high (|v| >= 1000), scientific-low (0 < |v| <
+  0.001), the zero edge case, and negative variants; three
+  integration tests build a real ``_ParamWidget`` and verify the
+  ``_readout`` label exists with the canonical role, that its
+  text matches the default value, that ``setValue`` on the
+  spinbox updates the chip live, and that the readout sits
+  last in the row layout (per the synthesis "right of the
+  spinbox" positioning); one wide-range integration test pins
+  the scientific-low branch end-to-end with an eps-style
+  parameter; one QSS-discipline test parses the
+  ``QLabel[role="readout-chip"]`` block out of ``dark.qss`` and
+  asserts ``PALETTE.text_primary`` / ``bg_elevated`` / ``border``
+  + ``monospace`` font-family all appear — closes the synthesis
+  token-discipline MINOR risk. 10 new tests; full backend +
+  visualization + GUI suite at 655 passed / 14 skipped, ruff
+  clean. Commit ``<FU-019_SHA>``.
 - **FU-007 — Left-panel splitter stretch factor.** XS-sized layout
   fix from the 2026-05-19-initial frontend-uplift (RICE 1.44 —
   NONE on every challenger axis;
