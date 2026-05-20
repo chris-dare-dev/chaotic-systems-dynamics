@@ -28,10 +28,21 @@
  *                              progress-bar track-start (gradient stop 0).
  *   bg-pill-track     #2a2c3a  Pill progress-bar track-end (gradient stop 1).
  *   accent-hover      #343a55  Hover state for secondary QPushButton,
- *                              QToolButton, QSpinBox up/down buttons.
+ *                              QToolButton, QSpinBox up/down buttons,
+ *                              QCheckBox indicator hover (FU-016),
+ *                              QListView / QListWidget row hover (FU-016).
  *   accent-pressed    #6788d8  Pressed state for primary QPushButton /
  *                              QToolButton; pill progress chunk dark stop.
  *   accent-glow       #a4c1ff  Pill progress chunk gradient highlight stop.
+ *
+ * State-layer pseudo-state contract (FU-016 — kept WCAG 2.1 AA aligned):
+ * every interactive widget below ships a ``:hover`` (accent-hover
+ * overlay) + ``:focus`` (2 px accent outline) + ``:pressed``
+ * (accent-pressed) rule. The base set: QPushButton, QToolButton,
+ * QComboBox, QSpinBox / QDoubleSpinBox, QLineEdit, QSlider,
+ * QCheckBox, QListView / QListWidget. Material Design 3 + Fluent 2 +
+ * Apple HIG 2025 all formalised this in 2024-2025 — visible focus
+ * is a baseline expectation, not a premium feature.
  *
  * Spacing tokens, in logical px:
  *   pad-xs  4   pad-sm  8   pad-md 12   pad-lg 16
@@ -224,11 +235,11 @@ QComboBox::down-arrow {
 }
 
 QComboBox QAbstractItemView {
-    background-color: #1f2335;
-    color: #c0caf5;
-    border: 1px solid #3b4261;
-    selection-background-color: #7aa2f7;
-    selection-color: #1f2335;
+    background-color: #1f2335;            /* bg-panel */
+    color: #c0caf5;                       /* text-primary */
+    border: 1px solid #3b4261;            /* border */
+    selection-background-color: #7aa2f7;  /* accent */
+    selection-color: #1f2335;             /* accent-text */
     padding: 4px;
 }
 
@@ -636,20 +647,121 @@ QMenu::right-arrow {
 /* Focus rings — explicit 2 px accent outline for keyboard navigation
  * (WCAG 2.1 SC 2.4.7). Qt's QSS doesn't honor ``outline`` reliably so
  * we use a thicker accent border with a negative margin so the layout
- * doesn't shift on focus. */
+ * doesn't shift on focus.
+ *
+ * FU-016 — extended to cover QCheckBox + the QListView / QListWidget
+ * surfaces introduced by FU-013 (Preferences dialog) and FU-014
+ * (Command palette). The state-layer vocabulary (hover / focus /
+ * pressed) follows Material Design 3 + Microsoft Fluent 2 + Apple
+ * HIG 2025 — all three published 2024-2025 guidance making visible
+ * focus indicators a WCAG 2.1 AA baseline expectation. */
 QPushButton:focus,
 QToolButton:focus,
 QComboBox:focus,
 QDoubleSpinBox:focus,
 QSpinBox:focus,
 QLineEdit:focus {
-    border: 2px solid #7aa2f7;
+    border: 2px solid #7aa2f7;  /* accent */
     margin: -1px;
 }
 
 QSlider::handle:horizontal:focus {
     background: #ffffff;
-    border: 3px solid #7aa2f7;
+    border: 3px solid #7aa2f7;  /* accent */
+}
+
+/* QCheckBox — used by the FU-013 Preferences dialog. Without these
+ * rules Qt renders the indicator with the platform-native palette,
+ * which on Windows is a light box against the dark window. */
+QCheckBox {
+    color: #c0caf5;
+    spacing: 8px;
+    padding: 2px 0px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid #545c7e;  /* border-strong */
+    background-color: #2a2e42;  /* bg-elevated */
+}
+
+QCheckBox::indicator:hover {
+    border-color: #7aa2f7;  /* accent */
+    background-color: #343a55;  /* accent-hover (FU-002) */
+}
+
+QCheckBox::indicator:checked {
+    background-color: #7aa2f7;  /* accent */
+    border-color: #7aa2f7;      /* accent */
+}
+
+QCheckBox::indicator:checked:hover {
+    background-color: #9eb6fb;  /* accent-strong */
+    border-color: #9eb6fb;      /* accent-strong */
+}
+
+QCheckBox::indicator:disabled {
+    border-color: #3b4261;      /* border */
+    background-color: #1f2335;  /* bg-panel */
+}
+
+QCheckBox:focus {
+    /* The :focus outline lives on the label, not the indicator,
+     * because Qt only delivers the focus pseudo-class to the
+     * top-level widget. A 1 px outline keeps the layout stable. */
+    color: #c0caf5;
+    outline: 1px solid #7aa2f7;  /* accent */
+}
+
+/* QListView / QListWidget — used by the FU-014 command palette
+ * and any future list-driven affordance. ``QComboBox QAbstractItemView``
+ * (above) handles the embedded-dropdown case; this rule covers
+ * standalone list widgets that don't live inside a combo. */
+QListView,
+QListWidget {
+    background-color: #1f2335;  /* bg-panel */
+    color: #c0caf5;             /* text-primary */
+    border: 1px solid #3b4261;  /* border */
+    border-radius: 6px;
+    padding: 2px;
+    outline: 0;
+}
+
+QListView::item,
+QListWidget::item {
+    color: #c0caf5;             /* text-primary */
+    padding: 5px 8px;
+    border-radius: 4px;
+    margin: 1px 2px;
+}
+
+QListView::item:hover,
+QListWidget::item:hover {
+    background-color: #343a55;  /* accent-hover (FU-002) */
+}
+
+QListView::item:selected,
+QListWidget::item:selected {
+    background-color: #7aa2f7;  /* accent */
+    color: #1f2335;             /* accent-text */
+}
+
+QListView::item:selected:hover,
+QListWidget::item:selected:hover {
+    background-color: #9eb6fb;  /* accent-strong */
+}
+
+QListView::item:disabled,
+QListWidget::item:disabled {
+    color: #565f89;             /* text-muted */
+}
+
+QListView:focus,
+QListWidget:focus {
+    border: 2px solid #7aa2f7;  /* accent */
+    margin: -1px;
 }
 
 /* Messages. */

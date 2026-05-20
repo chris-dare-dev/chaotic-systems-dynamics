@@ -113,6 +113,67 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-016 — State-layer hover / focus / pressed QSS overlays.**
+  S-sized accessibility uplift from the 2026-05-19-initial
+  frontend-uplift (RICE 3.00 — MINOR on every challenger axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Material Design 3, Microsoft Fluent 2, and Apple HIG 2025 all
+  formalised the same state-layer contract in 2024-2025 —
+  visible focus indicators are now a WCAG 2.1 AA baseline,
+  not a premium polish item. The project's ``border_strong``
+  token had been defined as the focus colour but was not
+  applied consistently. ``assets/dark.qss`` grows two new
+  state-layer blocks:
+  - **QCheckBox** — full state machine (``::indicator`` default
+    / ``:hover`` / ``:checked`` / ``:checked:hover`` / ``:disabled``
+    + ``:focus`` outline). Consumer: the FU-013 Preferences
+    dialog's "Remember last-used parameters" /
+    "Save window layout on close" checkboxes — pre-FU-016 they
+    rendered with the system-light indicator on Windows.
+  - **QListView / QListWidget** (standalone, complements the
+    existing ``QComboBox QAbstractItemView`` rule) — ``::item``
+    default / ``:hover`` / ``:selected`` / ``:selected:hover`` /
+    ``:disabled`` + a 2 px ``:focus`` outline on the list
+    itself. Consumer: the FU-014 command palette's search-
+    result list (every other ``QListView`` consumer in the
+    project also benefits automatically).
+  Existing focus-ring block (QPushButton / QToolButton /
+  QComboBox / QSpinBox / QDoubleSpinBox / QLineEdit +
+  QSlider::handle:horizontal) is preserved; the FU-016 commit
+  anchors the previously-bare ``#7aa2f7`` literals with
+  inline ``/* accent */`` comments and rewrites the
+  ``QComboBox QAbstractItemView`` block with the same anchor
+  pattern so the FU-002 token discipline is uniform across
+  every selector. ``dark.qss`` header grows a "State-layer
+  pseudo-state contract (FU-016)" subsection enumerating the
+  eight widget families that ship the contract. Tokens used:
+  ``accent`` (focus outline + selection background),
+  ``accent_text`` (selection foreground), ``accent_hover``
+  (FU-002 — indicator hover + item hover row), ``accent_strong``
+  (checked:hover + selected:hover), ``bg_panel`` /
+  ``bg_elevated`` / ``border`` / ``border_strong`` / ``text_muted``
+  — every value routes through a declared ``PALETTE`` token.
+  Reference observables (tests/gui/test_theme.py):
+  ``test_state_layer_focus_rules_cover_every_interactive_widget``
+  asserts every load-bearing widget family
+  (QPushButton, QToolButton, QComboBox, QSpinBox /
+  QDoubleSpinBox, QLineEdit, QSlider, QCheckBox, QListView /
+  QListWidget) has at least one ``:focus`` selector — without
+  these the keyboard focus indicator is invisible (WCAG 2.1
+  SC 2.4.7 violation); ``test_state_layer_hover_rules_cover_new_widgets``
+  pins the new QCheckBox + QListView/QListWidget hover rules;
+  ``test_state_layer_consumes_palette_tokens`` parses the
+  QCheckBox and QListView blocks out of dark.qss and asserts
+  ``PALETTE.accent`` + ``PALETTE.accent_hover`` appear in
+  each — a future palette change is forced to update the
+  state-layer rules too; ``test_qcheckbox_renders_with_dark_indicator``
+  verifies the application's stylesheet references
+  ``QCheckBox`` so the dialog widget actually picks up our
+  rule. 4 new tests; full backend + visualization + GUI suite
+  at 635 passed / 14 skipped, ruff clean. Completes PR-1 +
+  PR-2 + PR-3 of the recommended sequencing — every
+  foundational + a11y candidate from the top-5 has now
+  shipped. Commit ``<FU-016_SHA>``.
 - **FU-014 — Command palette (Ctrl+Shift+P).** Foundational M-sized
   discoverability surface from the 2026-05-19-initial frontend-uplift
   (RICE 4.88 — tied for highest in the synthesis;

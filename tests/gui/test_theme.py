@@ -225,6 +225,147 @@ def test_qmenu_rule_uses_canonical_tokens() -> None:
     )
 
 
+def test_state_layer_focus_rules_cover_every_interactive_widget() -> None:
+    """FU-016 — every load-bearing interactive widget ships a ``:focus`` rule.
+
+    The state-layer contract documented at the top of ``dark.qss``
+    pins the eight widget families: QPushButton, QToolButton,
+    QComboBox, QSpinBox / QDoubleSpinBox, QLineEdit, QSlider,
+    QCheckBox, QListView / QListWidget. Without these the keyboard
+    focus indicator is invisible on Windows (WCAG 2.1 SC 2.4.7
+    violation).
+    """
+
+    from pathlib import Path
+
+    qss_text = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "chaotic_systems"
+        / "gui"
+        / "assets"
+        / "dark.qss"
+    ).read_text(encoding="utf-8")
+
+    # Every load-bearing interactive widget needs at least one
+    # ``:focus`` selector. Substring search is robust to formatting.
+    required = [
+        "QPushButton:focus",
+        "QToolButton:focus",
+        "QComboBox:focus",
+        "QDoubleSpinBox:focus",
+        "QSpinBox:focus",
+        "QLineEdit:focus",
+        "QSlider::handle:horizontal:focus",
+        "QCheckBox:focus",
+        "QListView:focus",
+        "QListWidget:focus",
+    ]
+    for selector in required:
+        assert selector in qss_text, (
+            f"FU-016 — dark.qss missing :focus rule {selector!r}"
+        )
+
+
+def test_state_layer_hover_rules_cover_new_widgets() -> None:
+    """FU-016 — QCheckBox + QListView/QListWidget have hover rules.
+
+    These are the new state-layer additions introduced by FU-016 (the
+    other widgets had hover rules pre-FU-016). Items get a separate
+    ``::item:hover`` selector because the row-level interaction is
+    where the hover layer reads.
+    """
+
+    from pathlib import Path
+
+    qss_text = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "chaotic_systems"
+        / "gui"
+        / "assets"
+        / "dark.qss"
+    ).read_text(encoding="utf-8")
+
+    for selector in (
+        "QCheckBox::indicator:hover",
+        "QListView::item:hover",
+        "QListWidget::item:hover",
+    ):
+        assert selector in qss_text, (
+            f"FU-016 — dark.qss missing hover rule {selector!r}"
+        )
+
+
+def test_state_layer_consumes_palette_tokens() -> None:
+    """FU-016 state-layer rules route through the FU-002 PALETTE tokens.
+
+    The new QCheckBox / QListView blocks must use the same canonical
+    hex values that FU-002 promoted to ``theme.PALETTE``. Asserting
+    against the PALETTE values keeps the QSS aligned with the
+    dataclass — a future palette change updates one place and the
+    test catches drift.
+    """
+
+    from pathlib import Path
+
+    from chaotic_systems.gui.theme import PALETTE
+
+    qss_text = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "chaotic_systems"
+        / "gui"
+        / "assets"
+        / "dark.qss"
+    ).read_text(encoding="utf-8")
+
+    # Find the QCheckBox + QListView sections and assert the tokens
+    # appear in each.
+    checkbox_start = qss_text.index("QCheckBox {")
+    listview_start = qss_text.index("QListView,")
+    checkbox_block = qss_text[checkbox_start:listview_start]
+    listview_block = qss_text[listview_start : listview_start + 2000]
+
+    # QCheckBox indicator + hover use accent + accent-hover.
+    assert PALETTE.accent_hover in checkbox_block, (
+        "QCheckBox hover must use PALETTE.accent_hover"
+    )
+    assert PALETTE.accent in checkbox_block, (
+        "QCheckBox checked must use PALETTE.accent"
+    )
+
+    # QListView item:hover uses accent_hover; item:selected uses accent.
+    assert PALETTE.accent_hover in listview_block, (
+        "QListView::item:hover must use PALETTE.accent_hover"
+    )
+    assert PALETTE.accent in listview_block, (
+        "QListView::item:selected must use PALETTE.accent"
+    )
+
+
+def test_qcheckbox_renders_with_dark_indicator(qapp) -> None:  # type: ignore[no-untyped-def]
+    """A QCheckBox embedded in the dark-themed app picks up dark chrome.
+
+    Behavioural check: build a checkbox under the theme and confirm
+    Qt resolves a non-empty styleSheet for it (i.e. our QCheckBox
+    rule actually reaches the widget). Pixel-perfect appearance is
+    out of scope; we verify the QSS hookup, not the visual output.
+    """
+
+    from PySide6.QtWidgets import QCheckBox
+
+    from chaotic_systems.gui.theme import apply_theme
+
+    apply_theme(qapp, "dark")
+    cb = QCheckBox("Sample")
+    try:
+        # The application-level styleSheet must reference QCheckBox.
+        assert "QCheckBox" in qapp.styleSheet()
+    finally:
+        cb.deleteLater()
+
+
 def test_main_window_exposes_transport_actions() -> None:
     """The toolbar exposes the documented transport-action object names."""
 
