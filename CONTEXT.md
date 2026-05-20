@@ -174,6 +174,62 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-003 — Theme-aware Notes-panel document stylesheet.** S-sized
+  wire-up from the 2026-05-19-initial frontend-uplift (RICE 0.60 —
+  MINOR severity on the test-grep axis;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Closes the visual scout's F-05 finding: pre-FU-003 the Notes
+  ``QTextBrowser``'s document stylesheet was applied once at
+  widget construction with the dark-theme ``PALETTE`` values
+  (FU-002 had already PALETTE-routed the literals); toggling to
+  light theme via the toolbar action left every paragraph
+  rendering as dark-grey-on-light, every heading as
+  lavender-on-white, and code blocks as black-on-near-black —
+  the highest-risk light-theme regression in the project. New
+  static method ``_MainWindow._notes_document_stylesheet(mode)``
+  branches on ``"dark"`` / ``"light"`` / unknown-fallback-to-dark
+  and returns the appropriate CSS. The dark branch continues
+  FU-002's token discipline — every ``color`` / ``background``
+  routes through ``PALETTE.text_primary`` / ``text_secondary`` /
+  ``success`` / ``bg_deep`` / ``warning`` / ``lyapunov`` /
+  ``accent``. The light branch ships Tokyo-Night-Light-inspired
+  defaults standalone (since ``light.qss`` is still a stub):
+  near-black ``#1a1b26`` for headings, dim ``#3b4261`` for
+  paragraphs / lists, forest-green ``#33635c`` for code on a
+  cream ``#e8e4d8`` background — the chromatic accents
+  (``warning``, ``lyapunov``, ``accent``) stay PALETTE-sourced
+  in both branches because they read well on both surfaces and
+  define the cross-theme visual vocabulary. ``main_window.py``
+  swaps the construction-time inline f-string for
+  ``self.notes_widget.document().setDefaultStyleSheet(self._notes_document_stylesheet(current_theme()))``.
+  ``_on_toggle_theme`` grows a re-apply hook between the
+  ``apply_theme(app, new_mode)`` call and the
+  ``_rebuild_for_current_system()`` call — the ordering matters
+  because the rebuild triggers ``setMarkdown``, which re-renders
+  against whatever default stylesheet is in effect at that
+  moment. Reference observables
+  (tests/gui/test_notes_theme.py):
+  ``test_notes_stylesheet_helper_branches_on_mode`` pins that
+  ``("dark")`` and ``("light")`` produce different strings;
+  ``test_dark_branch_uses_palette_tokens`` iterates the 7
+  load-bearing tokens and asserts each appears verbatim;
+  ``test_light_branch_uses_dark_text_on_light_background`` pins
+  the cream/near-black light contract + asserts no
+  ``text_primary`` / ``text_secondary`` dark hex appears in the
+  light branch (catches dark/light cross-contamination);
+  ``test_light_branch_chromatic_accents_match_palette`` pins the
+  cross-theme chromatic tokens; ``test_notes_widget_uses_helper_at_construction``
+  asserts the live widget's ``defaultStyleSheet`` matches the
+  helper output (no stale duplicate code path);
+  ``test_on_toggle_theme_reapplies_notes_stylesheet`` — the
+  headline behavioural pin: toggle from dark to light, assert
+  the document stylesheet equals the light-branch output;
+  ``test_toggle_back_to_dark_restores_dark_stylesheet`` exercises
+  the round trip; ``test_unknown_mode_falls_back_to_dark`` pins
+  the defensive fallback (matches ``theme.apply_theme``'s
+  unknown-mode convention). 8 new tests; full backend +
+  visualization + GUI suite at <TC> passed / 14 skipped, ruff
+  clean. Commit ``<FU-003_SHA>``.
 - **FU-020 — Scrubber timestamp tooltip while dragging.** XS-sized
   affordance polish from the 2026-05-19-initial frontend-uplift
   (RICE 0.60 — MINOR severity on the AP-03 import-discipline axis;
