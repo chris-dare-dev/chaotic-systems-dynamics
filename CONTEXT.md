@@ -177,6 +177,66 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-015 — Drag-to-scrub parameter spinboxes.** M-sized
+  affordance / workflow uplift from the 2026-05-19-initial
+  frontend-uplift (RICE 0.23 — MAJOR severity at synthesis time;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-015 every parameter adjustment required typing or
+  multiple click-on-arrow steps. Post-FU-015 a new
+  ``_ScrubSpinBox(QDoubleSpinBox)`` subclass in
+  ``src/chaotic_systems/gui/_scrub_spinbox.py`` interprets a
+  horizontal drag inside the edit field as a continuous value
+  adjustment (Blender 5.1 / Houdini convention, surfaced as
+  inspiration P03 / §4 C2 in ``inspiration-brief.md``).
+  Plain drag = 1 ``singleStep`` per logical pixel; Shift =
+  0.1× sensitivity (``SCALE_FINE``, the canonical fine-scrub
+  modifier); Ctrl = snap to the nearest ``singleStep``
+  multiple. A 2 px ``DRAG_THRESHOLD_PX`` guards against
+  jitter — sub-threshold press-release dispatches as a
+  click (preserving the spinbox's stock text-selection /
+  context-menu behaviour). The cursor switches to
+  ``Qt.CursorShape.SizeHorCursor`` over the widget so the
+  affordance reads without an icon. ``_ParamWidget._spin`` is
+  the substitution site; every parameter form in the GUI now
+  picks up drag-to-scrub automatically — including
+  Kuramoto's dense (N, K, γ, freq-seed) panel where the
+  click-overhead was worst. Challenger §FU-015 mitigations
+  are all honoured: (#1) ``mouseReleaseEvent`` calls
+  ``releaseMouse`` unconditionally so a focus-grab can't
+  persist past the gesture; (#3 → §10 MAJOR) keyboard
+  arrow-key stepping is untouched — the class never overrides
+  ``keyPressEvent`` so ``stepBy(±1)`` keeps working
+  before and after a drag (regression-pinned by
+  ``test_keyboard_step_still_works_after_drag``); CC-04
+  mitigation — ``mousePressEvent`` calls ``setFocus(MouseFocusReason)``
+  so the FU-016 focus ring follows the drag instead of
+  staying on the previously-focused widget; values clamp to
+  ``[minimum(), maximum()]`` during a drag past the range
+  (no integer overflow even with extreme deltas). Drop-in
+  contract preserved: ``_ScrubSpinBox`` is a strict
+  ``QDoubleSpinBox`` subclass, so every existing caller —
+  ``_param_widgets[name].value()``, the FU-019 readout chip
+  wired to ``valueChanged``, the E2 live-preview debounce
+  pipeline, the parameter-form layout — keeps working
+  unchanged. Reference observables
+  (tests/gui/test_scrub_spinbox.py — 13 new tests):
+  ``_ScrubSpinBox`` ``isinstance`` of ``QDoubleSpinBox``;
+  20 px plain drag at step 0.5 → +10.0 (canonical Blender
+  arithmetic); negative drag subtracts; Shift-drag uses 0.1×;
+  Ctrl-drag snaps to nearest ``singleStep`` multiple; click
+  without movement leaves value untouched; sub-2 px
+  jitter doesn't engage scrub; ``stepBy(+1)`` still works
+  after a drag (keyboard equivalence, challenger §10 MAJOR);
+  ``mouseReleaseEvent`` makes the spinbox no longer the
+  ``QWidget.mouseGrabber()`` (mitigation #1); a
+  ``setFocus`` spy confirms ``mousePressEvent`` calls it
+  (CC-04 — spy pattern needed because the OS may deny
+  ``hasFocus()`` when run alongside other GUI tests);
+  drags past max/min clamp; every ``_ParamWidget._spin`` in
+  ``window._param_widgets`` is a ``_ScrubSpinBox`` instance
+  (the wire-up contract). Full backend + visualization +
+  GUI suite at 782 passed / 14 skipped (was 769), ruff clean.
+  Commit ``REPLACE_ME``.
 - **FU-012 — Transport-strip play/pause state indicator.** S-sized
   affordance fix from the 2026-05-19-initial frontend-uplift
   (RICE 0.30 — MINOR severity;

@@ -1056,7 +1056,16 @@ def _build_window_class() -> type:
                 step = 1e-3
             decimals = max(3, int(round(-math.log10(step))) + 2) if step < 1 else 3
 
-            self._spin = QDoubleSpinBox(self)
+            # FU-015 — _ScrubSpinBox supports horizontal drag-to-scrub
+            # (Blender / Houdini convention) while remaining a strict
+            # QDoubleSpinBox subclass. Existing callers reach the
+            # value via ``_param_widgets[name].value()`` which dispatches
+            # through ``self._spin.value()`` — unchanged. Keyboard
+            # up/down arrow stepping is also unchanged (the subclass
+            # does not touch keyPressEvent).
+            from chaotic_systems.gui._scrub_spinbox import _ScrubSpinBox
+
+            self._spin = _ScrubSpinBox(self)
             self._spin.setRange(lo, hi)
             self._spin.setDecimals(decimals)
             self._spin.setSingleStep(step)
