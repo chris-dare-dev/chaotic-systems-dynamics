@@ -228,7 +228,7 @@ follow-ups:
   ``test_preselect_argument_still_works`` pins the
   ``preselect="Rossler"`` kwarg's continued effect. 7 new
   tests; full backend + visualization + GUI suite at 711
-  passed / 14 skipped, ruff clean. Commit ``<FU-006_SHA>``.
+  passed / 14 skipped, ruff clean. Commit ``f3ec4a8``.
 - **FU-003 — Theme-aware Notes-panel document stylesheet.** S-sized
   wire-up from the 2026-05-19-initial frontend-uplift (RICE 0.60 —
   MINOR severity on the test-grep axis;
