@@ -157,7 +157,7 @@ follow-ups:
   continue to pass — the state-machine wiring is unchanged.
   4 new tests; full backend + visualization + GUI suite at
   659 passed / 14 skipped, ruff clean. Commit
-  ``<FU-017_SHA>``.
+  ``559e372``.
 - **FU-019 — Inline parameter value readout chip.** XS-sized
   pedagogical polish from the 2026-05-19-initial frontend-uplift
   (RICE 1.80 — MINOR severity on token-discipline axis only;
