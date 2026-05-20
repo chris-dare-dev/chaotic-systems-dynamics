@@ -218,7 +218,7 @@ follow-ups:
   ``mouseMoveEvent`` / ``_show_tooltip`` carry no
   ``from PySide6`` lines. 9 new tests; full backend +
   visualization + GUI suite at 684 passed / 14 skipped, ruff
-  clean. Commit ``<FU-020_SHA>``.
+  clean. Commit ``c66f94d``.
 - **FU-011 — Viewport hint label showEvent anchoring.** XS-sized
   layout hardening from the 2026-05-19-initial frontend-uplift
   (RICE 0.60 — NONE on every challenger axis;
