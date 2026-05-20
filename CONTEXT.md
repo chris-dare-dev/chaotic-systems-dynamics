@@ -149,7 +149,7 @@ follow-ups:
   stays False and the left widget's
   ``minimumWidth() >= 300``. 2 new tests; full backend +
   visualization + GUI suite at 645 passed / 14 skipped, ruff
-  clean. Commit ``<FU-007_SHA>``.
+  clean. Commit ``1d9aad0``.
 - **FU-005 — Adopt qtawesome; retire the hand-rolled SVG icon set.**
   S-sized iconography uplift from the 2026-05-19-initial
   frontend-uplift (RICE 1.80 — MAJOR severity mitigated by FU-002
