@@ -248,7 +248,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   the challenger's cross-candidate note earmarked for a single
   batched "Chaos Indicator Suite" Diagnostics-card section.
   Non-GUI suite up to 317 passed / 10 skipped / 0 failed (+14
-  new tests). ruff clean. Commit ``TBD``.
+  new tests). ruff clean. Commit ``c1938ce``.
 
 - **CSC-011 — 0-1 test for chaos (Gottwald-Melbourne).** S-sized
   scalar chaos indicator from the 2026-q2-broadening
