@@ -174,7 +174,7 @@ follow-ups:
   ``.svg`` left; ``theme.apply_theme`` source no longer
   contains the icon-URL-rewriting hack. 8 new tests; full
   backend + visualization + GUI suite at 643 passed / 14
-  skipped, ruff clean. Commit ``<FU-005_SHA>``.
+  skipped, ruff clean. Commit ``883519c``.
 - **FU-016 — State-layer hover / focus / pressed QSS overlays.**
   S-sized accessibility uplift from the 2026-05-19-initial
   frontend-uplift (RICE 3.00 — MINOR on every challenger axis;
