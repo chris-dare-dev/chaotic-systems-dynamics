@@ -245,6 +245,63 @@ follow-ups:
 
 ## Recently shipped (2026-05-18, capability-scout 2026-q2-broadening rollout)
 
+- **CSC-013 — Bandt-Pompe permutation entropy chaos indicator.**
+  Third inhabitant of the ``chaotic_systems.core.diagnostics``
+  module from the 2026-q2-broadening capability-scout (RICE 3.0;
+  ``.claude/notes/capability-scouts/2026-q2-broadening/artifacts/final-report.md``).
+  Implements the ordinal-pattern Shannon entropy from Bandt &
+  Pompe, *Phys. Rev. Lett.* 88 (2002) 174102. For each sliding
+  window of ``order`` samples taken at lag ``delay``, the window
+  reduces to its *ordinal pattern* — the permutation that sorts
+  its values — and the indicator is the normalised Shannon
+  entropy of the empirical pattern distribution. Output is in
+  ``[0, 1]`` (normalised, default) or ``[0, ln(m!)]`` (raw):
+  ``0`` means strictly regular (one pattern dominates), ``1``
+  means maximally random (broad pattern distribution). New
+  public surface:
+  ``chaotic_systems.core.chaos_permutation_entropy(timeseries, *,
+  order=4, delay=1, normalize=True) -> float``, re-exported from
+  ``chaotic_systems.core``. Default order is 4 (24 patterns;
+  sweet spot for ~2000-sample trajectories per Bandt-Pompe §3).
+  Module-level constants enforce ``order in [2, 7]`` (m=8 needs
+  N >> 40320 samples per the paper) and ``5 * m!`` minimum
+  sliding windows (Bandt-Pompe §3 rule of thumb). The
+  implementation uses ``argsort(kind="stable")`` + Lehmer-code
+  hashing
+  (``digit_i = sum(remaining[:, i+1:] < pos[:, None], axis=1)``)
+  for ``O(N * m^2)`` time and ``O(m!)`` space — fast enough for
+  sub-millisecond evaluation on Lorenz-scale trajectories.
+  Reference observables
+  (``tests/core/test_chaos_permutation_entropy.py``, 20 tests):
+  constant signal → ``H = 0`` exactly; strictly monotonic ramp
+  (increasing or decreasing) → ``H = 0`` exactly; logistic at
+  ``r = 3.5`` (period-4 cycle) → ``H = log(4)/log(24) ~ 0.4368``
+  to 0.01 (the theoretical value for 4 cyclically-shifted
+  patterns equally likely with m=4); logistic at ``r = 4`` (hard
+  chaos with forbidden patterns) → ``H in (0.6, 0.85)`` per
+  Bandt-Pompe Fig. 2 — the dip below 1 is characteristic of the
+  logistic family's forbidden patterns; IID uniform noise →
+  ``H > 0.99``; Lorenz x at dt~1 → ``H > 0.99``; oversampled
+  sine (5-period sampled at 2000 points) → ``H < 0.5``.
+  Parametrised tests confirm the indicator approaches 1 on noise
+  at every order m ∈ {3, 4, 5, 6} with the ``5 * m!`` minimum
+  sample count. The unnormalised path is also tested: with
+  ``normalize=False`` the output lands in ``[0, log(m!)]`` and
+  the normalised value equals the raw divided by ``log(m!)``
+  exactly. Edge cases pinned: order outside ``[2, 7]`` raises
+  with a Bandt-Pompe §3 hint; delay < 1 raises; too-short input
+  raises with a "Lower the order or run the system longer" hint;
+  Python list input accepted; return type is Python ``float``.
+  Ties broken by ``argsort(kind="stable")`` so a constant input
+  maps every window to ``(0, 1, ..., m-1)`` and gives ``H = 0``
+  as expected. GUI surface still deferred — the PE is the third
+  of four scalar chaos indicators (CSC-011, CSC-012, CSC-013,
+  pending CSC-014 Hurst) earmarked for a single batched "Chaos
+  Indicator Suite" Diagnostics-card section; one more indicator
+  and the cluster is complete. Non-GUI suite up to 337 passed /
+  10 skipped / 0 failed (+20 new tests). ruff clean. Commit
+  ``670001c``.
+
 - **CSC-012 — Weighted Birkhoff Average chaos indicator
   (Sander-Yorke).** Second inhabitant of the
   ``chaotic_systems.core.diagnostics`` module from the
