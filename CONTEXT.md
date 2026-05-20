@@ -236,7 +236,7 @@ follow-ups:
   ``window._param_widgets`` is a ``_ScrubSpinBox`` instance
   (the wire-up contract). Full backend + visualization +
   GUI suite at 782 passed / 14 skipped (was 769), ruff clean.
-  Commit ``REPLACE_ME``.
+  Commit ``7b7615a``.
 - **FU-012 — Transport-strip play/pause state indicator.** S-sized
   affordance fix from the 2026-05-19-initial frontend-uplift
   (RICE 0.30 — MINOR severity;
