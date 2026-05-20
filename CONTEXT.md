@@ -218,7 +218,7 @@ follow-ups:
   collapse / expand behavioural contract survives the refactor
   (toggle state ↔ body visibility, chevron glyph switching). Full
   backend + visualization + GUI suite at 753 passed / 14 skipped,
-  ruff clean. Commit ``REPLACE_ME``.
+  ruff clean. Commit ``b4399f9``.
 - **FU-008 — "Analyse…" toolbar submenu.** S-sized information-
   architecture / affordance fix from the 2026-05-19-initial
   frontend-uplift (RICE 1.13 — MAJOR severity at synthesis time;
