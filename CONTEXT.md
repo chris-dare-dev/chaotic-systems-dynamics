@@ -231,7 +231,7 @@ follow-ups:
   the round trip; ``test_unknown_mode_falls_back_to_dark`` pins
   the defensive fallback (matches ``theme.apply_theme``'s
   unknown-mode convention). 8 new tests; full backend +
-  visualization + GUI suite at <TC> passed / 14 skipped, ruff
+  visualization + GUI suite at 704 passed / 14 skipped, ruff
   clean. Commit ``<FU-003_SHA>``.
 - **FU-020 — Scrubber timestamp tooltip while dragging.** XS-sized
   affordance polish from the 2026-05-19-initial frontend-uplift

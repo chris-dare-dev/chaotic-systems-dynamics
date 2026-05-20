@@ -2257,16 +2257,13 @@ def _build_window_class() -> type:
             # of raw hex literals. The pre-FU-002 paragraph color
             # ``#a9b1d6`` was off-palette (drifted from
             # ``text_secondary``); restored here.
-            from chaotic_systems.gui.theme import PALETTE as _P_NOTES
+            # FU-003 — theme-aware stylesheet via the helper below.
+            # ``_on_toggle_theme`` re-applies the helper when the user
+            # switches themes so the Notes panel doesn't render as
+            # dark-on-white after a light-theme switch.
+            from chaotic_systems.gui.theme import current_theme as _cur_theme
             self.notes_widget.document().setDefaultStyleSheet(
-                f"h1,h2,h3{{color:{_P_NOTES.text_primary};margin:6px 0 4px 0;}}"
-                f"p{{color:{_P_NOTES.text_secondary};line-height:1.4;}}"
-                f"li{{color:{_P_NOTES.text_secondary};}}"
-                f"code{{color:{_P_NOTES.success};background:{_P_NOTES.bg_deep};"
-                "padding:1px 4px;border-radius:3px;}"
-                f"strong{{color:{_P_NOTES.warning};}}"
-                f"em{{color:{_P_NOTES.lyapunov};}}"
-                f"a{{color:{_P_NOTES.accent};}}"
+                self._notes_document_stylesheet(_cur_theme())
             )
             self._notes_section = _CollapsibleSection(
                 "Notes",
@@ -2723,6 +2720,67 @@ def _build_window_class() -> type:
             pixmap.setDevicePixelRatio(dpr)
             widget.setPixmap(pixmap)
             widget.setFixedSize(int(pixmap.width() / dpr), int(pixmap.height() / dpr))
+
+        @staticmethod
+        def _notes_document_stylesheet(mode: str) -> str:
+            """Return the Notes ``QTextBrowser`` document stylesheet for ``mode``.
+
+            FU-003 — pre-FU-003 the dark-theme stylesheet was baked
+            in at construction; toggling to light theme left the
+            Notes panel rendering dark-grey paragraphs against the
+            light system chrome (visual-scout F-05). FU-002 had
+            already routed the dark branch through ``PALETTE``
+            tokens; this commit adds the light branch and the
+            re-apply hook in ``_on_toggle_theme``.
+
+            Dark branch reads from ``theme.PALETTE`` (every literal
+            stays in lock-step with the dark-mode palette
+            dataclass). Light branch hard-codes a small set of
+            light-mode hex values for the Notes widget alone —
+            the project's full ``light.qss`` is still a stub; the
+            Notes document stylesheet ships independently because
+            QTextDocument doesn't pick up its colours from QSS
+            cascades the way a real ``QLabel`` would. When
+            ``light.qss`` lands, the light branch here should
+            migrate to a token table the same way the dark branch
+            already has.
+
+            The chromatic accents (``accent``, ``warning``,
+            ``error``, ``lyapunov``) stay PALETTE-sourced in both
+            branches because they read well on both backgrounds
+            and define the cross-theme visual vocabulary.
+            """
+            from chaotic_systems.gui.theme import PALETTE
+
+            if mode == "light":
+                # Stand-alone light-mode defaults for the Notes
+                # widget. ``light.qss`` is a stub so we ship the
+                # branch here rather than asking the cascade to
+                # carry it. The dark hex values come from a
+                # Tokyo-Night-Light-inspired palette
+                # (near-black text on cream, forest-green code).
+                return (
+                    "h1,h2,h3{color:#1a1b26;margin:6px 0 4px 0;}"
+                    "p{color:#3b4261;line-height:1.4;}"
+                    "li{color:#3b4261;}"
+                    "code{color:#33635c;background:#e8e4d8;"
+                    "padding:1px 4px;border-radius:3px;}"
+                    f"strong{{color:{PALETTE.warning};}}"
+                    f"em{{color:{PALETTE.lyapunov};}}"
+                    f"a{{color:{PALETTE.accent};}}"
+                )
+
+            # Default = dark — the FU-002 PALETTE-token f-string.
+            return (
+                f"h1,h2,h3{{color:{PALETTE.text_primary};margin:6px 0 4px 0;}}"
+                f"p{{color:{PALETTE.text_secondary};line-height:1.4;}}"
+                f"li{{color:{PALETTE.text_secondary};}}"
+                f"code{{color:{PALETTE.success};background:{PALETTE.bg_deep};"
+                "padding:1px 4px;border-radius:3px;}"
+                f"strong{{color:{PALETTE.warning};}}"
+                f"em{{color:{PALETTE.lyapunov};}}"
+                f"a{{color:{PALETTE.accent};}}"
+            )
 
         def _set_educational_notes(self, notes: str) -> None:
             """Render ``notes`` (markdown) into the notes panel.
@@ -4744,6 +4802,18 @@ def _build_window_class() -> type:
                 return
             new_mode = "light" if current_theme() == "dark" else "dark"
             apply_theme(app, new_mode)
+            # FU-003 — re-apply the Notes document stylesheet AFTER the
+            # theme swap but BEFORE ``_rebuild_for_current_system``
+            # below (which calls ``setMarkdown`` and re-renders the
+            # document against whatever default stylesheet is in
+            # effect at that moment). Pre-FU-003 the stylesheet was
+            # frozen at construction time, so toggling to light left
+            # the Notes panel rendering dark-grey paragraphs against
+            # the light chrome.
+            if hasattr(self, "notes_widget") and self.notes_widget is not None:
+                self.notes_widget.document().setDefaultStyleSheet(
+                    self._notes_document_stylesheet(new_mode)
+                )
             # Re-render LaTeX so glyph color tracks the new palette.
             self._rebuild_for_current_system()
             # Keep the PyVista background in sync.
