@@ -167,7 +167,7 @@ follow-ups:
   visualization + GUI suite at 584 passed / 14 skipped, ruff
   clean. Foundational for FU-018 (dock-state persistence
   consumer) and FU-014 (command palette container styling now
-  benefits from the persisted theme). Commit ``<FU-013_SHA>``.
+  benefits from the persisted theme). Commit ``8fe6a40``.
 - **FU-002 — Promote ``#1a1b26`` + interaction shades to ``theme.PALETTE``.**
   Foundational S-sized token-discipline pass from the 2026-05-19-initial
   frontend-uplift (RICE 3.25 — NONE on every challenger axis;
