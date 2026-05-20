@@ -248,7 +248,7 @@ follow-ups:
   ``test_bifurcation_panel.py`` / ``test_dock_widgets.py``)
   all pass — the refactor preserves every external contract.
   Full backend + visualization + GUI suite at 807 passed / 14
-  skipped (was 782), ruff clean. Commit ``REPLACE_ME``.
+  skipped (was 782), ruff clean. Commit ``f27ed89``.
 - **FU-015 — Drag-to-scrub parameter spinboxes.** M-sized
   affordance / workflow uplift from the 2026-05-19-initial
   frontend-uplift (RICE 0.23 — MAJOR severity at synthesis time;
