@@ -309,41 +309,52 @@ def build_phase_dialog(
     facecolor: str | None = None,
     parent: QWidget | None = None,
 ) -> QWidget:
-    """Build a top-level window wrapping :class:`PhasePanel`.
+    """Build a ``QDockWidget`` wrapping :class:`PhasePanel` (FU-018).
 
-    The main-window toolbar action opens this. The returned
-    :class:`QMainWindow` has ``WA_DeleteOnClose`` set, so the window
-    closes / cleans itself up via the normal Qt lifecycle.
+    Pre-FU-018 the builder returned a free-floating ``QMainWindow``;
+    post-FU-018 it returns a ``QDockWidget`` so the user can dock the
+    Phase explorer beside the 3D viewport (or leave it floating, the
+    default). napari's ``add_dock_widget`` pattern (PR #5483).
+
+    The dock keeps ``WA_DeleteOnClose`` so closing tears down the C++
+    object via the normal Qt lifecycle. The objectName
+    (``"phase_dialog"``) and the ``.phase_panel`` attribute survive
+    the migration so existing tests + scripted callers keep working.
     """
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QDockWidget
 
-    win = QMainWindow(parent)
-    win.setObjectName("phase_dialog")
+    dock = QDockWidget(parent)
+    dock.setObjectName("phase_dialog")
     title = system_name or str(
         getattr(trajectory, "system", "") or "trajectory"
     )
-    win.setWindowTitle(f"Phase portrait — {title}")
-    win.resize(720, 720)
-    win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-
-    central = QWidget(win)
-    outer = QVBoxLayout(central)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
+    dock.setWindowTitle(f"Phase portrait — {title}")
+    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dock.setAllowedAreas(
+        Qt.DockWidgetArea.LeftDockWidgetArea
+        | Qt.DockWidgetArea.RightDockWidgetArea
+        | Qt.DockWidgetArea.BottomDockWidgetArea
+        | Qt.DockWidgetArea.TopDockWidgetArea
+    )
+    dock.setFeatures(
+        QDockWidget.DockWidgetFeature.DockWidgetMovable
+        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        | QDockWidget.DockWidgetFeature.DockWidgetClosable
+    )
 
     panel = build_phase_panel(
         trajectory,
         axes_labels=axes_labels,
         system_name=system_name,
         facecolor=facecolor,
-        parent=central,
+        parent=dock,
     )
-    outer.addWidget(panel, 1)
-    win.setCentralWidget(central)
+    dock.setWidget(panel)
+    dock.resize(720, 720)  # initial size when floating
     # Expose the embedded panel for tests and scripted callers.
-    win.phase_panel = panel  # type: ignore[attr-defined]
-    return win
+    dock.phase_panel = panel  # type: ignore[attr-defined]
+    return dock
 
 
 def __getattr__(name: str) -> type:

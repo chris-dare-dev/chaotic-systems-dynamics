@@ -472,9 +472,9 @@ def build_bifurcation_dialog(
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import (
         QComboBox,
+        QDockWidget,
         QHBoxLayout,
         QLabel,
-        QMainWindow,
         QVBoxLayout,
         QWidget,
     )
@@ -493,13 +493,27 @@ def build_bifurcation_dialog(
             "the registry returned an empty list."
         )
 
-    win = QMainWindow(parent)
-    win.setObjectName("bifurcation_dialog")
-    win.setWindowTitle("Bifurcation diagram")
-    win.resize(900, 700)
-    win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    # FU-018 — dock widget so the user can dock the Bifurcation
+    # explorer beside the viewport. The widget container that used
+    # to be the QMainWindow's centralWidget becomes the dock's
+    # single ``setWidget`` payload.
+    dock = QDockWidget(parent)
+    dock.setObjectName("bifurcation_dialog")
+    dock.setWindowTitle("Bifurcation diagram")
+    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dock.setAllowedAreas(
+        Qt.DockWidgetArea.LeftDockWidgetArea
+        | Qt.DockWidgetArea.RightDockWidgetArea
+        | Qt.DockWidgetArea.BottomDockWidgetArea
+        | Qt.DockWidgetArea.TopDockWidgetArea
+    )
+    dock.setFeatures(
+        QDockWidget.DockWidgetFeature.DockWidgetMovable
+        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        | QDockWidget.DockWidgetFeature.DockWidgetClosable
+    )
 
-    central = QWidget(win)
+    central = QWidget(dock)
     outer = QVBoxLayout(central)
     outer.setContentsMargins(8, 8, 8, 8)
     outer.setSpacing(8)
@@ -538,10 +552,11 @@ def build_bifurcation_dialog(
     picker_box.currentIndexChanged.connect(_swap)
     _swap(0)
 
-    win.setCentralWidget(central)
+    dock.setWidget(central)
+    dock.resize(900, 700)
     # Expose the picker so callers (tests, future scripts) can drive it.
-    win.map_picker = picker_box  # type: ignore[attr-defined]
-    return win
+    dock.map_picker = picker_box  # type: ignore[attr-defined]
+    return dock
 
 
 # Module-level lazy alias: ``BifurcationPanel`` resolves to the

@@ -413,25 +413,35 @@ def build_basin_panel(parent: QWidget | None = None) -> QWidget:
 
 
 def build_basin_dialog(parent: QWidget | None = None) -> QWidget:
-    """Build a top-level window wrapping :class:`BasinPanel`."""
+    """Build a ``QDockWidget`` wrapping :class:`BasinPanel` (FU-018).
+
+    The dock keeps ``WA_DeleteOnClose`` so closing tears down the
+    C++ object via the normal Qt lifecycle. ObjectName + ``.basin_panel``
+    attribute survive the migration so existing tests still find them.
+    """
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QDockWidget
 
-    win = QMainWindow(parent)
-    win.setObjectName("basin_dialog")
-    win.setWindowTitle("Basins of attraction — Duffing double well")
-    win.resize(840, 760)
-    win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-
-    central = QWidget(win)
-    outer = QVBoxLayout(central)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
-    panel = build_basin_panel(central)
-    outer.addWidget(panel, 1)
-    win.setCentralWidget(central)
-    win.basin_panel = panel  # type: ignore[attr-defined]
-    return win
+    dock = QDockWidget(parent)
+    dock.setObjectName("basin_dialog")
+    dock.setWindowTitle("Basins of attraction — Duffing double well")
+    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dock.setAllowedAreas(
+        Qt.DockWidgetArea.LeftDockWidgetArea
+        | Qt.DockWidgetArea.RightDockWidgetArea
+        | Qt.DockWidgetArea.BottomDockWidgetArea
+        | Qt.DockWidgetArea.TopDockWidgetArea
+    )
+    dock.setFeatures(
+        QDockWidget.DockWidgetFeature.DockWidgetMovable
+        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        | QDockWidget.DockWidgetFeature.DockWidgetClosable
+    )
+    panel = build_basin_panel(dock)
+    dock.setWidget(panel)
+    dock.resize(840, 760)
+    dock.basin_panel = panel  # type: ignore[attr-defined]
+    return dock
 
 
 def __getattr__(name: str) -> type:

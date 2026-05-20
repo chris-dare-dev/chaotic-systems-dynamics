@@ -601,6 +601,49 @@ QLabel[role="readout-chip"] {
     min-width: 96px;
 }
 
+/* FU-018 — QDockWidget styling. The five analysis panels (Phase,
+ * Basin, Bifurcation, Recurrence, Poincaré) ship as QDockWidget
+ * subclasses post-FU-018 so the user can dock them beside the
+ * viewport. Without an explicit QDockWidget rule the title bar
+ * renders with the system-native palette — light on Windows,
+ * jarring against the dark chrome (same regression FU-001
+ * caught for QMenu). */
+QDockWidget {
+    color: #c0caf5;                /* text-primary */
+    background-color: #1f2335;     /* bg-panel */
+    border: 1px solid #3b4261;     /* border */
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+
+QDockWidget::title {
+    text-align: left;
+    background-color: #24283b;     /* bg-window */
+    color: #c0caf5;                /* text-primary */
+    padding: 4px 10px;
+    border-bottom: 1px solid #3b4261;  /* border */
+    font-size: 11pt;
+}
+
+QDockWidget::close-button,
+QDockWidget::float-button {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 0;
+}
+
+QDockWidget::close-button:hover,
+QDockWidget::float-button:hover {
+    background-color: #343a55;     /* accent-hover */
+    border-color: #3b4261;         /* border */
+}
+
+QDockWidget::close-button:pressed,
+QDockWidget::float-button:pressed {
+    background-color: #6788d8;     /* accent-pressed */
+}
+
 /* FU-029 — parameter-value strip beneath the "Equations of motion"
  * section in the Mathematics card. Reads as a single monospace
  * line such as ``sigma = 10.000    rho = 28.000    beta = 2.667``.

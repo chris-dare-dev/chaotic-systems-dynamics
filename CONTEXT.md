@@ -177,6 +177,56 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-018 — Promote 5 dialog panels to QDockWidget.** M-sized
+  interaction-pattern migration from the 2026-05-19-initial
+  frontend-uplift (RICE 0.71 — MAJOR severity at synthesis time;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-018 the analysis dialogs (Phase / Basin / Bifurcation /
+  Recurrence / Poincaré) shipped as standalone ``QMainWindow``
+  instances that floated independently and could not be docked to
+  the main viewport — the user could only see one analysis at a
+  time without manually overlapping windows. Post-FU-018 each
+  ``build_*_dialog`` factory returns a ``QDockWidget`` (still
+  preserving its canonical ``objectName`` — ``"phase_dialog"`` /
+  ``"basin_dialog"`` / ``"bifurcation_dialog"`` /
+  ``"recurrence_dialog"`` / ``"poincare_dialog"`` — and its
+  panel attribute — ``.phase_panel`` / ``.basin_panel`` /
+  ``.map_picker`` / ``.recurrence_panel`` / ``.poincare_panel``
+  — so the FU-014 command palette, the ``docs/ui_design.md``
+  layout-spec assertions, and 53 pre-existing panel tests keep
+  working). The dock carries the synthesis-prescribed feature
+  flags (``DockWidgetMovable | DockWidgetFloatable |
+  DockWidgetClosable``) and allows all four dock areas (Left /
+  Right / Top / Bottom). A new ``_MainWindow._open_as_floating_dock(dock)``
+  helper attaches the dock to ``RightDockWidgetArea``, calls
+  ``setFloating(True)``, and shows — preserving the default UX
+  (the panel still opens as a separate floating window) while
+  letting the user drag it back to dock beside the 3D viewport.
+  All 5 ``_on_open_*_dialog`` handlers in ``main_window.py`` are
+  rewritten from ``dialog.show()`` to
+  ``self._open_as_floating_dock(dialog)``. CC-1 mitigation
+  (Windows-native dock title bar): ``dark.qss`` ships explicit
+  ``QDockWidget {…}``, ``QDockWidget::title``,
+  ``QDockWidget::close-button``, and ``QDockWidget::float-button``
+  rules, all PALETTE-routed (``bg_panel`` for the body,
+  ``bg_window`` for the title bar, ``text_primary`` for the
+  caption, ``border`` for the frame, ``accent_hover`` /
+  ``accent_pressed`` for the corner buttons). napari's
+  ``add_dock_widget`` pattern (PR #5483) is the SOTA reference.
+  Reference observables (tests/gui/test_dock_widgets.py — 23 new
+  tests): each ``build_*_dialog`` factory returns a
+  ``QDockWidget`` (was ``QMainWindow``);
+  ``objectName()`` survives the migration across all 5 panels;
+  every panel attribute (``.phase_panel`` / ``.basin_panel`` /
+  ``.map_picker`` / ``.recurrence_panel`` / ``.poincare_panel``)
+  is present; the three feature flags (Movable / Floatable /
+  Closable) are set; all four dock areas are allowed; ``dark.qss``
+  carries the three required selectors with PALETTE tokens (no
+  hex-literal leak); ``_MainWindow._open_as_floating_dock`` exists,
+  is callable, attaches the dock as a child of the main window,
+  and sets ``isFloating() == True``. Full backend + visualization
+  + GUI suite at 734 passed / 14 skipped, ruff clean. Commit
+  ``9c08538``.
 - **FU-006 — superqt adoption (system picker only; partial ship).**
   S-sized library uplift from the 2026-05-19-initial
   frontend-uplift (RICE 0.68 — MAJOR severity at synthesis time;

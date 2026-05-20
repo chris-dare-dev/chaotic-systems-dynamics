@@ -3785,6 +3785,25 @@ def _build_window_class() -> type:
             if self._current_renderer is not None:
                 self._current_renderer.reset_camera()
 
+        def _open_as_floating_dock(self, dock: Any) -> None:
+            """Attach ``dock`` to the main window and show it floating (FU-018).
+
+            All five analysis panels (Bifurcation / Recurrence /
+            Basin / Poincaré / Phase) now ship as ``QDockWidget``
+            subclasses instead of standalone ``QMainWindow``s. The
+            default UX still opens them as separate windows
+            (``setFloating(True)`` after attaching) — but the user
+            can drag them back into the main window to dock them
+            beside the 3D viewport, and the layout persists across
+            launches via FU-013's ``window_state`` QSettings field.
+            napari's ``add_dock_widget`` pattern (PR #5483).
+            """
+            self.addDockWidget(
+                Qt.DockWidgetArea.RightDockWidgetArea, dock
+            )
+            dock.setFloating(True)
+            dock.show()
+
         def _wire_window_cleanup(self, dialog: Any, attr_name: str) -> None:
             """Null out ``self.<attr_name>`` when ``dialog`` is destroyed (FU-024).
 
@@ -3839,7 +3858,7 @@ def _build_window_class() -> type:
             # dangling C++ wrapper.
             self._bifurcation_window = dialog
             self._wire_window_cleanup(dialog, "_bifurcation_window")
-            dialog.show()
+            self._open_as_floating_dock(dialog)  # FU-018
 
         def _on_open_recurrence(self) -> None:
             """Open the recurrence-plot / RQA explorer on the most recent trajectory.
@@ -3881,7 +3900,7 @@ def _build_window_class() -> type:
                 return
             self._recurrence_window = dialog
             self._wire_window_cleanup(dialog, "_recurrence_window")  # FU-024
-            dialog.show()
+            self._open_as_floating_dock(dialog)  # FU-018
 
         def _on_open_basins(self) -> None:
             """Open the basin-of-attraction explorer in a top-level window.
@@ -3907,7 +3926,7 @@ def _build_window_class() -> type:
                 return
             self._basin_window = dialog
             self._wire_window_cleanup(dialog, "_basin_window")  # FU-024
-            dialog.show()
+            self._open_as_floating_dock(dialog)  # FU-018
 
         def _on_open_poincare(self) -> None:
             """Open the Poincaré-section explorer on the current system.
@@ -3964,7 +3983,7 @@ def _build_window_class() -> type:
                 return
             self._poincare_window = dialog
             self._wire_window_cleanup(dialog, "_poincare_window")  # FU-024
-            dialog.show()
+            self._open_as_floating_dock(dialog)  # FU-018
 
         def _on_open_phase_portrait(self) -> None:
             """Open the 2D phase-portrait explorer on the most recent trajectory.
@@ -4025,7 +4044,7 @@ def _build_window_class() -> type:
                 return
             self._phase_window = dialog
             self._wire_window_cleanup(dialog, "_phase_window")  # FU-024
-            dialog.show()
+            self._open_as_floating_dock(dialog)  # FU-018
 
         # ------------------------------------------------------------ toolbar
 

@@ -591,38 +591,44 @@ def build_poincare_dialog(
     facecolor: str | None = None,
     parent: QWidget | None = None,
 ) -> QWidget:
-    """Build a top-level window wrapping :class:`PoincarePanel`.
+    """Build a ``QDockWidget`` wrapping :class:`PoincarePanel` (FU-018).
 
-    The main-window toolbar action opens this. The returned
-    :class:`QMainWindow` has ``WA_DeleteOnClose`` set, so the window
-    closes / cleans itself up via the normal Qt lifecycle.
+    Pre-FU-018 the builder returned a free-floating ``QMainWindow``;
+    post-FU-018 a ``QDockWidget`` so the user can dock the Poincaré
+    explorer beside the 3D viewport. ``WA_DeleteOnClose`` cleans up
+    on close via the normal Qt lifecycle.
     """
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QDockWidget
 
-    win = QMainWindow(parent)
-    win.setObjectName("poincare_dialog")
+    dock = QDockWidget(parent)
+    dock.setObjectName("poincare_dialog")
     title = str(getattr(system, "name", "") or "system")
-    win.setWindowTitle(f"Poincaré section — {title}")
-    win.resize(760, 800)
-    win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-
-    central = QWidget(win)
-    outer = QVBoxLayout(central)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
+    dock.setWindowTitle(f"Poincaré section — {title}")
+    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dock.setAllowedAreas(
+        Qt.DockWidgetArea.LeftDockWidgetArea
+        | Qt.DockWidgetArea.RightDockWidgetArea
+        | Qt.DockWidgetArea.BottomDockWidgetArea
+        | Qt.DockWidgetArea.TopDockWidgetArea
+    )
+    dock.setFeatures(
+        QDockWidget.DockWidgetFeature.DockWidgetMovable
+        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        | QDockWidget.DockWidgetFeature.DockWidgetClosable
+    )
 
     panel = build_poincare_panel(
         system,
         axes_labels=axes_labels,
         facecolor=facecolor,
-        parent=central,
+        parent=dock,
     )
-    outer.addWidget(panel, 1)
-    win.setCentralWidget(central)
+    dock.setWidget(panel)
+    dock.resize(760, 800)
     # Expose the embedded panel for tests and scripted callers.
-    win.poincare_panel = panel  # type: ignore[attr-defined]
-    return win
+    dock.poincare_panel = panel  # type: ignore[attr-defined]
+    return dock
 
 
 def __getattr__(name: str) -> type:

@@ -280,30 +280,36 @@ def build_recurrence_dialog(
     dark: bool = True,
     parent: QWidget | None = None,
 ) -> QWidget:
-    """Build a top-level window wrapping :class:`RecurrencePanel`."""
+    """Build a ``QDockWidget`` wrapping :class:`RecurrencePanel` (FU-018)."""
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QDockWidget
 
-    win = QMainWindow(parent)
-    win.setObjectName("recurrence_dialog")
+    dock = QDockWidget(parent)
+    dock.setObjectName("recurrence_dialog")
     title = system_name or str(
         getattr(trajectory, "system", "") or "trajectory"
     )
-    win.setWindowTitle(f"Recurrence plot — {title}")
-    win.resize(780, 820)
-    win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-
-    central = QWidget(win)
-    outer = QVBoxLayout(central)
-    outer.setContentsMargins(0, 0, 0, 0)
-    outer.setSpacing(0)
-    panel = build_recurrence_panel(
-        trajectory, system_name=system_name, dark=dark, parent=central
+    dock.setWindowTitle(f"Recurrence plot — {title}")
+    dock.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dock.setAllowedAreas(
+        Qt.DockWidgetArea.LeftDockWidgetArea
+        | Qt.DockWidgetArea.RightDockWidgetArea
+        | Qt.DockWidgetArea.BottomDockWidgetArea
+        | Qt.DockWidgetArea.TopDockWidgetArea
     )
-    outer.addWidget(panel, 1)
-    win.setCentralWidget(central)
-    win.recurrence_panel = panel  # type: ignore[attr-defined]
-    return win
+    dock.setFeatures(
+        QDockWidget.DockWidgetFeature.DockWidgetMovable
+        | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        | QDockWidget.DockWidgetFeature.DockWidgetClosable
+    )
+
+    panel = build_recurrence_panel(
+        trajectory, system_name=system_name, dark=dark, parent=dock
+    )
+    dock.setWidget(panel)
+    dock.resize(780, 820)
+    dock.recurrence_panel = panel  # type: ignore[attr-defined]
+    return dock
 
 
 def __getattr__(name: str) -> type:
