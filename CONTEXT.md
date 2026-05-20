@@ -226,7 +226,7 @@ follow-ups:
   is callable, attaches the dock as a child of the main window,
   and sets ``isFloating() == True``. Full backend + visualization
   + GUI suite at 734 passed / 14 skipped, ruff clean. Commit
-  ``9c08538``.
+  ``fc63fd2``.
 - **FU-006 — superqt adoption (system picker only; partial ship).**
   S-sized library uplift from the 2026-05-19-initial
   frontend-uplift (RICE 0.68 — MAJOR severity at synthesis time;
