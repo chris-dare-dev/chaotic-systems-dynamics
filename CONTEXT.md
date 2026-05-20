@@ -248,7 +248,7 @@ D1 (Lyapunov display), E2 (real-time parameter rebinding), and P2
   ships the core function + tests without touching ``main_window.py``;
   the GUI button lands when the cluster is complete. Non-GUI
   suite up to 303 passed / 10 skipped / 0 failed (+13 new tests).
-  ruff clean. Commit ``TBD``.
+  ruff clean. Commit ``463dd6c``.
 
 - **CSC-032 [T1] — Quick λ₁ GUI toggle.** XS wire-up from the
   2026-q2-broadening capability-scout (tied for RICE 7.20 with the
