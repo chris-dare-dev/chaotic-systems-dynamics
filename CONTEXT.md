@@ -227,7 +227,7 @@ follow-ups:
   all pass unchanged — the relocation preserves every
   behavioural contract. Full backend + visualization + GUI
   suite at 816 passed / 14 skipped (was 807), ruff clean.
-  Commit ``REPLACE_ME``.
+  Commit ``a2ae63f``.
 - **FU-022 — ``_panel_helpers.py`` shared utilities.** M-sized
   refactor / developer-ergonomics ship from the 2026-05-19-initial
   frontend-uplift (RICE 0.20 — MINOR severity;
