@@ -81,6 +81,11 @@ STEM_TO_GLYPH: dict[str, str] = {
     # pill. ParaView's Auto-Apply pattern; the synthesis explicitly
     # names ``mdi6.flash`` in the inspiration brief §2 P02 mapping.
     "live-preview": "mdi6.flash",
+    # FU-008 — multi-chart glyph for the "Analyse…" toolbar dropdown
+    # that groups the five analytics actions (bifurcation, phase
+    # portrait, recurrence, basins, Poincaré). ParaView's "Filters"
+    # menu vocabulary; consolidates many sibling tool entries.
+    "analyse": "mdi6.chart-multiple",
 }
 
 

@@ -177,6 +177,57 @@ follow-ups:
 
 ## Recently shipped (2026-05-19, frontend-uplift 2026-05-19-initial rollout)
 
+- **FU-008 — "Analyse…" toolbar submenu.** S-sized information-
+  architecture / affordance fix from the 2026-05-19-initial
+  frontend-uplift (RICE 1.13 — MAJOR severity at synthesis time;
+  ``.claude/notes/frontend-uplifts/2026-05-19-initial/artifacts/final-report.md``).
+  Pre-FU-008 the five analytics actions (Bifurcation / Phase
+  portrait / Recurrence plot / Basins / Poincaré section) lived
+  as flat ``QAction``s on the main toolbar, consuming ~300 px of
+  horizontal real estate at 1400 px (visual-brief F-08) and
+  *truncating off entirely* at 900 px (``screenshots/narrow.png``).
+  Post-FU-008 the five collapse into a single ``QToolButton``
+  ("Analyse…", ``objectName = "button_analyse"``,
+  ``mdi6.chart-multiple`` glyph) with an ``InstantPopup``
+  ``QMenu`` (``objectName = "menu_analyse"``) that holds all
+  five in spec order. ParaView's "Filters" menu / napari's
+  "Plugins" menu vocabulary; gated on FU-001's ``QMenu`` QSS
+  rules (shipped 2026-05-19) so the popup renders dark on
+  Windows instead of system-native white. The button uses
+  ``Qt.FocusPolicy.StrongFocus`` (challenger §6 MINOR a11y
+  mitigation — Tab-reachable; arrow keys navigate the menu
+  natively). CC-01 mitigation (critical regression risk): all
+  five analytics ``QAction``s remain registered in
+  ``self._transport_actions`` under their canonical keys
+  (``action_bifurcation``, ``action_phase_portrait``,
+  ``action_recurrence``, ``action_basins``, ``action_poincare``)
+  and remain parented to the window, so
+  ``window.transport_actions()[<key>]`` still resolves them and
+  ``window.findChildren(QAction)`` (FU-014's command palette)
+  still discovers them — preserving the 5 panel-test files
+  (``test_phase_panel.py:163`` / ``test_basin_panel.py:144`` /
+  ``test_recurrence_panel.py:140`` /
+  ``test_poincare_panel.py:338`` /
+  ``test_bifurcation_panel.py:143``) that look the actions up by
+  name. New ``_MainWindow._build_analyse_button`` helper mirrors
+  ``_build_settings_button``'s pattern. Toolbar layout reads
+  ``[System ▾] | Run Auto Pause Stop Jump-end | Export | Reset
+  view Analyse… Theme | Settings`` — Analyse… sits where the
+  five actions used to crowd. Reference observables
+  (tests/gui/test_analyse_submenu.py — 12 new tests):
+  ``button_analyse`` exists on ``toolbar_main`` with text
+  ``"Analyse…"``; popup mode is ``InstantPopup`` (single click
+  opens menu); focus policy is ``StrongFocus`` (Tab reachable);
+  the menu carries exactly the 5 analytics actions in spec
+  order; all 5 keys remain in ``transport_actions()`` (5
+  parametrised tests — CC-01 contract); the 5 analytics actions
+  are *no longer* direct toolbar actions (otherwise the change
+  would be no-op); the 8 non-analytics actions (Run / Pause /
+  Stop / Jump-end / Export / Reset view / Theme / Auto) still
+  surface at the top level; Analyse… button carries a
+  non-null icon (AP-04 contract). Full backend + visualization
+  + GUI suite at 746 passed / 14 skipped, ruff clean. Commit
+  ``REPLACE_ME``.
 - **FU-018 — Promote 5 dialog panels to QDockWidget.** M-sized
   interaction-pattern migration from the 2026-05-19-initial
   frontend-uplift (RICE 0.71 — MAJOR severity at synthesis time;

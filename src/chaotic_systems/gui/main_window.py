@@ -4238,6 +4238,33 @@ def _build_window_class() -> type:
                 self._on_setting_live_preview
             )
 
+            # FU-008 — the five analytics actions (Bifurcation /
+            # Phase portrait / Recurrence / Basins / Poincaré) are
+            # consolidated into a single "Analyse…" QToolButton with
+            # a popup QMenu rather than added directly to the toolbar.
+            # At 900 px the analytics group used to truncate entirely
+            # (visual-brief F-08); after FU-008 the dropdown collapses
+            # the five into one button and frees room for the rest of
+            # the toolbar. The actions stay registered in
+            # ``self._transport_actions`` under their original keys so
+            # the 5 panel tests + ``transport_actions()`` callers still
+            # resolve them (challenger CC-01 mitigation). ParaView's
+            # "Filters" / napari's "Plugins" menu vocabulary.
+            _ANALYSE_ACTION_KEYS: set[str] = {
+                "action_bifurcation",
+                "action_phase_portrait",
+                "action_recurrence",
+                "action_basins",
+                "action_poincare",
+            }
+            # Build the Analyse… QToolButton up front (its QMenu is
+            # populated as analytics actions are encountered in the
+            # loop). We addWidget after Reset view, so the toolbar
+            # reads ``Reset view | Analyse… | Theme`` — matching the
+            # synthesis-prescribed placement.
+            self._analyse_button = self._build_analyse_button(toolbar)
+            analyse_menu = self._analyse_button.menu()
+
             for i, spec in enumerate(self._toolbar_action_specs()):
                 obj_name, label, icon_stem, tip, slot, enabled = spec
                 # Separators before Export and Toggle-theme group related
@@ -4250,6 +4277,17 @@ def _build_window_class() -> type:
                 action.setIcon(icon_for_stem(icon_stem))
                 action.setEnabled(enabled)
                 action.triggered.connect(slot)
+                self._transport_actions[obj_name] = action
+                if obj_name in _ANALYSE_ACTION_KEYS:
+                    # FU-008 — drop into the Analyse… submenu rather
+                    # than the top-level toolbar. The action remains
+                    # parented to ``self`` (the window) so
+                    # ``window.findChildren(QAction)`` (FU-014's
+                    # command palette) still discovers it, and
+                    # ``self._transport_actions`` still holds the
+                    # reference.
+                    analyse_menu.addAction(action)
+                    continue
                 toolbar.addAction(action)
                 if obj_name == "transport_run":
                     # Mark "Run" as the primary action via QSS variant.
@@ -4261,7 +4299,12 @@ def _build_window_class() -> type:
                     # FU-017 — drop the "Auto" pill right after Run so
                     # the explicit / auto-apply pair reads as a unit.
                     toolbar.addAction(self.action_live_preview)
-                self._transport_actions[obj_name] = action
+                if obj_name == "action_reset_view":
+                    # FU-008 — append the Analyse… QToolButton right
+                    # after Reset view (the synthesis-prescribed
+                    # placement: keeps the visual rhythm Reset view |
+                    # Analyse… | Theme).
+                    toolbar.addWidget(self._analyse_button)
 
             # --- Settings dropdown ----------------------------------------
             # Separator + gear button with a popup QMenu. Holds toggles for
@@ -4278,7 +4321,13 @@ def _build_window_class() -> type:
 
             Stable keys: ``transport_run``, ``transport_pause``,
             ``transport_stop``, ``transport_jump_end``, ``action_export``,
-            ``action_reset_view``, ``action_toggle_theme``.
+            ``action_reset_view``, ``action_toggle_theme``, plus the
+            five analytics keys ``action_bifurcation``,
+            ``action_phase_portrait``, ``action_recurrence``,
+            ``action_basins``, ``action_poincare`` (FU-008 — these
+            are nested under the "Analyse…" toolbar dropdown but
+            stay registered here so the panel tests + command
+            palette resolve them by name).
 
             External agents wiring playback hooks should prefer this entry
             point over reaching into ``self._transport_actions`` directly.
@@ -4291,6 +4340,51 @@ def _build_window_class() -> type:
             integration plan with the animation agent."""
 
             return self.transport_actions()
+
+        # ------------------------------------------------------------ analyse
+
+        def _build_analyse_button(self, toolbar: QToolBar) -> QToolButton:
+            """Build the FU-008 "Analyse…" QToolButton with popup QMenu.
+
+            Returns a ``QToolButton`` with an empty ``QMenu`` —
+            ``_build_toolbar`` populates the menu as it iterates
+            the toolbar spec list and encounters analytics actions.
+            The menu picks up ``dark.qss``'s ``QMenu`` rules (shipped
+            by FU-001), so the popup renders with the dark palette
+            instead of system white on Windows.
+
+            The button uses ``InstantPopup`` mode so a single click
+            shows the menu (no separate arrow). ``StrongFocus`` keeps
+            it Tab-reachable — the challenger's MINOR a11y note. The
+            five analytics ``QAction``s remain registered in
+            ``self._transport_actions`` (parented to the window), so
+            ``transport_actions()`` callers + the FU-014 command
+            palette still resolve them.
+
+            ParaView's "Filters" menu / napari's "Plugins" menu
+            vocabulary (synthesis §FU-008).
+            """
+
+            from chaotic_systems.gui.icons import icon_for_stem
+
+            btn = QToolButton(toolbar)
+            btn.setObjectName("button_analyse")
+            btn.setText("Analyse…")
+            btn.setToolTip(
+                "Open one of the analysis panels (Bifurcation, "
+                "Phase portrait, Recurrence plot, Basins of "
+                "attraction, Poincaré section). Each item is also "
+                "discoverable via the Ctrl+Shift+P command palette."
+            )
+            btn.setIcon(icon_for_stem("analyse"))
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+            menu = QMenu(btn)
+            menu.setObjectName("menu_analyse")
+            btn.setMenu(menu)
+            return btn
 
         # ------------------------------------------------------------ settings
 
