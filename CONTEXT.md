@@ -358,7 +358,7 @@ follow-ups:
   coherent diagnostic set that can be invoked from a single
   Diagnostics-card section the GUI will batch in a follow-up
   milestone. Non-GUI suite up to 354 passed / 10 skipped / 0
-  failed (+17 new tests). ruff clean. Commit ``TBD``.
+  failed (+17 new tests). ruff clean. Commit ``07dbc8d``.
 
 - **CSC-013 — Bandt-Pompe permutation entropy chaos indicator.**
   Third inhabitant of the ``chaotic_systems.core.diagnostics``
