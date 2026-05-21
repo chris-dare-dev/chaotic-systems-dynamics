@@ -94,5 +94,37 @@ is the chunky "Duffing fractal" Moon's 1987 book opens with.
             dtype=np.float64,
         )
 
+    def energy(
+        self, y: FloatArray, params: Mapping[str, float] | None = None
+    ) -> float:
+        """Mechanical energy :math:`E(x, v) = \\tfrac{1}{2} v^2 + V(x)`.
+
+        With the canonical sign convention ``alpha = -1, beta = 1`` the
+        potential is the textbook double well
+        :math:`V(x) = -\\tfrac{1}{2} x^2 + \\tfrac{1}{4} x^4`,
+        :math:`V(\\pm 1) = -\\tfrac{1}{4}`, :math:`V(0) = 0`.
+
+        E is a **conserved quantity only in the undriven, undamped
+        limit** :math:`\\gamma = \\delta = 0` — that's the V3
+        conservation-overlay demo's headline case (Hairer-Lubich-Wanner
+        2006 §I.1). With ``delta > 0`` the energy decays monotonically;
+        with ``gamma > 0`` it oscillates with the drive. The overlay
+        makes this pedagogically obvious: pick yoshida4, zero out
+        gamma and delta in the parameter sliders, and watch
+        :math:`\\Delta E(t)` stay flat at zero. Toggle the drive back
+        on and watch it depart.
+        """
+        merged = self.merged_params(params)
+        alpha = merged["alpha"]
+        beta = merged["beta"]
+        x = float(y[0])
+        v = float(y[1])
+        # E = (1/2) v^2 + (1/2) alpha x^2 + (1/4) beta x^4
+        return float(
+            0.5 * v * v
+            + 0.5 * alpha * x * x
+            + 0.25 * beta * x * x * x * x
+        )
+
 
 __all__ = ["Duffing"]

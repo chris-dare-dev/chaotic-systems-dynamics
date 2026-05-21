@@ -86,6 +86,11 @@ STEM_TO_GLYPH: dict[str, str] = {
     # portrait, recurrence, basins, Poincaré). ParaView's "Filters"
     # menu vocabulary; consolidates many sibling tool entries.
     "analyse": "mdi6.chart-multiple",
+    # V3 — conservation overlay (energy drift plot). Scales glyph
+    # reads as "balance / conservation" without needing a legend; we
+    # already use the lightning bolt for live-preview so the
+    # conservation entry needs a distinct silhouette.
+    "conservation": "mdi6.scale-balance",
 }
 
 

@@ -3091,6 +3091,22 @@ def _build_window_class() -> type:
             recurrence_act = self._transport_actions.get("action_recurrence")
             if recurrence_act is not None:
                 recurrence_act.setEnabled(True)
+            # V3: the conservation overlay needs the *system* to expose
+            # an ``.energy(y, params)`` method (DoublePendulum,
+            # HenonHeiles, Duffing — the three Hamiltonian / Lagrangian
+            # systems in the catalog). Gate the action on that capability
+            # check so the menu entry tells the user something honest.
+            conservation_act = self._transport_actions.get("action_conservation")
+            if conservation_act is not None:
+                try:
+                    from chaotic_systems.gui.conservation_panel import (
+                        system_has_energy,
+                    )
+
+                    has_energy = system_has_energy(self.current_system)
+                except (AttributeError, IndexError, ImportError):
+                    has_energy = False
+                conservation_act.setEnabled(bool(has_energy))
             # Surface the pre-export size estimate now that a trajectory
             # exists. The chip + Export tooltip both update.
             self._refresh_export_estimate()
@@ -3993,6 +4009,84 @@ def _build_window_class() -> type:
             self._wire_window_cleanup(dialog, "_recurrence_window")  # FU-024
             self._open_as_floating_dock(dialog)  # FU-018
 
+        def _on_open_conservation(self) -> None:
+            """Open the V3 conservation-overlay panel for the current system.
+
+            Requires (a) the user has run a simulation (so
+            ``_last_trajectory`` exists) and (b) the current system
+            exposes an ``.energy(y, params)`` method (DoublePendulum,
+            HenonHeiles, Duffing — the three the project ships).
+            The toolbar action is already disabled in both cases, so
+            this slot only re-checks defensively.
+            """
+            traj = self._last_trajectory
+            if traj is None:
+                self._set_status(
+                    "Run a simulation first — the conservation overlay "
+                    "reads the most recent trajectory.",
+                    state="error",
+                )
+                return
+            try:
+                system = self.current_system
+            except (AttributeError, IndexError):
+                self._set_status(
+                    "Pick a system first — the conservation overlay needs "
+                    "the current system's energy method.",
+                    state="error",
+                )
+                return
+            try:
+                from chaotic_systems.gui.conservation_panel import (
+                    build_conservation_dialog,
+                    system_has_energy,
+                )
+            except ImportError as exc:  # pragma: no cover
+                self._set_status(
+                    f"Conservation overlay unavailable: {exc}", state="error"
+                )
+                return
+            if not system_has_energy(system):
+                self._set_status(
+                    f"{getattr(system, 'name', 'system')!r} does not expose "
+                    "an .energy() method; conservation overlay is only "
+                    "meaningful for Hamiltonian / Lagrangian systems "
+                    "(DoublePendulum, HenonHeiles, Duffing).",
+                    state="error",
+                )
+                return
+            # Bind the current parameters into the energy callable so
+            # the plot uses the actual run's parameter values, not the
+            # system's class-level defaults.
+            params_obj = getattr(traj, "params", None) or self._params()
+
+            def _energy_at(
+                y: np.ndarray,
+                _params: Any = params_obj,
+                _sys: Any = system,
+            ) -> float:
+                return float(_sys.energy(y, _params))
+            from chaotic_systems.gui.theme import viewport_background
+
+            try:
+                dialog = build_conservation_dialog(
+                    traj,
+                    _energy_at,
+                    system_name=getattr(system, "name", None),
+                    facecolor=viewport_background(),
+                    parent=self,
+                )
+            except (TypeError, ValueError, KeyError) as exc:
+                self._set_status(
+                    f"Conservation overlay failed: {exc}", state="error"
+                )
+                return
+            self._conservation_window = dialog
+            self._wire_window_cleanup(
+                dialog, "_conservation_window"
+            )  # FU-024
+            self._open_as_floating_dock(dialog)  # FU-018
+
         def _on_open_basins(self) -> None:
             """Open the basin-of-attraction explorer in a top-level window.
 
@@ -4226,6 +4320,20 @@ def _build_window_class() -> type:
                     "Disabled until you've run a simulation. See "
                     "docs/proposals/capability-roadmap-2026-05-17.md D5.",
                     self._on_open_recurrence,
+                    False,
+                ),
+                (
+                    "action_conservation",
+                    "Conservation overlay…",
+                    "conservation",
+                    "Plot the energy drift ΔE(t) = E(t) − E(0) for the "
+                    "current trajectory. Enabled only for systems that "
+                    "ship a .energy(y, params) method (DoublePendulum, "
+                    "HenonHeiles, Duffing). Pair with yoshida4 on "
+                    "Hénon-Heiles to see |ΔE/E₀| ≲ 1e-6 — the headline "
+                    "argument for the symplectic-integrator family. See "
+                    "docs/proposals/capability-roadmap-2026-05-17.md V3.",
+                    self._on_open_conservation,
                     False,
                 ),
                 (

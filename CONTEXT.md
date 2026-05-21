@@ -111,6 +111,39 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-21, capability roadmap rollout cont'd)
+
+- **V3 — conservation overlay for Hamiltonian / Lagrangian flows.**
+  Closes V3 from the original
+  ``docs/proposals/capability-roadmap-2026-05-17.md`` — the
+  pedagogical-payoff plot that validates why the project ships
+  symplectic integrators in the first place. New
+  ``visualization/conservation_plot.py`` ships
+  ``plot_conservation(trajectory, energy_fn)`` returning a
+  matplotlib Figure with ΔE(t) = E(t) − E(0) versus t, a faint
+  reference line at ΔE = 0, and a corner annotation reporting
+  E(0) / |ΔE|_max / |ΔE|/|E₀| (Tokyo Night facecolor optional;
+  Agg-safe for worker-thread use). New
+  ``gui/conservation_panel.py`` wraps the plot in a
+  ``ConservationPanel`` taking a trajectory snapshot + bound
+  ``system.energy`` callable; ``system_has_energy`` capability
+  probe exported for the toolbar-action gate; long trajectories
+  are subsampled to ``_MAX_PLOT_N = 1000`` for snappy renders.
+  ``systems/duffing.py`` grows ``.energy(y, params)`` returning
+  ½v² + ½αx² + ¼βx⁴ (conserved only when γ=δ=0 — the demo's
+  headline contrast). ``gui/main_window.py`` grows a single
+  ``action_conservation`` toolbar action, gated on having a
+  trajectory AND ``system_has_energy(current_system)`` being
+  true (HenonHeiles / DoublePendulum / Duffing). Icon glyph
+  ``mdi6.scale-balance`` registered in ``gui/icons.py``.
+  Reference observable: yoshida4 on Hénon-Heiles at canonical IC
+  with dt=0.05 over t=50 holds |ΔE/E₀| < 1e-5 (test pins
+  observed 5.2e-7) — Hairer-Lubich-Wanner 2006 §V's
+  uniform-in-time energy bound made visible. Contrast tests:
+  undriven undamped Duffing (γ=δ=0) RK45 keeps |ΔE/E₀| < 1e-3;
+  driven Duffing shows >1% drift. 30 new tests, all green.
+  Commit ``<TBD>``.
+
 ## Recently shipped (2026-05-20, chaos-indicator-suite-gui rollout)
 
 - **CIS-1 — Chaos Indicator Suite Diagnostics-card section.**
