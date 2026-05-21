@@ -113,6 +113,40 @@ follow-ups:
 
 ## Recently shipped (2026-05-21, capability roadmap rollout cont'd)
 
+- **V4 — PNG snapshot + CSV / NPZ / JSON workflow exports.** Closes
+  the *last* item from the original ``docs/proposals/capability-
+  roadmap-2026-05-17.md`` (V4); with this commit every numbered
+  item from the original 18-row sequencing table has shipped. New
+  package ``chaotic_systems.io`` with two modules: ``trajectory.py``
+  (``write_csv`` / ``read_csv`` for universal interchange and
+  ``write_npz`` / ``read_npz`` for lossless compressed-binary
+  round-trip; pure-numpy, no pandas dep) and ``run_history.py``
+  (frozen-slots ``RunManifest`` dataclass + ``write_json`` /
+  ``read_json`` + ``manifest_from_trajectory`` convenience; UTC
+  ISO-8601 timestamp; strict ``schema_version`` check guards
+  future-version manifests from being silently misparsed). New
+  ``visualization/snapshot.py`` exports
+  ``save_viewport_png(renderer_or_plotter, path, *, size,
+  transparent_background)`` wrapping ``Plotter.screenshot``;
+  accepts either a ``Renderer3D`` or a bare ``pyvista.Plotter``.
+  GUI grows four toolbar actions — ``action_snapshot_png``,
+  ``action_export_csv``, ``action_export_npz``,
+  ``action_export_run_json`` — each with a QFileDialog file picker
+  and a sensible default path
+  (``~/<system>-<integrator>.<ext>``); the three trajectory
+  actions light up after any sim, the snapshot action additionally
+  requires ``_current_renderer`` (display-less environments stay
+  disabled). Icon glyphs registered in ``gui/icons.py``
+  (``camera`` / ``table-large`` / ``package-variant`` /
+  ``code-json``). Reference observables: CSV / NPZ / JSON
+  round-trips preserve every field bit-exactly (``np.testing.
+  assert_array_equal`` on y, ``pytest.approx`` on every numeric
+  manifest field); NPZ files are smaller than CSV at 2000 samples
+  (compressed binary beats text); PNG snapshot writes a real PNG
+  file whose magic-byte prefix is ``b"\\x89PNG\\r\\n\\x1a\\n"``.
+  44 new tests across IO + viz + GUI, all green; full suite
+  ``880 → 924 passing``. Commit ``<TBD>``.
+
 - **V3 — conservation overlay for Hamiltonian / Lagrangian flows.**
   Closes V3 from the original
   ``docs/proposals/capability-roadmap-2026-05-17.md`` — the

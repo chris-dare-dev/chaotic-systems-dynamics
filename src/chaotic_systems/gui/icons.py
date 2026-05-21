@@ -91,6 +91,16 @@ STEM_TO_GLYPH: dict[str, str] = {
     # already use the lightning bolt for live-preview so the
     # conservation entry needs a distinct silhouette.
     "conservation": "mdi6.scale-balance",
+    # V4 — workflow exports. Each glyph reads as the matching
+    # file-type at a glance: camera for the viewport PNG, the
+    # MDI6 "table-large" for CSV (spreadsheet vocabulary), and the
+    # JSON/braces glyph for the run manifest. NPZ reuses the
+    # "package-variant" glyph since it's the binary "container"
+    # format — MDI6 has no canonical NumPy glyph.
+    "snapshot": "mdi6.camera",
+    "csv": "mdi6.table-large",
+    "npz": "mdi6.package-variant",
+    "json": "mdi6.code-json",
 }
 
 

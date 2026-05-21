@@ -3107,6 +3107,22 @@ def _build_window_class() -> type:
                 except (AttributeError, IndexError, ImportError):
                     has_energy = False
                 conservation_act.setEnabled(bool(has_energy))
+            # V4 — workflow exports light up once a trajectory exists.
+            # ``action_snapshot_png`` additionally needs a *rendered*
+            # viewport (the 3D renderer may have failed on a display-
+            # less environment), so we check for the actual renderer
+            # object rather than just the trajectory.
+            for key in (
+                "action_export_csv",
+                "action_export_npz",
+                "action_export_run_json",
+            ):
+                act = self._transport_actions.get(key)
+                if act is not None:
+                    act.setEnabled(True)
+            snapshot_act = self._transport_actions.get("action_snapshot_png")
+            if snapshot_act is not None:
+                snapshot_act.setEnabled(self._current_renderer is not None)
             # Surface the pre-export size estimate now that a trajectory
             # exists. The chip + Export tooltip both update.
             self._refresh_export_estimate()
@@ -3551,6 +3567,137 @@ def _build_window_class() -> type:
             self.export_button.setEnabled(True)
             self.cancel_button.setEnabled(False)
             self._show_busy(False)
+
+        # ---------------------------------- V4 snapshot / CSV / NPZ / JSON
+
+        def _on_snapshot_png(self) -> None:
+            """Save the current viewport to a PNG file (V4)."""
+            if self._current_renderer is None:
+                self._set_status(
+                    "Run a simulation first — snapshot needs a rendered "
+                    "viewport.",
+                    state="error",
+                )
+                return
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save viewport PNG",
+                str(self._suggest_output_path("png")),
+                "PNG image (*.png)",
+            )
+            if not path_str:
+                return
+            try:
+                from chaotic_systems.visualization.snapshot import (
+                    save_viewport_png,
+                )
+
+                dest = save_viewport_png(self._current_renderer, path_str)
+            except (RuntimeError, OSError, ValueError) as exc:
+                self._show_error("Snapshot failed", str(exc))
+                return
+            self._set_status(f"Wrote {dest}", state="done")
+
+        def _on_export_csv(self) -> None:
+            """Save the current trajectory as a CSV file (V4)."""
+            traj = self._last_trajectory
+            if traj is None:
+                self._set_status(
+                    "Run a simulation first.", state="error"
+                )
+                return
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export trajectory CSV",
+                str(self._suggest_output_path("csv")),
+                "Comma-separated values (*.csv)",
+            )
+            if not path_str:
+                return
+            try:
+                from chaotic_systems.io import write_csv
+
+                dest = write_csv(traj, path_str)
+            except (TypeError, ValueError, OSError) as exc:
+                self._show_error("CSV export failed", str(exc))
+                return
+            self._set_status(f"Wrote {dest}", state="done")
+
+        def _on_export_npz(self) -> None:
+            """Save the current trajectory as a compressed NumPy archive (V4)."""
+            traj = self._last_trajectory
+            if traj is None:
+                self._set_status(
+                    "Run a simulation first.", state="error"
+                )
+                return
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export trajectory NPZ",
+                str(self._suggest_output_path("npz")),
+                "NumPy archive (*.npz)",
+            )
+            if not path_str:
+                return
+            try:
+                from chaotic_systems.io import write_npz
+
+                dest = write_npz(traj, path_str)
+            except (TypeError, ValueError, OSError) as exc:
+                self._show_error("NPZ export failed", str(exc))
+                return
+            self._set_status(f"Wrote {dest}", state="done")
+
+        def _on_export_run_json(self) -> None:
+            """Save a per-run JSON manifest (V4)."""
+            traj = self._last_trajectory
+            if traj is None:
+                self._set_status(
+                    "Run a simulation first.", state="error"
+                )
+                return
+            path_str, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export run manifest JSON",
+                str(self._suggest_output_path("json")),
+                "JSON document (*.json)",
+            )
+            if not path_str:
+                return
+            try:
+                from chaotic_systems.io import (
+                    manifest_from_trajectory,
+                    write_json,
+                )
+
+                manifest = manifest_from_trajectory(
+                    traj, dt=float(self.dt.value())
+                )
+                dest = write_json(manifest, path_str)
+            except (TypeError, ValueError, OSError) as exc:
+                self._show_error("Manifest export failed", str(exc))
+                return
+            self._set_status(f"Wrote {dest}", state="done")
+
+        def _suggest_output_path(self, extension: str) -> Path:
+            """Build a sensible default output path for a SaveAs dialog.
+
+            ``~/<system-name>-<integrator>.<extension>``, falling back
+            to ``~/trajectory.<extension>`` when the system or
+            integrator names are unknown. The user can rename / redirect
+            in the dialog; this is just the prefill so the round-trip
+            from "Run on Lorenz" to "Save Lorenz CSV" doesn't require
+            typing a filename from scratch.
+            """
+            traj = self._last_trajectory
+            system = (
+                getattr(traj, "system", None)
+                or getattr(getattr(self, "current_system", None), "name", None)
+                or "trajectory"
+            )
+            integrator = getattr(traj, "integrator", None) or ""
+            stem = f"{system}-{integrator}".strip("-") if integrator else str(system)
+            return Path.home() / f"{stem}.{extension.lstrip('.')}"
 
         # --------------------------------------------------- prerender pipeline
 
@@ -4279,6 +4426,52 @@ def _build_window_class() -> type:
                     "export",
                     "Render the current trajectory to an MP4 file (Ctrl-E)",
                     self._on_export,
+                    False,
+                ),
+                (
+                    "action_snapshot_png",
+                    "Snapshot PNG…",
+                    "snapshot",
+                    "Save a PNG of the current 3D viewport. Disabled "
+                    "until a simulation has rendered. See "
+                    "docs/proposals/capability-roadmap-2026-05-17.md V4.",
+                    self._on_snapshot_png,
+                    False,
+                ),
+                (
+                    "action_export_csv",
+                    "Export CSV…",
+                    "csv",
+                    "Save the current trajectory as a CSV file "
+                    "(header: t, y0, y1, …). Universal interchange "
+                    "format; metadata is not preserved (use NPZ for "
+                    "lossless round-trip). Disabled until a simulation "
+                    "has run. See V4.",
+                    self._on_export_csv,
+                    False,
+                ),
+                (
+                    "action_export_npz",
+                    "Export NPZ…",
+                    "npz",
+                    "Save the current trajectory as a compressed NumPy "
+                    "archive (t + y + system / integrator / params "
+                    "metadata). Lossless round-trip via "
+                    "chaotic_systems.io.read_npz. Disabled until a "
+                    "simulation has run. See V4.",
+                    self._on_export_npz,
+                    False,
+                ),
+                (
+                    "action_export_run_json",
+                    "Export run JSON…",
+                    "json",
+                    "Save a per-run JSON manifest (system / params / "
+                    "integrator / dt / t_span / output paths / UTC "
+                    "timestamp). The 'I want this exact run back six "
+                    "months later' file. Disabled until a simulation "
+                    "has run. See V4.",
+                    self._on_export_run_json,
                     False,
                 ),
                 (
