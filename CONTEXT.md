@@ -145,7 +145,7 @@ follow-ups:
   (compressed binary beats text); PNG snapshot writes a real PNG
   file whose magic-byte prefix is ``b"\\x89PNG\\r\\n\\x1a\\n"``.
   44 new tests across IO + viz + GUI, all green; full suite
-  ``880 → 924 passing``. Commit ``<TBD>``.
+  ``880 → 924 passing``. Commit ``2229d51``.
 
 - **V3 — conservation overlay for Hamiltonian / Lagrangian flows.**
   Closes V3 from the original
