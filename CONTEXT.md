@@ -142,7 +142,7 @@ follow-ups:
   uniform-in-time energy bound made visible. Contrast tests:
   undriven undamped Duffing (γ=δ=0) RK45 keeps |ΔE/E₀| < 1e-3;
   driven Duffing shows >1% drift. 30 new tests, all green.
-  Commit ``<TBD>``.
+  Commit ``e30a93b``.
 
 ## Recently shipped (2026-05-20, chaos-indicator-suite-gui rollout)
 
