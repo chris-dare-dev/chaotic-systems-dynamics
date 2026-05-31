@@ -76,7 +76,7 @@ to `survey-complete`.
 | Agent's brief is empty or malformed | Same — re-dispatch. |
 | Agent's brief proposes web/Electron/etc. | Surface in synthesis as "rejected by Phase 1 hard rule". Do not block. |
 | All agents return but you suspect bias toward one lens | OK to dispatch a fifth ad-hoc agent in `--deep` mode. |
-| Session compacts mid-Phase-1 | `status.sh <ID>` shows what's dispatched-but-not-returned. Resume by checking each pending agent's worktree for an emitted brief; if none, re-dispatch. |
+| Session compacts mid-Phase-1 | `checkpoint.py status <ID>` shows what's dispatched-but-not-returned. Resume by checking each pending agent's worktree for an emitted brief; if none, re-dispatch. |
 
 ## Anti-patterns
 

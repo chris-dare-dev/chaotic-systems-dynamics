@@ -31,7 +31,7 @@ it produces a ranked candidate report ready to feed `/milestone-pipeline`.
 
 ## Architectural rules (non-negotiable)
 
-1. **Preflight first.** `ensure-gui-bootable.sh` MUST pass before
+1. **Preflight first.** `ensure_gui_bootable.py` MUST pass before
    Phase 1 dispatches. A visual-evidence pipeline can't run against
    a broken GUI.
 2. **Phase 1 dispatch happens in ONE assistant turn.** All 4 (or 3
@@ -47,13 +47,13 @@ it produces a ranked candidate report ready to feed `/milestone-pipeline`.
 ## Step 0 — Initialize state
 
 ```bash
-.claude/scripts/frontend-uplift/init-frontend-uplift.sh <ID> [--brief "..."] [--lean | --deep]
+python .claude/scripts/frontend-uplift/checkpoint.py init <ID> [--brief "..."] [--lean | --deep]
 ```
 
 Idempotent. Also creates per-agent project memory dirs.
 
 ```bash
-.claude/scripts/frontend-uplift/status.sh <ID>
+python .claude/scripts/frontend-uplift/checkpoint.py status <ID>
 ```
 
 Inspect before running each phase.
@@ -68,7 +68,7 @@ phase start.
 ### 1a — Preflight (REQUIRED)
 
 ```bash
-.claude/scripts/frontend-uplift/ensure-gui-bootable.sh
+python .claude/scripts/frontend-uplift/ensure_gui_bootable.py
 ```
 
 If non-zero, surface the recovery hint and HALT. Do not advance the
@@ -257,7 +257,7 @@ init
 - Don't let the synthesizer write the challenge.
 - Don't auto-invoke `/milestone-pipeline`.
 - Don't manufacture candidates.
-- Don't bypass `init-frontend-uplift.sh`.
+- Don't bypass `checkpoint.py init`.
 - Don't `git push` at any phase.
 
 ## Sub-agent memory

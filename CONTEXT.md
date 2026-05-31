@@ -113,6 +113,26 @@ follow-ups:
 
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
+- **PT3 — rewire all in-repo callers to the Python entrypoints** (commit
+  `0bef798`, 2026-05-31). Fourth item of
+  `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`: every in-repo
+  reference to the bash scripts now points at the PT1/PT2 Python entrypoints —
+  the three `.claude/commands/*.md` slash-command bodies (init / status /
+  ensure-gui preflight invocations), the `.claude/references/**` docs
+  (phase-1-discover, phase-1-survey, both state-schema files), and the
+  `checkpoint.py` (×3) + `verify.py` "state.json not found" error strings (now
+  say `run 'checkpoint.py init …' first`). Added a `bash …sh` → `python …`
+  command-mapping table to `.claude/scripts/PORTABILITY.md` (new "Round 3"
+  section) for any external harness/plugin caller. Observable (verified at
+  ship): grep for `init-*.sh` / `status.sh` / `ensure-gui-bootable.sh` across
+  `.claude/commands`, `.claude/references`, and the surviving
+  `.claude/scripts/**/*.py` finds **0** live invocations — the only remaining
+  references are inside the soon-to-be-deleted `.sh` files themselves and the
+  PORTABILITY.md historical record. Docs/strings only — no `src/` change;
+  tooling 57 passed / 1 skipped, full venv suite green, ruff clean. The `.sh`
+  files are now fully orphaned; **PT4 deletes them next**. SHA stamped
+  post-commit.
+
 - **PT2 — pure-Python `ensure_gui_bootable.py`** (commit `8c19e44`,
   2026-05-31). Third item of `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`:
   a cross-platform, stdlib-only replacement for the frontend-uplift

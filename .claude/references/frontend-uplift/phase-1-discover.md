@@ -20,7 +20,7 @@ visual-scout boots the GUI and produces PNG evidence under
 ## Preflight (REQUIRED before dispatch)
 
 ```bash
-.claude/scripts/frontend-uplift/ensure-gui-bootable.sh
+python .claude/scripts/frontend-uplift/ensure_gui_bootable.py
 ```
 
 Exits non-zero with a copy-paste recovery hint if the GUI can't boot
@@ -83,7 +83,7 @@ When all returned, `checkpoint.py <ID> --set screenshot_count=<N>`
 | Preflight fails | Surface the recovery hint to the user. Halt. |
 | Visual-scout returns without screenshots | Re-dispatch; verify the driver script ran. |
 | Brief proposes web/Electron | Surface in synthesis under "rejected by Phase 1 hard rule". |
-| Compaction mid-Phase-1 | `status.sh <ID>` shows pending agents; resume by checking each worktree for an emitted brief and re-dispatching if missing. |
+| Compaction mid-Phase-1 | `checkpoint.py status <ID>` shows pending agents; resume by checking each worktree for an emitted brief and re-dispatching if missing. |
 
 ## Anti-patterns
 

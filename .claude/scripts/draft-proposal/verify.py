@@ -55,7 +55,8 @@ def _load_state(uid: str) -> dict:
     sp = _state_path(uid)
     if not sp.exists():
         sys.exit(
-            f"FAIL: state.json not found at {sp}. Run init-draft-proposal.sh first."
+            f"FAIL: state.json not found at {sp}. "
+            "Run 'checkpoint.py init <slug>' first."
         )
     return json.loads(sp.read_text(encoding="utf-8"))
 

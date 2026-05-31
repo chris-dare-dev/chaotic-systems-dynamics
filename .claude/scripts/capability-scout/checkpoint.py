@@ -70,7 +70,7 @@ def _load(state_path: Path) -> dict:
     if not state_path.exists():
         sys.exit(
             f"state.json not found at {state_path} — run "
-            "init-capability-scout.sh first"
+            "'checkpoint.py init <ID>' first"
         )
     return json.loads(state_path.read_text(encoding="utf-8"))
 

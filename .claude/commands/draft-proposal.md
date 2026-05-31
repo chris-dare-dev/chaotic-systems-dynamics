@@ -90,7 +90,7 @@ produces a proposal file ready for the next pipeline.
 ## Step 0 — Initialize state
 
 ```bash
-.claude/scripts/draft-proposal/init-draft-proposal.sh <slug> [--from CSC-A,...] [--brief "..."]
+python .claude/scripts/draft-proposal/checkpoint.py init <slug> [--from CSC-A,...] [--brief "..."]
 ```
 
 The init script:
@@ -104,7 +104,7 @@ The init script:
   `state.json`.
 
 ```bash
-.claude/scripts/draft-proposal/status.sh <ID>
+python .claude/scripts/draft-proposal/checkpoint.py status <ID>
 ```
 
 Inspect current phase + history before deciding which step to run.
@@ -448,8 +448,8 @@ back to `refine-running` (BLOCKERs found, cycle < 3). The
 `critique_cycle` counter is the loop bound; `checkpoint.py`
 refuses any `refine-running` re-entry when `critique_cycle >= 3`.
 
-If the session compacts mid-run, `status.sh <ID>` shows where to
-resume. For any `*-running` phase, `status.sh` additionally
+If the session compacts mid-run, `checkpoint.py status <ID>` shows where to
+resume. For any `*-running` phase, `checkpoint.py status` additionally
 inspects the expected artefacts on disk and surfaces "agents
 appear to have completed — run verify.py + checkpoint.py to
 advance" vs. "no artefacts on disk — re-dispatch the phase's
@@ -487,7 +487,7 @@ agents".
   pipeline.
 - Don't manufacture items (every entry must trace to ≥ 1 CSC item
   or a clear excerpt of the freeform brief — critic axis 1).
-- Don't bypass `init-draft-proposal.sh`.
+- Don't bypass `checkpoint.py init`.
 - Don't `git push` at any phase. Don't `git commit` either — the
   proposal file gets committed downstream by `/milestone-pipeline`
   when the first item ships. The Phase 5 `git log` diff check

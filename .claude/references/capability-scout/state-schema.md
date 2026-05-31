@@ -20,7 +20,7 @@
 `2026-05-18-diagnostics`, `2026-q2-perf`).
 
 The whole tree is gitignored — pipeline artifacts are run-local. The
-`.claude/notes/` directory pattern is established by `init-capability-scout.sh`.
+`.claude/notes/` directory pattern is established by `checkpoint.py init`.
 
 ## state.json schema
 
@@ -93,4 +93,4 @@ init
 
 `checkpoint.py` refuses any transition that's backward or skips a phase.
 This is the resume-safety guarantee — if compaction strikes mid-run, the
-next session can `status.sh <ID>` and pick up exactly where it left off.
+next session can `checkpoint.py status <ID>` and pick up exactly where it left off.

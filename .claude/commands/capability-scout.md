@@ -49,7 +49,7 @@ candidate report ready to feed `/milestone-pipeline`.
 ## Step 0 — Initialize state
 
 ```bash
-.claude/scripts/capability-scout/init-capability-scout.sh <ID> [--brief "..."] [--lean | --deep]
+python .claude/scripts/capability-scout/checkpoint.py init <ID> [--brief "..."] [--lean | --deep]
 ```
 
 Idempotent — re-running on the same ID resumes from the current phase.
@@ -57,7 +57,7 @@ The script also creates per-agent project memory dirs under
 `.claude/agent-memory/capability-scout-*/`.
 
 ```bash
-.claude/scripts/capability-scout/status.sh <ID>
+python .claude/scripts/capability-scout/checkpoint.py status <ID>
 ```
 
 Inspect current phase + history before deciding which step to run.
@@ -252,7 +252,7 @@ init
 ```
 
 `checkpoint.py` enforces forward-only single-step transitions. If the
-session compacts mid-run, `status.sh <ID>` shows where to resume.
+session compacts mid-run, `checkpoint.py status <ID>` shows where to resume.
 
 ---
 
@@ -273,7 +273,7 @@ session compacts mid-run, `status.sh <ID>` shows where to resume.
 - Don't let the synthesizer write the challenge.
 - Don't auto-invoke `/milestone-pipeline` or any downstream pipeline.
 - Don't manufacture candidates (every entry must trace to ≥ 1 brief).
-- Don't bypass `init-capability-scout.sh`.
+- Don't bypass `checkpoint.py init`.
 - Don't `git push` at any phase (artifacts are gitignored).
 
 ## Sub-agent memory

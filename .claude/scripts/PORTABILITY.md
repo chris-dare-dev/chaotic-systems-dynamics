@@ -214,3 +214,40 @@ no heredoc/`command -v` portability surface. This is a larger change (it also
 touches the three slash-command bodies that currently call `bash ...sh`) and is
 left as a deliberate follow-up rather than bundled here.
 
+
+---
+
+# Round 3 - the Python port (PT1-PT4)
+
+The "remaining cross-platform ceiling" above is being executed as the
+`python-only-pipeline-tooling-2026-05-31` proposal (PT1-PT4):
+
+- **PT1a/PT1b (shipped):** `init` and `status` are now subcommands of each
+  pipeline's `checkpoint.py`, backed by `.claude/scripts/_pipeline_common.py`.
+- **PT2 (shipped):** `ensure-gui-bootable.sh` -> `ensure_gui_bootable.py`.
+- **PT3 (this round):** every in-repo caller -- the three `.claude/commands/*.md`
+  slash-command bodies, the `.claude/references/**` docs, and the `checkpoint.py`
+  / `verify.py` not-found error strings -- now invokes the Python entrypoints.
+  Historical "replacement for the former <X>.sh" docstrings in the surviving
+  `.py` files are intentionally retained, the same kind of record this document
+  is.
+- **PT4 (next):** delete the now-dead `.sh` files.
+
+## Command mapping (`bash ...sh` -> `python ...`)
+
+Apply this anywhere outside this repo that still calls the old scripts (e.g. an
+external harness/plugin that injects the slash-command bodies). After PT4 the
+`.sh` files no longer exist, so an un-migrated caller breaks.
+
+| Old (bash, POSIX-only) | New (python, any OS) |
+|---|---|
+| `bash .../capability-scout/init-capability-scout.sh <ID> [...]` | `python .../capability-scout/checkpoint.py init <ID> [...]` |
+| `bash .../capability-scout/status.sh <ID>` | `python .../capability-scout/checkpoint.py status <ID>` |
+| `bash .../draft-proposal/init-draft-proposal.sh <slug> [...]` | `python .../draft-proposal/checkpoint.py init <slug> [...]` |
+| `bash .../draft-proposal/status.sh <ID>` | `python .../draft-proposal/checkpoint.py status <ID>` |
+| `bash .../frontend-uplift/init-frontend-uplift.sh <ID> [...]` | `python .../frontend-uplift/checkpoint.py init <ID> [...]` |
+| `bash .../frontend-uplift/status.sh <ID>` | `python .../frontend-uplift/checkpoint.py status <ID>` |
+| `bash .../frontend-uplift/ensure-gui-bootable.sh` | `python .../frontend-uplift/ensure_gui_bootable.py` |
+
+The `checkpoint.py <ID> <phase>` / `--get` / `--set` / `--append` subcommands and
+`verify.py <ID> phase-N` were already pure Python and are unchanged.

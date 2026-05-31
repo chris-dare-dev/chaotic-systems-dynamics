@@ -68,7 +68,7 @@ def _load(state_path: Path) -> dict:
     if not state_path.exists():
         sys.exit(
             f"state.json not found at {state_path} — run "
-            "init-frontend-uplift.sh first"
+            "'checkpoint.py init <ID>' first"
         )
     return json.loads(state_path.read_text(encoding="utf-8"))
 
@@ -336,7 +336,7 @@ def status(argv: list[str]) -> None:
         print(f"Final report:    {state['final_report_path']}")
 
     next_hint = {
-        "init": "discover-running (preflight ensure-gui-bootable.sh, then dispatch 4 agents)",
+        "init": "discover-running (preflight ensure_gui_bootable.py, then dispatch 4 agents)",
         "discover-running": "discover-complete (agents in flight; await briefs + screenshots)",
         "discover-complete": "synthesize-running (run Phase 2 — main session merges)",
         "synthesize-running": "synthesize-complete (synthesis.md written)",
