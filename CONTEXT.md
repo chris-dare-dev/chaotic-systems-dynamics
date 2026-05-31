@@ -111,6 +111,29 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-31, python-only pipeline tooling)
+
+- **PT1a — pure-Python `init` subcommand for the pipeline tooling**
+  (commit `a40949b`, 2026-05-31). First increment of PT1 in
+  ``docs/proposals/python-only-pipeline-tooling-2026-05-31.md``: a shared
+  ``.claude/scripts/_pipeline_common.py`` (cross-platform repo-root, UTC,
+  git-head, ``mkdir -p``, atomic UTF-8 state I/O) plus an ``init``
+  subcommand on each pipeline's ``checkpoint.py`` (capability-scout /
+  draft-proposal / frontend-uplift), replacing the three ``init-*.sh``
+  bash wrappers. Verified byte-identical ``state.json`` schema vs the bash
+  golden on all three pipelines (keys identical, zero non-volatile value
+  mismatches, all ``--brief``/``--lean``/``--deep``/``--from`` flags
+  preserved, ``init_head_sha`` captured, idempotent resume exit 0); 29 new
+  ``tests/tooling/`` tests, full venv suite 919 passed / 14 skipped / 0
+  failed. Removes the bash dependency from pipeline *initialization* so
+  ``python`` + ``git`` suffice on native Windows. This commit also folds in
+  the cross-platform hardening Rounds 1-2 the same ``checkpoint.py`` files
+  carry inseparably (``.claude/scripts/PORTABILITY.md``): UTF-8 stream
+  reconfigure + ``encoding="utf-8"`` opens, idempotent same-phase advance
+  no-op, ``command -v python3 || python`` probe in the remaining ``.sh``,
+  and ``.gitattributes`` pinning ``*.sh eol=lf``. Next: PT1b (``status``
+  subcommand + full byte-parity suite), then PT2 / PT3 / PT4.
+
 ## Recently shipped (2026-05-21, capability roadmap rollout cont'd)
 
 - **V4 — PNG snapshot + CSV / NPZ / JSON workflow exports.** Closes
