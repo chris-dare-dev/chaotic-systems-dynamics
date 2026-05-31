@@ -113,6 +113,28 @@ follow-ups:
 
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
+- **PT1b — pure-Python `status` subcommand + byte-parity suite**
+  (commit `<pending>`, 2026-05-31). Second increment of PT1 in
+  ``docs/proposals/python-only-pipeline-tooling-2026-05-31.md``: a ``status``
+  subcommand on each pipeline's ``checkpoint.py`` (capability-scout /
+  draft-proposal / frontend-uplift) that reproduces the former ``status.sh``
+  human-readable dump **byte-for-byte** — same labels, column widths,
+  phase-history elapsed deltas (``+ Nm → next`` / ``+ Ns → next`` with the
+  literal U+2192 arrow, now safe via the PT1a UTF-8 stream reconfigure), and
+  ``Next:`` hint. The not-found message is the one deliberate deviation: it
+  points at ``checkpoint.py init`` instead of the soon-to-be-removed
+  ``init-*.sh``. Adds ``tests/tooling/test_status.py`` (16 tests; tooling
+  suite 29 -> 45, full venv suite 919 -> 935 passed / 14 skipped / 0
+  failed): bash-independent in-process golden tests pin the exact rendered
+  lines, plus opportunistic byte-parity tests that run BOTH ``status.sh``
+  and the Python ``status`` against a crafted fixed-timestamp state and
+  assert identical output (normalizing only the live ``N min ago`` token) —
+  this caught and pinned the frontend-uplift screenshots block, which scans
+  the filesystem rather than a state field. With PT1a + PT1b,
+  pipeline ``init`` and ``status`` are fully bash-free; the ``.sh`` wrappers
+  remain only as the parity reference until PT3 (rewire callers) and PT4
+  (delete). Next: PT2 (``ensure-gui-bootable.py``). SHA stamped post-commit.
+
 - **PT1a — pure-Python `init` subcommand for the pipeline tooling**
   (commit `a40949b`, 2026-05-31). First increment of PT1 in
   ``docs/proposals/python-only-pipeline-tooling-2026-05-31.md``: a shared

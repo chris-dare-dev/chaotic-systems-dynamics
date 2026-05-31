@@ -3,6 +3,7 @@
 
 Usage:
   checkpoint.py init <ID> [--brief "..."] [--lean | --deep]  # create state.json
+  checkpoint.py status <ID>                   # print human-readable state
   checkpoint.py <ID> <new-phase>             # advance state
   checkpoint.py <ID> --get <field>           # read a top-level field
   checkpoint.py <ID> --set <field>=<json>    # set a top-level field
@@ -237,9 +238,123 @@ def init(argv: list[str]) -> None:
     print("  phase: init")
 
 
+def _parse_ts(ts: str) -> datetime:
+    return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+def status(argv: list[str]) -> None:
+    """Print the frontend-uplift state in a human-readable form.
+
+    Pure-Python replacement for ``status.sh``. Output is byte-identical to the
+    former bash heredoc (same labels, column widths, phase-history elapsed
+    deltas, and ``Next:`` hint).
+    """
+    if not argv:
+        sys.exit("usage: checkpoint.py status <ID>")
+    uid = argv[0]
+    state_path = _state_path(uid)
+    if not state_path.exists():
+        sys.exit(
+            f"no state for {uid} -- run 'checkpoint.py init {uid}' first"
+        )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    now = datetime.now(UTC)
+    hist = state["phase_history"]
+
+    print(f"Frontend-uplift: {state['id']}")
+    print(f"Mode:            {state.get('discover_mode', 'standard')}")
+    cur_phase = state["phase"]
+    last_ts = _parse_ts(hist[-1]["at"])
+    mins_in_phase = int((now - last_ts).total_seconds() // 60)
+    print(
+        f"Phase:           {cur_phase} (since {hist[-1]['at']}, "
+        f"{mins_in_phase} min ago)"
+    )
+
+    print("History:")
+    for i, entry in enumerate(hist):
+        ts = _parse_ts(entry["at"])
+        if i + 1 < len(hist):
+            nxt = _parse_ts(hist[i + 1]["at"])
+            delta = nxt - ts
+            mins = int(delta.total_seconds() // 60)
+            secs = int(delta.total_seconds() % 60)
+            elapsed = (
+                f"+{mins:>2}m → {hist[i + 1]['phase']}"
+                if mins > 0
+                else f"+{secs:>2}s → {hist[i + 1]['phase']}"
+            )
+        else:
+            elapsed = "(now)"
+        print(f"  {entry['phase']:<22} {entry['at']} {elapsed}")
+
+    dispatched = state.get("agents_dispatched") or []
+    returned = state.get("agents_returned") or []
+    if dispatched:
+        pending = sorted(set(dispatched) - set(returned))
+        print(f"Agents:          dispatched={','.join(dispatched)}")
+        print(
+            f"                 returned="
+            f"{','.join(returned) if returned else '(none yet)'}"
+        )
+        if pending:
+            print(f"                 pending={','.join(pending)}")
+
+    # Screenshot count — visual-scout dumps PNGs into screenshots/. Mirror the
+    # legacy status.sh exactly: scan the on-disk dir (under repo root) rather
+    # than trusting a state field, list up to 5 names, then a "+N more" tail.
+    ss_dir = common.repo_root() / state.get("screenshots_dir", "")
+    if ss_dir.is_dir():
+        pngs = sorted(p.name for p in ss_dir.iterdir() if p.suffix == ".png")
+        print(
+            f"Screenshots:     {len(pngs)} in {state.get('screenshots_dir', '')}"
+        )
+        for p in pngs[:5]:
+            print(f"                 - {p}")
+        if len(pngs) > 5:
+            print(f"                 ... +{len(pngs) - 5} more")
+
+    if state.get("synthesis_path"):
+        print(
+            f"Synthesis:       {state['synthesis_path']} "
+            f"({state.get('candidate_count', 0)} candidates)"
+        )
+
+    if state.get("challenge_path"):
+        counts = state.get(
+            "challenge_finding_counts",
+            {"critical": 0, "high": 0, "medium": 0, "low": 0},
+        )
+        print(
+            f"Challenge:       {state['challenge_path']} "
+            f"(critical={counts.get('critical', 0)}, high={counts.get('high', 0)}, "
+            f"medium={counts.get('medium', 0)}, low={counts.get('low', 0)})"
+        )
+
+    if state.get("final_report_path"):
+        print(f"Final report:    {state['final_report_path']}")
+
+    next_hint = {
+        "init": "discover-running (preflight ensure-gui-bootable.sh, then dispatch 4 agents)",
+        "discover-running": "discover-complete (agents in flight; await briefs + screenshots)",
+        "discover-complete": "synthesize-running (run Phase 2 — main session merges)",
+        "synthesize-running": "synthesize-complete (synthesis.md written)",
+        "synthesize-complete": "challenge-running (run Phase 3 — dispatch challenger)",
+        "challenge-running": "challenge-complete (challenger in flight)",
+        "challenge-complete": "prioritize-running (run Phase 4 — main session ranks)",
+        "prioritize-running": "complete (final-report.md written)",
+        "complete": "(terminal — pipeline done; offer /milestone-pipeline handoff)",
+    }
+    print(f"Next:            {next_hint.get(cur_phase, '(unknown)')}")
+
+
 def main(argv: list[str]) -> None:
     if len(argv) >= 2 and argv[1] == "init":
         init(argv[2:])
+        return
+    if len(argv) >= 2 and argv[1] == "status":
+        status(argv[2:])
         return
     if len(argv) < 3:
         sys.exit(__doc__)

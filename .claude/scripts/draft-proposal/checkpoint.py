@@ -3,6 +3,7 @@
 
 Usage:
   checkpoint.py init <slug> [--from CSC-A,...] [--brief "..."]  # create state.json
+  checkpoint.py status <ID>                   # print human-readable state
   checkpoint.py <ID> <new-phase>             # advance state
   checkpoint.py <ID> --get <field>           # read a top-level field
   checkpoint.py <ID> --set <field>=<json>    # set a top-level field
@@ -321,9 +322,132 @@ def init(argv: list[str]) -> None:
     print("  phase:       init")
 
 
+def _parse_ts(ts: str) -> datetime:
+    return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+def status(argv: list[str]) -> None:
+    """Print the draft-proposal state in a human-readable form.
+
+    Pure-Python replacement for ``status.sh``. Output is byte-identical to the
+    former bash heredoc (same labels, column widths, phase-history elapsed
+    deltas, and ``Next:`` hint).
+    """
+    if not argv:
+        sys.exit("usage: checkpoint.py status <ID>")
+    uid = argv[0]
+    state_path = _state_path(uid)
+    if not state_path.exists():
+        sys.exit(
+            f"no state for {uid} -- run 'checkpoint.py init {uid}' first"
+        )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    now = datetime.now(UTC)
+    hist = state["phase_history"]
+
+    print(f"Draft-proposal: {state['id']}")
+    print(f"Slug:           {state.get('slug', '(unknown)')}")
+    print(f"Date:           {state.get('date', '(unknown)')}")
+    print(f"Source kind:    {state.get('source_kind', '(unknown)')}")
+    csc = state.get("csc_items") or []
+    if csc:
+        print(f"CSC items:      {','.join(csc)}")
+    brief = state.get("draft_brief") or ""
+    if brief:
+        print(f"Brief:          (set, {len(brief)} chars)")
+
+    cur_phase = state["phase"]
+    last_ts = _parse_ts(hist[-1]["at"])
+    mins_in_phase = int((now - last_ts).total_seconds() // 60)
+    print(
+        f"Phase:          {cur_phase} (since {hist[-1]['at']}, "
+        f"{mins_in_phase} min ago)"
+    )
+
+    print("History:")
+    for i, entry in enumerate(hist):
+        ts = _parse_ts(entry["at"])
+        if i + 1 < len(hist):
+            nxt = _parse_ts(hist[i + 1]["at"])
+            delta = nxt - ts
+            mins = int(delta.total_seconds() // 60)
+            secs = int(delta.total_seconds() % 60)
+            elapsed = (
+                f"+{mins:>2}m → {hist[i + 1]['phase']}"
+                if mins > 0
+                else f"+{secs:>2}s → {hist[i + 1]['phase']}"
+            )
+        else:
+            elapsed = "(now)"
+        print(f"  {entry['phase']:<22} {entry['at']} {elapsed}")
+
+    if state.get("source_brief_path"):
+        resolved = state.get("resolved_csc_items") or []
+        extra = f" ({len(resolved)} CSC items resolved)" if resolved else ""
+        print(f"Source brief:   {state['source_brief_path']}{extra}")
+
+    dispatched = state.get("agents_dispatched") or []
+    returned = state.get("agents_returned") or []
+    if dispatched:
+        pending = sorted(set(dispatched) - set(returned))
+        print(f"Agents:         dispatched={','.join(dispatched)}")
+        print(
+            f"                returned="
+            f"{','.join(returned) if returned else '(none yet)'}"
+        )
+        if pending:
+            print(f"                pending={','.join(pending)}")
+
+    if state.get("draft_path"):
+        print(
+            f"Draft:          {state['draft_path']} "
+            f"({state.get('item_count', 0)} items)"
+        )
+
+    if state.get("sequencing_path"):
+        print(f"Sequencing:     {state['sequencing_path']}")
+
+    if state.get("critique_path"):
+        counts = state.get(
+            "critique_finding_counts",
+            {"blocker": 0, "major": 0, "minor": 0, "none": 0},
+        )
+        print(
+            f"Critique:       {state['critique_path']} "
+            f"(blocker={counts.get('blocker', 0)}, major={counts.get('major', 0)}, "
+            f"minor={counts.get('minor', 0)}, none={counts.get('none', 0)})"
+        )
+
+    if state.get("final_proposal_path"):
+        dropped = state.get("dropped_at_refinement") or []
+        extra = f"; {len(dropped)} dropped at refinement" if dropped else ""
+        print(
+            f"Final proposal: {state['final_proposal_path']} "
+            f"({state.get('final_item_count', 0)} items{extra})"
+        )
+
+    next_hint = {
+        "init": "resolve-running (Phase 1 — main session resolves source into source-brief.md)",
+        "resolve-running": "resolve-complete (source brief written)",
+        "resolve-complete": "draft-running (Phase 2 — dispatch drafter + sequencer in ONE turn)",
+        "draft-running": "draft-complete (drafter + sequencer in flight)",
+        "draft-complete": "critique-running (Phase 3 — dispatch critic)",
+        "critique-running": "critique-complete (critic in flight)",
+        "critique-complete": "refine-running (Phase 4 — dispatch refiner)",
+        "refine-running": "refine-complete (refiner writes docs/proposals/<slug>-<DATE>.md)",
+        "refine-complete": "complete (Phase 5 — main session prints handoff offer)",
+        "complete": "(terminal — pipeline done; offer /milestone-pipeline handoff)",
+    }
+    print(f"Next:           {next_hint.get(cur_phase, '(unknown)')}")
+
+
 def main(argv: list[str]) -> None:
     if len(argv) >= 2 and argv[1] == "init":
         init(argv[2:])
+        return
+    if len(argv) >= 2 and argv[1] == "status":
+        status(argv[2:])
         return
     if len(argv) < 3:
         sys.exit(__doc__)
