@@ -29,6 +29,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows consoles default to cp1252, which cannot encode the em-dashes used in
+# some PASS/FAIL messages below; force UTF-8 so behaviour matches Linux/macOS.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):  # pragma: no cover - non-TextIO stream
+        pass
+
 
 def _repo_root() -> Path:
     """Resolve the parent repo root.

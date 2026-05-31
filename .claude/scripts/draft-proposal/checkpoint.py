@@ -2,20 +2,32 @@
 """Advance draft-proposal state to the next phase, or read/write a field.
 
 Usage:
+  checkpoint.py init <slug> [--from CSC-A,...] [--brief "..."]  # create state.json
   checkpoint.py <ID> <new-phase>             # advance state
   checkpoint.py <ID> --get <field>           # read a top-level field
   checkpoint.py <ID> --set <field>=<json>    # set a top-level field
   checkpoint.py <ID> --append <field>=<json> # append json to a list field
 
 Refuses backward and skipped transitions.  Writes atomically.
+
+The ``init`` subcommand (PT1a,
+docs/proposals/python-only-pipeline-tooling-2026-05-31.md) is the pure-Python
+replacement for the former ``init-draft-proposal.sh``; ``python`` + ``git``
+are the only runtime requirements on any OS.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
+
+# Import the shared cross-platform helpers from the sibling ``.claude/scripts``
+# directory. The scripts tree is not an installed package, so prepend its path.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import _pipeline_common as common  # noqa: E402
 
 try:
     from datetime import UTC, datetime
@@ -23,6 +35,16 @@ except ImportError:  # pragma: no cover - Python <3.11 fallback
     from datetime import datetime, timezone
 
     UTC = timezone.utc  # noqa: UP017 - fallback for Python <3.11
+
+# Windows consoles default to a legacy code page (cp1252) whose codec cannot
+# encode the arrows / em-dashes used in the messages below; that raised
+# UnicodeEncodeError mid-pipeline. Force UTF-8 on the std streams so output is
+# identical on Linux and Windows regardless of the active code page.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):  # pragma: no cover - non-TextIO stream
+        pass
 
 PHASE_ORDER = [
     "init",
@@ -61,12 +83,12 @@ def _load(state_path: Path) -> dict:
             f"state.json not found at {state_path} — run "
             "init-draft-proposal.sh first"
         )
-    return json.loads(state_path.read_text())
+    return json.loads(state_path.read_text(encoding="utf-8"))
 
 
 def _save_atomic(state_path: Path, state: dict) -> None:
     tmp = state_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(state, indent=2))
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
     os.replace(tmp, state_path)
 
 
@@ -106,8 +128,15 @@ def advance(uid: str, new_phase: str) -> None:
         return
     cur_idx = PHASE_ORDER.index(cur)
     new_idx = PHASE_ORDER.index(new_phase)
-    if new_idx <= cur_idx:
-        sys.exit(f"refusing backward/same transition: {cur} -> {new_phase}")
+    if new_idx == cur_idx:
+        # Idempotent no-op: re-advancing to the current phase is safe and
+        # must NOT error, so a call whose write landed but whose response was
+        # lost (cancelled parallel-tool batch / flaky transport) can be
+        # re-run cleanly. No history entry is appended.
+        print(f"{uid}: already at {new_phase} (no-op)")
+        return
+    if new_idx < cur_idx:
+        sys.exit(f"refusing backward transition: {cur} -> {new_phase}")
     if new_idx - cur_idx > 1:
         sys.exit(f"refusing skipped transition: {cur} -> {new_phase}")
     now = _now()
@@ -174,7 +203,128 @@ def append_field(uid: str, expr: str) -> None:
     print(f"{uid}: appended to {field} (new length {len(state[field])})")
 
 
+_DATE_SUFFIX_RE = re.compile(r"-(\d{4}-\d{2}-\d{2})$")
+
+
+def init(argv: list[str]) -> None:
+    """Create the draft-proposal state directory + state.json.
+
+    Pure-Python replacement for ``init-draft-proposal.sh``. Accepts a bare
+    ``<slug>`` (the ID becomes ``<slug>-<UTC-date>``) or a fully-qualified
+    ``<slug>-<YYYY-MM-DD>`` ID (idempotent resume). Optional ``--from
+    CSC-A,...`` or ``--brief "..."`` (mutually exclusive). Captures
+    ``init_head_sha`` for the phase-5 rogue-commit guard.
+    """
+    if not argv:
+        sys.exit(
+            'usage: checkpoint.py init <slug> [--from CSC-A[,CSC-B,...]] '
+            '[--brief "..."]'
+        )
+    raw_id = argv[0]
+    csc_list = ""
+    brief = ""
+    rest = argv[1:]
+    i = 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg == "--from":
+            csc_list = rest[i + 1] if i + 1 < len(rest) else ""
+            i += 2
+        elif arg == "--brief":
+            brief = rest[i + 1] if i + 1 < len(rest) else ""
+            i += 2
+        elif arg == "--resume":
+            # No-op: idempotent resume is the default when state.json exists.
+            i += 1
+        else:
+            sys.exit(f"unknown arg: {arg}")
+    if csc_list and brief:
+        sys.exit("refusing to accept both --from and --brief -- pick one source kind")
+
+    # Compute <ID> = <slug>-<UTC-date>, preserving an already-stamped raw id.
+    match = _DATE_SUFFIX_RE.search(raw_id)
+    if match:
+        sid = raw_id
+        slug = raw_id[: match.start()]
+        date_stamp = match.group(1)
+    else:
+        slug = raw_id
+        date_stamp = common.utc_date()
+        sid = f"{slug}-{date_stamp}"
+
+    root = common.repo_root()
+    state_dir = root / ".claude" / "notes" / "draft-proposals" / sid
+    state_path = state_dir / "state.json"
+    if common.resume_if_exists(state_path):
+        return
+
+    # Derive source_kind from the flags (matches the bash precedence).
+    if csc_list:
+        source_kind = "csc-items" if "," in csc_list else "single-csc"
+    elif brief:
+        source_kind = "freeform-brief"
+    else:
+        source_kind = "freeform-brief"
+    csc_items = [tok.strip() for tok in csc_list.split(",") if tok.strip()]
+
+    common.ensure_dirs(state_dir / "artifacts")
+    mem = root / ".claude" / "agent-memory"
+    common.ensure_dirs(
+        mem / "draft-proposal-drafter",
+        mem / "draft-proposal-sequencer",
+        mem / "draft-proposal-critic",
+        mem / "draft-proposal-refiner",
+    )
+    now = _now()
+    state = {
+        "id": sid,
+        "kind": "draft-proposal",
+        "slug": slug,
+        "date": date_stamp,
+        "date_stamp": date_stamp,  # alias kept for verify.py
+        "created_at": now,
+        "updated_at": now,
+        "init_head_sha": common.git_head_sha(root),  # phase-5 rogue-commit guard
+        "phase": "init",
+        "phase_history": [{"phase": "init", "at": now}],
+        # Phase 1 inputs
+        "source_kind": source_kind,
+        "csc_items": csc_items,
+        "draft_brief": brief,
+        # Phase 1 outputs
+        "source_brief_path": None,
+        "resolved_csc_items": [],
+        # Phase 2
+        "agents_dispatched": [],
+        "agents_returned": [],
+        "draft_path": None,
+        "sequencing_path": None,
+        "item_count": 0,
+        # Phase 3
+        "critique_path": None,
+        "critique_finding_counts": {"blocker": 0, "major": 0, "minor": 0, "none": 0},
+        "critique_cycle": 1,
+        # Phase 4
+        "final_proposal_path": None,
+        "final_item_count": 0,
+        "dropped_at_refinement": [],
+    }
+    common.write_state_atomic(state_path, state)
+    print(f"initialized {state_path}")
+    print(f"  slug:        {slug}")
+    print(f"  date:        {date_stamp}")
+    print(f"  source kind: {source_kind}")
+    if csc_list:
+        print(f"  csc items:   {csc_list}")
+    if brief:
+        print("  brief:       (set)")
+    print("  phase:       init")
+
+
 def main(argv: list[str]) -> None:
+    if len(argv) >= 2 and argv[1] == "init":
+        init(argv[2:])
+        return
     if len(argv) < 3:
         sys.exit(__doc__)
     uid, second = argv[1], argv[2]

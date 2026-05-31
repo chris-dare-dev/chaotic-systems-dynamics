@@ -15,6 +15,15 @@
 
 set -euo pipefail
 
+# Resolve a Python interpreter portably: native Windows ships `python`
+# (or the `py` launcher), not `python3`. Probe so this script runs the
+# same under Linux/macOS and Windows Git Bash/WSL.
+PY="$(command -v python3 || command -v python || true)"
+if [[ -z "$PY" ]]; then
+  echo "error: no python3/python interpreter found on PATH" >&2
+  exit 1
+fi
+
 if [[ $# -lt 1 ]]; then
   echo "usage: init-draft-proposal.sh <slug> [--from CSC-A[,CSC-B,...]] [--brief \"...\"]" >&2
   exit 2
@@ -58,7 +67,7 @@ REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 # Compute <ID> = <slug>-<YYYY-MM-DD>. If the raw ID already ends with
 # a date stamp, keep it as-is (idempotent resume).
-DATE_STAMP="$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%d'))")"
+DATE_STAMP="$("$PY" -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%d'))")"
 if [[ "$RAW_ID" =~ -[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
   ID="$RAW_ID"
   # Extract slug and date deterministically via sed; the earlier
@@ -76,7 +85,7 @@ DIR="$REPO_ROOT/.claude/notes/draft-proposals/$ID"
 STATE="$DIR/state.json"
 
 if [[ -f "$STATE" ]]; then
-  PHASE=$(python3 -c "import json; print(json.load(open('$STATE'))['phase'])")
+  PHASE=$("$PY" -c "import json; print(json.load(open('$STATE', encoding='utf-8'))['phase'])")
   echo "state already exists at $STATE (phase=$PHASE) — resuming"
   exit 0
 fi
@@ -102,7 +111,7 @@ fi
 # the raw input via stdin to avoid leaning on /tmp/ (G1 in the
 # 2026-05-19 adversary review: cross-platform shell discipline) and
 # capture the JSON output into a shell variable directly.
-CSC_ITEMS_JSON="$(python3 - "$CSC_LIST" <<'PY'
+CSC_ITEMS_JSON="$("$PY" - "$CSC_LIST" <<'PY'
 import json, sys
 raw = sys.argv[1]
 items = []
@@ -128,14 +137,14 @@ mkdir -p \
   "$REPO_ROOT/.claude/agent-memory/draft-proposal-critic" \
   "$REPO_ROOT/.claude/agent-memory/draft-proposal-refiner"
 
-NOW=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+NOW=$("$PY" -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 # Record the current git HEAD so verify.py phase-5 can detect any
 # rogue agent commits during the pipeline run (G4 in the 2026-05-19
 # adversary review — the "general-purpose-via-prompt" dispatch can
 # subvert the tool-allowlist and let an agent `git commit`).
 INIT_HEAD_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo '')"
 
-python3 - "$STATE" "$ID" "$SLUG" "$DATE_STAMP" "$NOW" "$SOURCE_KIND" "$CSC_ITEMS_JSON" "$BRIEF" "$INIT_HEAD_SHA" <<'PY'
+"$PY" - "$STATE" "$ID" "$SLUG" "$DATE_STAMP" "$NOW" "$SOURCE_KIND" "$CSC_ITEMS_JSON" "$BRIEF" "$INIT_HEAD_SHA" <<'PY'
 import json, os, sys
 state_path, sid, slug, date_stamp, now, source_kind, csc_items_raw, brief, init_head_sha = sys.argv[1:10]
 csc_items = json.loads(csc_items_raw)
@@ -173,7 +182,7 @@ state = {
     "dropped_at_refinement": [],
 }
 tmp = state_path + ".tmp"
-with open(tmp, "w") as f:
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(state, f, indent=2)
 os.replace(tmp, state_path)
 PY

@@ -36,7 +36,7 @@ fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 
-OUTPUT=$(python3 <<'PY' 2>&1
+OUTPUT=$("$PY" <<'PY' 2>&1
 import sys
 
 try:

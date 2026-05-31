@@ -2,12 +2,18 @@
 """Advance capability-scout state to the next phase, or read/write a field.
 
 Usage:
+  checkpoint.py init <ID> [--brief "..."] [--lean | --deep]  # create state.json
   checkpoint.py <ID> <new-phase>             # advance state
   checkpoint.py <ID> --get <field>           # read a top-level field
   checkpoint.py <ID> --set <field>=<json>    # set a top-level field
   checkpoint.py <ID> --append <field>=<json> # append json to a list field
 
 Refuses backward and skipped transitions.  Writes atomically.
+
+The ``init`` subcommand (PT1a,
+docs/proposals/python-only-pipeline-tooling-2026-05-31.md) is the pure-Python
+replacement for the former ``init-capability-scout.sh``; ``python`` + ``git``
+are the only runtime requirements on any OS.
 """
 
 from __future__ import annotations
@@ -17,12 +23,27 @@ import os
 import sys
 from pathlib import Path
 
+# Import the shared cross-platform helpers from the sibling ``.claude/scripts``
+# directory. The scripts tree is not an installed package, so prepend its path.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import _pipeline_common as common  # noqa: E402
+
 try:
     from datetime import UTC, datetime
 except ImportError:  # pragma: no cover - Python <3.11 fallback
     from datetime import datetime, timezone
 
     UTC = timezone.utc
+
+# Windows consoles default to a legacy code page (cp1252) whose codec cannot
+# encode the arrows / em-dashes used in the messages below; that raised
+# UnicodeEncodeError mid-pipeline. Force UTF-8 on the std streams so output is
+# identical on Linux and Windows regardless of the active code page.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):  # pragma: no cover - non-TextIO stream
+        pass
 
 PHASE_ORDER = [
     "init",
@@ -50,12 +71,12 @@ def _load(state_path: Path) -> dict:
             f"state.json not found at {state_path} — run "
             "init-capability-scout.sh first"
         )
-    return json.loads(state_path.read_text())
+    return json.loads(state_path.read_text(encoding="utf-8"))
 
 
 def _save_atomic(state_path: Path, state: dict) -> None:
     tmp = state_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(state, indent=2))
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
     os.replace(tmp, state_path)
 
 
@@ -73,16 +94,25 @@ def advance(uid: str, new_phase: str) -> None:
     cur = state["phase"]
     cur_idx = PHASE_ORDER.index(cur)
     new_idx = PHASE_ORDER.index(new_phase)
-    if new_idx <= cur_idx:
-        sys.exit(f"refusing backward/same transition: {cur} → {new_phase}")
+    if new_idx == cur_idx:
+        # Idempotent no-op: re-advancing to the phase we're already in is
+        # safe and must NOT error. This lets a call whose write landed but
+        # whose response was lost (cancelled parallel-tool batch / flaky
+        # transport) be re-run cleanly instead of exiting non-zero and
+        # poisoning the next batch. No history entry is appended.
+        print(f"{uid}: already at {new_phase} (no-op)")
+        return
+    if new_idx < cur_idx:
+        sys.exit(f"refusing backward transition: {cur} -> {new_phase}")
     if new_idx - cur_idx > 1:
-        sys.exit(f"refusing skipped transition: {cur} → {new_phase}")
+        sys.exit(f"refusing skipped transition: {cur} -> {new_phase}")
     now = _now()
     state["phase"] = new_phase
     state["updated_at"] = now
     state["phase_history"].append({"phase": new_phase, "at": now})
     _save_atomic(sp, state)
-    print(f"{uid}: {cur} → {new_phase} @ {now}")
+    # ASCII arrow: robust even if stdout reconfigure() above failed.
+    print(f"{uid}: {cur} -> {new_phase} @ {now}")
 
 
 def get_field(uid: str, field: str) -> None:
@@ -140,7 +170,82 @@ def append_field(uid: str, expr: str) -> None:
     print(f"{uid}: appended to {field} (new length {len(state[field])})")
 
 
+def init(argv: list[str]) -> None:
+    """Create the capability-scout state directory + state.json.
+
+    Pure-Python replacement for ``init-capability-scout.sh``. Free-form ``ID``;
+    optional ``--brief``, ``--lean`` / ``--deep`` mode flags. Idempotent: if
+    state.json already exists, prints the resume line and returns (exit 0).
+    """
+    if not argv:
+        sys.exit('usage: checkpoint.py init <ID> [--brief "..."] [--lean | --deep]')
+    uid = argv[0]
+    brief = ""
+    survey_mode = "standard"
+    rest = argv[1:]
+    i = 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg == "--brief":
+            brief = rest[i + 1] if i + 1 < len(rest) else ""
+            i += 2
+        elif arg == "--lean":
+            survey_mode = "lean"
+            i += 1
+        elif arg == "--deep":
+            survey_mode = "deep"
+            i += 1
+        else:
+            sys.exit(f"unknown arg: {arg}")
+    root = common.repo_root()
+    state_dir = root / ".claude" / "notes" / "capability-scouts" / uid
+    state_path = state_dir / "state.json"
+    if common.resume_if_exists(state_path):
+        return
+    common.ensure_dirs(state_dir / "survey-briefs", state_dir / "artifacts")
+    mem = root / ".claude" / "agent-memory"
+    common.ensure_dirs(
+        mem / "capability-scout-competitive",
+        mem / "capability-scout-academic",
+        mem / "capability-scout-oss",
+        mem / "capability-scout-internal-adversary",
+        mem / "capability-scout-challenger",
+    )
+    now = _now()
+    state = {
+        "id": uid,
+        "kind": "capability-scout",
+        "created_at": now,
+        "updated_at": now,
+        "phase": "init",
+        "phase_history": [{"phase": "init", "at": now}],
+        "capability_scout_brief": brief,
+        # Phase 1
+        "survey_mode": survey_mode,
+        "agents_dispatched": [],
+        "agents_returned": [],
+        "survey_briefs": [],
+        # Phase 2
+        "synthesis_path": None,
+        "candidate_count": 0,
+        # Phase 3
+        "challenge_path": None,
+        "challenge_finding_counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+        # Phase 4
+        "final_report_path": None,
+        "ranked_candidates": [],
+    }
+    common.write_state_atomic(state_path, state)
+    print(f"initialized {state_path}")
+    print(f"  brief: {'set' if brief else '(empty -- pass --brief to populate)'}")
+    print(f"  mode:  {survey_mode}")
+    print("  phase: init")
+
+
 def main(argv: list[str]) -> None:
+    if len(argv) >= 2 and argv[1] == "init":
+        init(argv[2:])
+        return
     if len(argv) < 3:
         sys.exit(__doc__)
     uid, second = argv[1], argv[2]

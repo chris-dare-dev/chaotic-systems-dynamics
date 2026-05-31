@@ -9,6 +9,15 @@
 
 set -euo pipefail
 
+# Resolve a Python interpreter portably: native Windows ships `python`
+# (or the `py` launcher), not `python3`. Probe so this script runs the
+# same under Linux/macOS and Windows Git Bash/WSL.
+PY="$(command -v python3 || command -v python || true)"
+if [[ -z "$PY" ]]; then
+  echo "error: no python3/python interpreter found on PATH" >&2
+  exit 1
+fi
+
 if [[ $# -lt 1 ]]; then
   echo "usage: init-capability-scout.sh <ID> [--brief \"...\"]" >&2
   exit 2
@@ -45,7 +54,7 @@ DIR="$REPO_ROOT/.claude/notes/capability-scouts/$ID"
 STATE="$DIR/state.json"
 
 if [[ -f "$STATE" ]]; then
-  PHASE=$(python3 -c "import json; print(json.load(open('$STATE'))['phase'])")
+  PHASE=$("$PY" -c "import json; print(json.load(open('$STATE', encoding='utf-8'))['phase'])")
   echo "state already exists at $STATE (phase=$PHASE) — resuming"
   exit 0
 fi
@@ -62,9 +71,9 @@ mkdir -p \
   "$REPO_ROOT/.claude/agent-memory/capability-scout-internal-adversary" \
   "$REPO_ROOT/.claude/agent-memory/capability-scout-challenger"
 
-NOW=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+NOW=$("$PY" -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 
-python3 - "$STATE" "$ID" "$NOW" "$BRIEF" "$SURVEY_MODE" <<'PY'
+"$PY" - "$STATE" "$ID" "$NOW" "$BRIEF" "$SURVEY_MODE" <<'PY'
 import json, os, sys
 state_path, sid, now, brief, mode = sys.argv[1:6]
 state = {
@@ -91,7 +100,7 @@ state = {
     "ranked_candidates": [],
 }
 tmp = state_path + ".tmp"
-with open(tmp, "w") as f:
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(state, f, indent=2)
 os.replace(tmp, state_path)
 PY

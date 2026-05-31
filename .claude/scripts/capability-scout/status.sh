@@ -4,6 +4,13 @@
 
 set -euo pipefail
 
+# Portable Python interpreter probe (native Windows has no `python3`).
+PY="$(command -v python3 || command -v python || true)"
+if [[ -z "$PY" ]]; then
+  echo "error: no python3/python interpreter found on PATH" >&2
+  exit 1
+fi
+
 if [[ $# -lt 1 ]]; then
   echo "usage: status.sh <ID>" >&2
   exit 2
@@ -18,12 +25,20 @@ if [[ ! -f "$STATE" ]]; then
   exit 1
 fi
 
-python3 - "$STATE" <<'PY'
+"$PY" - "$STATE" <<'PY'
 import json, sys
 from datetime import datetime, timezone
 
+# Windows defaults stdout to cp1252, which cannot encode the U+2192 arrows
+# printed below; force UTF-8 so output matches Linux/macOS.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 state_path = sys.argv[1]
-state = json.load(open(state_path))
+state = json.load(open(state_path, encoding="utf-8"))
 
 
 def parse(ts):

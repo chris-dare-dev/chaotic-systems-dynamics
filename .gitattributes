@@ -1,0 +1,26 @@
+# Normalize line endings so the repo behaves identically on Linux, macOS,
+# and Windows checkouts (including when a contributor has
+# core.autocrlf=true configured globally on Windows).
+
+# Default: let Git decide text vs binary, normalize to LF in the repo.
+* text=auto eol=lf
+
+# Shell scripts MUST stay LF. A CRLF shebang line (`#!/usr/bin/env bash\r`)
+# makes bash fail with "bad interpreter: No such file or directory" on the
+# Windows Git Bash / WSL that the pipelines invoke. Pin them explicitly.
+*.sh text eol=lf
+
+# Python pipeline helpers: keep LF for consistent diffs across OSes.
+*.py text eol=lf
+
+# Markdown / docs: LF.
+*.md text eol=lf
+
+# Common binary assets — never touch line endings.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.mp4 binary
+*.npz binary
+*.ico binary
