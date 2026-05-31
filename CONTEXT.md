@@ -113,7 +113,7 @@ follow-ups:
 
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
-- **PT2 — pure-Python `ensure_gui_bootable.py`** (commit `<pending>`,
+- **PT2 — pure-Python `ensure_gui_bootable.py`** (commit `8c19e44`,
   2026-05-31). Third item of `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`:
   a cross-platform, stdlib-only replacement for the frontend-uplift
   `ensure-gui-bootable.sh` preflight. Locates the venv interpreter by
