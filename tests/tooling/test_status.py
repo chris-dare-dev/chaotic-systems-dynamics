@@ -1,17 +1,19 @@
 """Tests for the ``status`` subcommand of the three pipeline ``checkpoint.py`` files.
 
-PT1b — docs/proposals/python-only-pipeline-tooling-2026-05-31.md. Two layers:
+PT1b — docs/proposals/python-only-pipeline-tooling-2026-05-31.md.
 
-1. **In-process golden tests** (bash-independent): a crafted state.json with
-   fixed timestamps is rendered by the Python ``status`` function and the
-   output is asserted line by line — pinning labels, column widths, the
-   phase-history elapsed deltas (``+ Nm → next`` / ``+ Ns → next``), and the
-   ``Next:`` hint.
-2. **Byte-parity tests** (opportunistic, skipped when bash is unavailable):
-   the same crafted state is rendered by BOTH the legacy ``status.sh`` and the
-   Python ``status`` subcommand, and the two outputs are asserted identical
-   after normalizing the single live ``N min ago`` token. This is the
-   regression guard the PT1 proposal requires.
+**In-process golden tests** (bash-independent): a crafted state.json with fixed
+timestamps is rendered by the Python ``status`` function and the output is
+asserted line by line — pinning labels, column widths, the phase-history
+elapsed deltas (``+ Nm → next`` / ``+ Ns → next``), and the ``Next:`` hint.
+
+Historical note: PT1b originally also carried opportunistic *byte-parity* tests
+that ran the legacy ``status.sh`` and asserted its output matched the Python
+``status`` byte-for-byte. Those proved parity while the bash scripts still
+existed; PT4 (commit deleting the seven ``.sh`` files) removed the golden
+reference, so the parity tests were retired here. The in-process golden tests
+below now own the output contract — they pin the exact rendered lines without
+needing bash at all, which is the whole point of the python-only port.
 """
 
 from __future__ import annotations
@@ -19,9 +21,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
-import shutil
-import subprocess
-from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
 
@@ -278,52 +277,3 @@ def test_status_no_args_usage(monkeypatch) -> None:
     mod = _load_checkpoint("capability-scout")
     with pytest.raises(SystemExit):
         mod.status([])
-
-
-# --------------------------------------------------------------------------- #
-# Byte-parity tests vs the legacy status.sh (skipped when bash is absent)
-# --------------------------------------------------------------------------- #
-
-_BASH = shutil.which("bash")
-
-
-@pytest.fixture
-def real_state(request: pytest.FixtureRequest) -> Iterator[tuple[str, str]]:
-    """Write a crafted state.json into the REAL repo notes tree for a throwaway
-    id (both bash and python resolve to the real repo), yield (pipeline, id),
-    and clean up the dir afterward.
-    """
-    pipeline: str = request.param
-    notes_sub = _PIPELINES[pipeline]
-    state = dict(_GOLDENS[pipeline])
-    uid = "_pt1b_parity_" + pipeline.replace("-", "_")
-    state["id"] = uid
-    if pipeline == "draft-proposal":
-        # draft-proposal ids carry a date suffix; keep the slug/date coherent.
-        uid = "_pt1b_parity_dp-2026-05-31"
-        state["id"] = uid
-        state["slug"] = "_pt1b_parity_dp"
-    state_dir = _REPO_ROOT / ".claude" / "notes" / notes_sub / uid
-    state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
-    try:
-        yield pipeline, uid
-    finally:
-        shutil.rmtree(state_dir, ignore_errors=True)
-
-
-@pytest.mark.skipif(_BASH is None, reason="bash unavailable; byte-parity vs status.sh cannot run")
-@pytest.mark.parametrize("real_state", list(_PIPELINES), indirect=True)
-def test_status_byte_parity_vs_bash(real_state: tuple[str, str]) -> None:
-    pipeline, uid = real_state
-    sh = _SCRIPTS / pipeline / "status.sh"
-    py = _SCRIPTS / pipeline / "checkpoint.py"
-    sh_out = subprocess.run(
-        [_BASH, str(sh), uid], capture_output=True, text=True, encoding="utf-8"
-    )
-    py_out = subprocess.run(
-        ["python", str(py), "status", uid], capture_output=True, text=True, encoding="utf-8"
-    )
-    assert sh_out.returncode == 0, sh_out.stderr
-    assert py_out.returncode == 0, py_out.stderr
-    assert _norm(py_out.stdout) == _norm(sh_out.stdout)

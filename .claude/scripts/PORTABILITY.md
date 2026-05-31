@@ -196,7 +196,15 @@ the orchestrator (the agent driving the pipeline)**, not more script code:
   machine is forward-only and now idempotent, so a re-run is safe; a batch that
   bundles two transitions is not.
 
-## The remaining cross-platform ceiling (recommended, not yet done)
+## The remaining cross-platform ceiling (RESOLVED 2026-05-31 — see Round 3)
+
+> **Status: closed by PT1–PT4.** The bash dependency described below was the
+> last "works only because a POSIX shell happens to be installed" assumption.
+> It has been removed: `init`/`status` are now `checkpoint.py` subcommands
+> (PT1), `ensure_gui_bootable.py` replaced the bash preflight (PT2), all
+> in-repo callers were rewired (PT3), and the seven `.sh` files were deleted
+> (PT4). `python` + `git` are now the only runtime requirements on any OS. The
+> original recommendation is preserved verbatim below for the record.
 
 The biggest portability dependency left is **bash itself**: `init-*.sh` and
 `status.sh` are Bash scripts invoked as `bash .claude/scripts/.../foo.sh`. On a
@@ -225,19 +233,25 @@ The "remaining cross-platform ceiling" above is being executed as the
 - **PT1a/PT1b (shipped):** `init` and `status` are now subcommands of each
   pipeline's `checkpoint.py`, backed by `.claude/scripts/_pipeline_common.py`.
 - **PT2 (shipped):** `ensure-gui-bootable.sh` -> `ensure_gui_bootable.py`.
-- **PT3 (this round):** every in-repo caller -- the three `.claude/commands/*.md`
+- **PT3 (shipped):** every in-repo caller -- the three `.claude/commands/*.md`
   slash-command bodies, the `.claude/references/**` docs, and the `checkpoint.py`
   / `verify.py` not-found error strings -- now invokes the Python entrypoints.
   Historical "replacement for the former <X>.sh" docstrings in the surviving
   `.py` files are intentionally retained, the same kind of record this document
   is.
-- **PT4 (next):** delete the now-dead `.sh` files.
+- **PT4 (shipped):** the seven now-dead `.sh` files were deleted via `git rm`
+  (`init-*.sh` x3, `status.sh` x3, `ensure-gui-bootable.sh`). `.claude/scripts/`
+  now contains zero `.sh` files, so there is a single source of truth and no
+  accidental bash import path. The `*.sh text eol=lf` rule in the top-level
+  `.gitattributes` (round 2) is now vacuously true under `.claude/scripts/` —
+  it still guards any `.sh` added elsewhere in the repo, so it is kept.
 
 ## Command mapping (`bash ...sh` -> `python ...`)
 
 Apply this anywhere outside this repo that still calls the old scripts (e.g. an
-external harness/plugin that injects the slash-command bodies). After PT4 the
-`.sh` files no longer exist, so an un-migrated caller breaks.
+external harness/plugin that injects the slash-command bodies). As of PT4 the
+`.sh` files no longer exist, so any un-migrated external caller will break until
+it is updated to the right-hand column.
 
 | Old (bash, POSIX-only) | New (python, any OS) |
 |---|---|

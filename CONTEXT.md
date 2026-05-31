@@ -113,8 +113,26 @@ follow-ups:
 
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
+- **PT4 — delete the dead `.sh` scripts; close the portability ceiling**
+  (commit `<pending>`, 2026-05-31). Final item of
+  `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`: `git rm` of the
+  seven now-orphaned bash scripts (`init-capability-scout.sh`,
+  `init-draft-proposal.sh`, `init-frontend-uplift.sh`, three `status.sh`,
+  `ensure-gui-bootable.sh`) after a pre-flight grep gate confirmed zero live
+  in-repo `.sh` *invocations* remained (only descriptive "replacement for the
+  former …sh" docstrings + the `PORTABILITY.md` record). `.claude/scripts/` now
+  holds **zero `.sh` files** — `python` + `git` are the only runtime
+  requirements for all three pipelines on any OS, including a bare Windows box
+  with no Git Bash/WSL. `PORTABILITY.md` marks the "remaining cross-platform
+  ceiling" RESOLVED. The three PT1b byte-parity-vs-`status.sh` tests were
+  retired (their golden reference is gone); the in-process golden tests still
+  pin the exact `status` output, so tooling suite 57 → 54 passed / 1 skipped
+  with no loss of contract coverage. With PT1–PT4 the bash dependency is fully
+  removed. Observable: `git ls-files .claude/scripts/` shows no `.sh`. SHA
+  stamped post-commit.
+
 - **PT3 — rewire all in-repo callers to the Python entrypoints** (commit
-  `aceb97f`, 2026-05-31). Fourth item of
+  `aceb97f`, 2026-05-31). Third item of
   `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`: every in-repo
   reference to the bash scripts now points at the PT1/PT2 Python entrypoints —
   the three `.claude/commands/*.md` slash-command bodies (init / status /
