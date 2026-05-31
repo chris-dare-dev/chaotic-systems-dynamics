@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
 - **PT1b — pure-Python `status` subcommand + byte-parity suite**
-  (commit `<pending>`, 2026-05-31). Second increment of PT1 in
+  (commit `8d3df89`, 2026-05-31). Second increment of PT1 in
   ``docs/proposals/python-only-pipeline-tooling-2026-05-31.md``: a ``status``
   subcommand on each pipeline's ``checkpoint.py`` (capability-scout /
   draft-proposal / frontend-uplift) that reproduces the former ``status.sh``
