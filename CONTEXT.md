@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
 - **PT4 — delete the dead `.sh` scripts; close the portability ceiling**
-  (commit `<pending>`, 2026-05-31). Final item of
+  (commit `b14177a`, 2026-05-31). Final item of
   `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`: `git rm` of the
   seven now-orphaned bash scripts (`init-capability-scout.sh`,
   `init-draft-proposal.sh`, `init-frontend-uplift.sh`, three `status.sh`,
