@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
 - **PT3 — rewire all in-repo callers to the Python entrypoints** (commit
-  `0bef798`, 2026-05-31). Fourth item of
+  `aceb97f`, 2026-05-31). Fourth item of
   `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`: every in-repo
   reference to the bash scripts now points at the PT1/PT2 Python entrypoints —
   the three `.claude/commands/*.md` slash-command bodies (init / status /
