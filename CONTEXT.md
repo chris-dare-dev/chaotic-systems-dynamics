@@ -113,6 +113,32 @@ follow-ups:
 
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
+- **PT2 — pure-Python `ensure_gui_bootable.py`** (commit `<pending>`,
+  2026-05-31). Third item of `docs/proposals/python-only-pipeline-tooling-2026-05-31.md`:
+  a cross-platform, stdlib-only replacement for the frontend-uplift
+  `ensure-gui-bootable.sh` preflight. Locates the venv interpreter by
+  filesystem probe (`.venv/Scripts/python.exe` Windows vs `.venv/bin/python`
+  POSIX — calls it directly, no `source activate`, per PEP 405),
+  subprocess-runs the PySide6/PyVista/pyvistaqt/`chaotic_systems` import +
+  headless (`QT_QPA_PLATFORM=offscreen`, `pyvista.OFF_SCREEN=True`)
+  `build_application()` construct-and-quit probe, and prints the missing-venv
+  recovery text (now showing both activate forms). The rewrite is warranted
+  because the bash original is non-functional as written (verified): line 37
+  `source "$VENV/bin/activate"` is POSIX-only (the documented Windows
+  breakage), and line 39 invokes `"$PY"` though the script never defines `PY`,
+  so under its own `set -u` it aborts with an unbound-variable error even on
+  POSIX. The port keeps what the bash got right — it constructs the real
+  `gui.main_window.build_application()` entry (the `(app, window)` pair, same
+  as `tests/` and `python -m chaotic_systems.gui`) and returns 0 on green /
+  non-zero on red. 13 new tests (tooling suite 45 -> 58: 57 passed + 1 skip)
+  cover both venv layouts, the recovery message, green/red exit-code plumbing
+  via a faked subprocess, the offscreen-env wiring, two real-subprocess
+  plumbing checks (trivial probe, no GL), and one best-effort live-GUI boot
+  that asserts green on a GL-capable host and skips (never fails) where no
+  OpenGL/VTK context is available — as on this Windows dev box, where the
+  embedded 3D viewport cannot get a pixel format headless. The old `.sh` stays
+  as dead code until PT4. ruff clean. SHA stamped post-commit.
+
 - **PT1b — pure-Python `status` subcommand + byte-parity suite**
   (commit `213fff5`, 2026-05-31). Second increment of PT1 in
   ``docs/proposals/python-only-pipeline-tooling-2026-05-31.md``: a ``status``
