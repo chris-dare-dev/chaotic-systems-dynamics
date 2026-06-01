@@ -284,6 +284,126 @@ def lyapunov_spectrum(
 
 
 # ---------------------------------------------------------------------------
+# Discrete-map largest Lyapunov exponent (tangent-map renormalization).
+# ---------------------------------------------------------------------------
+
+# Default direction seed for the initial tangent vector. The largest exponent
+# is generically independent of the (non-degenerate) start direction, so the
+# seed only fixes reproducibility, not the answer.
+_DISCRETE_TANGENT_SEED: int = 0xA11A1
+
+
+def largest_lyapunov_discrete(
+    step_fn: Callable[[FloatArray], FloatArray],
+    jacobian_fn: Callable[[FloatArray], FloatArray],
+    x0: FloatArray,
+    n: int = 20_000,
+    n_transient: int = 1_000,
+    rng: np.random.Generator | None = None,
+) -> float:
+    r"""Largest Lyapunov exponent of a discrete map via tangent-map renormalization.
+
+    This is the map analogue of :func:`lyapunov_spectrum`'s leading exponent:
+    instead of integrating the variational ODE, it multiplies a single tangent
+    vector by the map's Jacobian at each iterate and renormalizes, accumulating
+    the average log-stretch (Benettin's algorithm specialized to a map and a
+    single tangent direction):
+
+    .. math::
+
+        \lambda_1 = \lim_{N\to\infty} \frac{1}{N}
+            \sum_{k=0}^{N-1} \log \lVert J(x_k)\, v_k \rVert,
+        \qquad v_{k+1} = \frac{J(x_k)\, v_k}{\lVert J(x_k)\, v_k \rVert}.
+
+    The Jacobian is supplied as a **callable argument** — there is deliberately
+    no ``jacobian`` hook on the :class:`~chaotic_systems.core.discrete.DiscreteSystem`
+    ABC, so this estimator leaves the base class, its subclasses, and the
+    ``solve_ivp``-based ODE estimators above entirely untouched. Use it as::
+
+        from chaotic_systems.systems.conradi import ConradiMap
+        m = ConradiMap()
+        lle = largest_lyapunov_discrete(
+            step_fn=lambda y: m.step(y),
+            jacobian_fn=lambda y: m.jacobian(y),
+            x0=np.array([0.1, 0.1]),
+        )
+
+    Parameters
+    ----------
+    step_fn
+        The map ``x -> f(x)``; returns a ``(d,)`` array.
+    jacobian_fn
+        The Jacobian ``x -> J(x)``; returns a ``(d, d)`` array (a ``(1, 1)``
+        matrix for a 1-D map such as the logistic map).
+    x0
+        Initial state, shape ``(d,)``.
+    n
+        Number of accumulation iterations (after the transient).
+    n_transient
+        Iterations discarded so the orbit settles onto the attractor before
+        accumulation begins.
+    rng
+        Generator for the initial tangent direction. Defaults to a fixed seed
+        for reproducibility; the result is direction-independent in the generic
+        case.
+
+    Returns
+    -------
+    float
+        The estimated largest Lyapunov exponent :math:`\lambda_1` (per
+        iteration). Positive indicates chaos; ``<= 0`` a stable fixed point or
+        cycle.
+
+    Notes
+    -----
+    Regression anchors: the Henon map at ``(a, b) = (1.4, 0.3)`` gives
+    :math:`\lambda_1 \approx 0.419` (Henon 1976) and the logistic map at
+    ``r = 4`` gives :math:`\lambda_1 = \ln 2` exactly.
+
+    References
+    ----------
+    - G. Benettin, L. Galgani, A. Giorgilli, J.-M. Strelcyn, *Lyapunov
+      Characteristic Exponents for smooth dynamical systems and for
+      Hamiltonian systems; a method for computing all of them.* Meccanica
+      15 (1980), 9-30. DOI 10.1007/BF02128236.
+    """
+    if n < 1:
+        raise ValueError(f"n must be >= 1, got {n}")
+    if rng is None:
+        rng = np.random.default_rng(_DISCRETE_TANGENT_SEED)
+
+    x = np.asarray(x0, dtype=np.float64).copy()
+    d = x.shape[0]
+
+    for _ in range(n_transient):
+        x = np.asarray(step_fn(x), dtype=np.float64)
+
+    v = rng.standard_normal(d)
+    v /= np.linalg.norm(v)
+
+    log_sum = 0.0
+    counted = 0
+    for _ in range(n):
+        jac = np.asarray(jacobian_fn(x), dtype=np.float64)
+        v = jac @ v
+        norm = float(np.linalg.norm(v))
+        if norm > 0.0:
+            log_sum += np.log(norm)
+            v = v / norm
+            counted += 1
+        else:  # pragma: no cover - tangent collapsed (e.g. a superstable point)
+            # A zero stretch means infinite contraction this step; the orbit is
+            # on a (super)stable point. Re-seed a tiny tangent and continue.
+            v = rng.standard_normal(d)
+            v /= np.linalg.norm(v)
+        x = np.asarray(step_fn(x), dtype=np.float64)
+
+    if counted == 0:  # pragma: no cover - every step collapsed
+        return float("-inf")
+    return log_sum / counted
+
+
+# ---------------------------------------------------------------------------
 # Derived diagnostic: Kaplan-Yorke (Lyapunov) dimension.
 # ---------------------------------------------------------------------------
 
@@ -368,6 +488,7 @@ def kaplan_yorke_dimension(spectrum: FloatArray) -> float:
 
 __all__ = [
     "kaplan_yorke_dimension",
+    "largest_lyapunov_discrete",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
 ]

@@ -111,7 +111,33 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002)
+## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003)
+
+- **CSC-2026-05-30-conradi-panel-003 — discrete-map largest Lyapunov estimator**
+  (commit `__PENDING__`, 2026-06-01). Adds `largest_lyapunov_discrete(step_fn,
+  jacobian_fn, x0, n, n_transient, rng=None)` to `core/lyapunov.py` — Benettin
+  tangent-map renormalization specialized to a map and a single tangent
+  direction (push `v` by `J(x_k)`, accumulate `log‖v‖`, renormalize). The
+  Jacobian is a **callable argument**, NOT a hook on the `DiscreteSystem` ABC,
+  so the base class, its subclasses, and the existing `solve_ivp`-based ODE
+  estimators (`largest_lyapunov_two_trajectory`, `lyapunov_spectrum`) are
+  entirely untouched — purely additive. SOTA: Benettin et al. (1980),
+  *Meccanica* 15:9, DOI 10.1007/BF02128236, cited in the docstring. Observables
+  (8 new tests, `tests/core/test_lyapunov.py`): Hénon (1.4,0.3) → λ₁ ≈ 0.419
+  (Hénon 1976, the regression anchor); logistic r=4 → λ₁ = ln 2 exactly;
+  contracting map x→0.5x → ln 0.5 (negative branch); direction-independence.
+  **Substantive finding (matters for CSC-004):** the Conradi *art* parameters
+  **(5.46,4.55) and (1.7,2.3) are NOT chaotic** — a single orbit collapses to a
+  stable cycle (λ₁ ≈ −0.02, IC-independent). The density art is *transient
+  lattice flow*, not a chaotic attractor. Genuinely chaotic Conradi regimes do
+  exist (e.g. (3.9,4.6) → λ₁ ≈ 0.16, tested), but the canonical render points
+  sit in a *quiet* (periodic) zone. So CSC-004's LLE-screening overlay, if it
+  "routes the loop through high-LLE territory", would route the animation
+  **away** from the canonical art look — the screening should be treated as an
+  optional aesthetic guide, not a constraint that excludes the periodic regions
+  that actually produce Conradi's images. (Also note: some regimes like
+  (3.81,4.58) show *transient chaos* — positive λ₁ at n=20k that collapses to
+  ≤0 by n=40k; the estimator correctly reports the asymptotic value.)
 
 - **CSC-2026-05-30-conradi-panel-002 — density-accumulation render engine**
   (commit `ed8b20e`, 2026-06-01). The heart of the feature: a pure
