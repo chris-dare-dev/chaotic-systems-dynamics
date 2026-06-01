@@ -111,7 +111,34 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-05-31, Conradi attractor panel — CSC-001, CSC-009)
+## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002)
+
+- **CSC-2026-05-30-conradi-panel-002 — density-accumulation render engine**
+  (commit `__PENDING__`, 2026-06-01). The heart of the feature: a pure
+  arrays-in / RGBA-out module `visualization/attractor_density.py` (no Qt) that
+  turns map params into a luminous density image. Pipeline: lay an
+  `n_points × n_points` lattice of seeds over `[−1,1]²` and iterate *every* seed
+  `n_iter` steps into a `bins × bins` histogram (Conradi's transient-flow method,
+  not a single ergodic orbit) → tone-map (`eq_hist` / `log` / `cbrt` / `linear`)
+  → colorize through the CSC-009 registry on a black background → optional
+  multi-scale Gaussian bloom. Named constants per CLAUDE.md (`DEFAULT_N_POINTS=300`,
+  `DEFAULT_N_ITER=250`, `DEFAULT_BINS=800`, `VMIN=0`/`VMAX=5` log clip verbatim
+  from `Nice_orbits.ipynb`). Fast path is a **single-threaded** numba
+  `@maybe_njit` fused iterate-and-accumulate kernel (the obvious `parallel=True`
+  races on the shared count buffer — lost updates); graceful pure-NumPy fallback
+  (vectorized over seeds) when the `[performance]` extra is absent. `count_max`
+  override lets the animation path (CSC-005) hold a fixed brightness ceiling so
+  loop frames don't flicker. SOTA cited in the docstring: Draves & Reckase (2003)
+  flame log-density display, Smith & van der Walt (2015) magma/inferno, Conradi
+  `Nice_orbits.ipynb` for the lattice method + tone clip. Observables (14 new
+  tests, `tests/visualization/test_attractor_density.py`): output is
+  `(bins,bins,4)` uint8; `count==0` cells are exact black `(0,0,0,255)`; a fixed
+  lattice is byte-reproducible; all four tone modes give valid RGBA; `log` is
+  brighter than `linear`; the numba and NumPy paths bin **equal total mass**
+  (`n_points²·n_iter`, since the bounded map drops nothing) and correlate >0.8
+  (per-cell equality is impossible for a chaotic map); bloom only brightens.
+  Additive — no existing file changed. SHA stamped post-commit. **Next:** CSC-007
+  (the panel host) is what first makes these images appear in the GUI.
 
 - **CSC-2026-05-30-conradi-panel-009 — colormap registry** (commit
   `a2b5773`, 2026-05-31). Adds `visualization/colormaps.py`, a single
