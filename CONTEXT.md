@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002)
 
 - **CSC-2026-05-30-conradi-panel-002 — density-accumulation render engine**
-  (commit `__PENDING__`, 2026-06-01). The heart of the feature: a pure
+  (commit `ed8b20e`, 2026-06-01). The heart of the feature: a pure
   arrays-in / RGBA-out module `visualization/attractor_density.py` (no Qt) that
   turns map params into a luminous density image. Pipeline: lay an
   `n_points × n_points` lattice of seeds over `[−1,1]²` and iterate *every* seed
