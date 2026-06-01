@@ -6,7 +6,7 @@ All systems live under `src/chaotic_systems/systems/`, one module per system. Th
 - **Discrete maps** (`DiscreteSystem` subclasses): `list_maps()`, `list_map_names()`, `get_map(name)`.
 - **Union API**: `list_all_systems()`, `get_any_system(name)`. Each instance carries a `kind` attribute (`"ode"` or `"map"`) the consumer can switch on.
 
-The project ships **9 ODE-flow systems** and **4 discrete maps** (13 total).
+The project ships **9 ODE-flow systems** and **5 discrete maps** (14 total).
 
 ## ODE flows
 
@@ -30,6 +30,7 @@ The project ships **9 ODE-flow systems** and **4 discrete maps** (13 total).
 | `HenonMap`    | 2         | 2D polynomial "stretch and fold"      | no (Jacobian=-b) | a=1.4, b=0.3               |
 | `Ikeda`       | 2         | 2D laser-ring-cavity reduction        | no (contracting) | u=0.9                      |
 | `StandardMap` | 2         | Chirikov twist map on the 2-torus     | yes (Jacobian=1) | K ≈ 0.971635 (golden-mean KAM threshold) |
+| `ConradiMap`  | 2         | sin/cos of z² (trigonometric attractor) | no (dissipative; bounded to [-1,1]²) | a=5.46, b=4.55 |
 
 ---
 

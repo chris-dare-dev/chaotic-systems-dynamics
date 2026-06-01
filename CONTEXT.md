@@ -111,6 +111,27 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-31, Conradi attractor panel — CSC-001)
+
+- **CSC-2026-05-30-conradi-panel-001 — `ConradiMap` discrete system** (commit
+  `<pending>`, 2026-05-31). First (foundational) item of
+  `docs/proposals/conradi-attractor-panel-2026-05-31.md`: the Conradi
+  trigonometric map `x' = sin(x²−y²+a)`, `y' = cos(2xy+b)` as a new
+  `DiscreteSystem` subclass in `systems/conradi.py`, registered in the maps
+  registry (now 5 maps: logistic, Hénon, Ikeda, standard, Conradi). The two
+  arguments are `Re(z²)` / `Im(z²)`; canonical params `(a,b)=(5.46,4.55)` are
+  verbatim from Conradi's `Nice_orbits.ipynb`. Ships the `z²` member only — the
+  `zᵏ` generalization is not in the primary source, so it is deliberately
+  omitted. Adds a `ConradiMap`-only analytic `jacobian()` (not a
+  `DiscreteSystem` ABC method) that CSC-003's discrete-Lyapunov estimator will
+  consume as a callable. Observables (7 new tests, `tests/systems/test_conradi.py`):
+  iterates are confined to `[−1,1]²` (sin/cos boundedness — the map cannot
+  diverge), and the analytic Jacobian matches a central finite-difference
+  Jacobian to ~1e-6 with `det J = −4(x²+y²)cos u sin v`. No GUI surface yet —
+  the map is selectable in the system registry; the density renderer (CSC-002)
+  and panel (CSC-007) are the next items that make it draw the screenshot
+  images. SHA stamped post-commit.
+
 ## Recently shipped (2026-05-31, Windows GUI cross-platform parity)
 
 The GUI was developed and verified on macOS but rendered badly on Windows 11:
