@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-007)
 
 - **CSC-2026-05-30-conradi-panel-004 — (a,b) Lyapunov screening overlay**
-  (commit `__PENDING__`, 2026-06-01). A new pure-compute
+  (commit `b190de7`, 2026-06-01). A new pure-compute
   `visualization/attractor_screen.py`: `lyapunov_grid(grid, ...)` computes the
   largest Lyapunov exponent over `(a,b) ∈ [0,2π]²` as the **vectorized** form of
   CSC-003's Benettin estimator (one tangent vector iterated for every grid cell
