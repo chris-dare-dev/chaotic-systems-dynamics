@@ -1794,6 +1794,7 @@ def _build_window_class() -> type:
             self._basin_window: Any = None
             self._poincare_window: Any = None
             self._phase_window: Any = None
+            self._conradi_window: Any = None
 
             # Worker-thread state.
             self._sim_thread: QThread | None = None
@@ -4338,6 +4339,34 @@ def _build_window_class() -> type:
             self._wire_window_cleanup(dialog, "_basin_window")  # FU-024
             self._open_as_floating_dock(dialog)  # FU-018
 
+        def _on_open_conradi(self) -> None:
+            """Open the Conradi trigonometric-attractor density renderer.
+
+            The panel ships standalone (it does not read the current
+            trajectory) — it renders the iterated-map density art directly
+            from the map parameters. See
+            ``docs/proposals/conradi-attractor-panel-2026-05-31.md`` CSC-007.
+            """
+            try:
+                from chaotic_systems.gui.conradi_panel import (
+                    build_conradi_dialog,
+                )
+            except ImportError as exc:  # pragma: no cover
+                self._set_status(
+                    f"Conradi renderer unavailable: {exc}", state="error"
+                )
+                return
+            try:
+                dialog = build_conradi_dialog(parent=self)
+            except (ValueError, RuntimeError) as exc:
+                self._set_status(
+                    f"Conradi renderer failed: {exc}", state="error"
+                )
+                return
+            self._conradi_window = dialog
+            self._wire_window_cleanup(dialog, "_conradi_window")  # FU-024
+            self._open_as_floating_dock(dialog)  # FU-018
+
         def _on_open_poincare(self) -> None:
             """Open the Poincaré-section explorer on the current system.
 
@@ -4635,6 +4664,21 @@ def _build_window_class() -> type:
                     True,
                 ),
                 (
+                    "action_conradi",
+                    "Conradi attractor…",
+                    "conradi",
+                    "Open the Conradi trigonometric-attractor density "
+                    "renderer. Iterates an n×n lattice of seeds through "
+                    "x'=sin(x²−y²+a), y'=cos(2xy+b) into a density image "
+                    "(magma/inferno on black), the way Simone Conradi's "
+                    "Nice_orbits.ipynb renders his attractor art. Ships "
+                    "standalone (no simulation required). See "
+                    "docs/proposals/conradi-attractor-panel-2026-05-31.md "
+                    "CSC-007.",
+                    self._on_open_conradi,
+                    True,
+                ),
+                (
                     "action_toggle_theme",
                     "Toggle theme",
                     "theme",
@@ -4726,6 +4770,7 @@ def _build_window_class() -> type:
                 "action_recurrence",
                 "action_basins",
                 "action_poincare",
+                "action_conradi",
             }
             # Build the Analyse… QToolButton up front (its QMenu is
             # populated as analytics actions are encountered in the

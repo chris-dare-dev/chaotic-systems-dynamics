@@ -111,7 +111,40 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003)
+## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-007)
+
+- **CSC-2026-05-30-conradi-panel-007 — Conradi panel scaffold + QThread worker**
+  (commit `__PENDING__`, 2026-06-01). The first GUI surface of the feature: a
+  new `gui/conradi_panel.py` analysis panel reachable from the Analyse menu
+  ("Conradi attractor…"). Mirrors the established panel pattern (`basin_panel.py`
+  / `_panel_helpers.py`): a `_ConradiWorker(QObject)` runs
+  `attractor_density.render` (CSC-002) on a `QThread` and emits
+  `finished(rgba)` / `error(kind, msg)`; the `ConradiPanel(QWidget)` embeds a
+  matplotlib `FigureCanvasQTAgg` and offers controls for a / b (0..2π),
+  seeds-per-axis / iterations / resolution, a colormap picker (populated from
+  `colormaps.available()`), a tone-map picker (eq_hist/log/cbrt/linear), and a
+  bloom toggle. Render is one fused kernel call, so the panel shows an
+  *indeterminate* busy bar (no mid-render cancel — the kernel can't be
+  interrupted). **Graceful numba degrade:** with the `[performance]` extra
+  absent the renderer auto-falls-back to NumPy and the panel starts with a
+  lighter lattice (140/120/400 vs 220/180/600) and notes the fallback in its
+  status line. Default `(a,b)=(5.46,4.55)` + tone `log` + magma reproduces
+  Conradi's notebook still (the periodic-orbit point still yields the art
+  because the renderer bins the lattice *transient*, not the asymptotic orbit).
+  **NOTE:** the proposal named `gui/lyapunov_panel.py` as the mirror — it does
+  not exist; `basin_panel.py` was mirrored instead. Registered in
+  `gui/main_window.py` (`_on_open_conradi`, `action_conradi` spec, added to
+  `_ANALYSE_ACTION_KEYS`, `_conradi_window` attr) and given a `conradi` icon
+  stem (`mdi6.blur-radial`) in `gui/icons.py`. Observables (10 new tests,
+  `tests/gui/test_conradi_panel.py`): controls exist with stable object names +
+  documented defaults; the finished/error/cleanup handlers behave; a real small
+  render flows through the canvas swap; the dialog wraps the panel; the main
+  window exposes an enabled `action_conradi`. Updated
+  `tests/gui/test_analyse_submenu.py` (the Analyse menu now holds six analytics
+  actions, not five). GUI suite 368 → 378 (+10), all green. SHA stamped
+  post-commit. **Next:** the static MVP (001→009→002→007) is complete — the
+  panel draws the screenshot images. Remaining: CSC-004 (LLE screening overlay),
+  CSC-005 (animation), CSC-006 (export), CSC-010, CSC-008.
 
 - **CSC-2026-05-30-conradi-panel-003 — discrete-map largest Lyapunov estimator**
   (commit `c1ede11`, 2026-06-01). Adds `largest_lyapunov_discrete(step_fn,

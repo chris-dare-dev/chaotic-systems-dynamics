@@ -77,6 +77,10 @@ STEM_TO_GLYPH: dict[str, str] = {
     "recurrence": "mdi6.dots-grid",
     "basins": "mdi6.map-marker-radius",
     "poincare": "mdi6.crosshairs",
+    # CSC-007 — Conradi trigonometric-attractor density renderer. The
+    # radial-blur glyph reads as a glowing density bloom on black, the
+    # signature look of the attractor-art image.
+    "conradi": "mdi6.blur-radial",
     # FU-017 — lightning bolt for the "Auto" (live-preview) toolbar
     # pill. ParaView's Auto-Apply pattern; the synthesis explicitly
     # names ``mdi6.flash`` in the inspiration brief §2 P02 mapping.

@@ -16,8 +16,8 @@ Coverage:
 - Its popup mode is ``InstantPopup`` (one-click opens menu) and
   its focus policy is ``StrongFocus`` (challenger MINOR a11y
   mitigation — Tab-reachable).
-- The popup menu holds exactly the 5 analytics actions, in the
-  spec order.
+- The popup menu holds exactly the analytics actions, in the
+  spec order (five from FU-008 plus the CSC-007 Conradi renderer).
 - **CC-01 mitigation** — all 5 analytics actions remain in
   ``window.transport_actions()`` under their canonical keys
   (``action_bifurcation``, ``action_phase_portrait``,
@@ -47,6 +47,7 @@ _ANALYSE_KEYS = (
     "action_recurrence",
     "action_basins",
     "action_poincare",
+    "action_conradi",  # CSC-007 — Conradi attractor density renderer
 )
 
 
@@ -127,8 +128,12 @@ def test_analyse_button_carries_an_icon(window) -> None:  # type: ignore[no-unty
 # ---------------------------------------------------------------------------
 
 
-def test_analyse_menu_has_five_analytics_actions(window) -> None:  # type: ignore[no-untyped-def]
-    """The popup menu holds exactly the 5 analytics actions, in spec order."""
+def test_analyse_menu_has_all_analytics_actions(window) -> None:  # type: ignore[no-untyped-def]
+    """The popup menu holds exactly the analytics actions, in spec order.
+
+    Originally five (FU-008); CSC-007 adds the Conradi attractor renderer
+    as a sixth.
+    """
 
     from PySide6.QtWidgets import QMenu, QToolButton
 
