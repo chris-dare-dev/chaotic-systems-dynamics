@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003)
 
 - **CSC-2026-05-30-conradi-panel-003 — discrete-map largest Lyapunov estimator**
-  (commit `__PENDING__`, 2026-06-01). Adds `largest_lyapunov_discrete(step_fn,
+  (commit `c1ede11`, 2026-06-01). Adds `largest_lyapunov_discrete(step_fn,
   jacobian_fn, x0, n, n_transient, rng=None)` to `core/lyapunov.py` — Benettin
   tangent-map renormalization specialized to a map and a single tangent
   direction (push `v` by `J(x_k)`, accumulate `log‖v‖`, renormalize). The
