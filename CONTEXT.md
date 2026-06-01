@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-007)
 
 - **CSC-2026-05-30-conradi-panel-007 — Conradi panel scaffold + QThread worker**
-  (commit `__PENDING__`, 2026-06-01). The first GUI surface of the feature: a
+  (commit `7ba2f1d`, 2026-06-01). The first GUI surface of the feature: a
   new `gui/conradi_panel.py` analysis panel reachable from the Analyse menu
   ("Conradi attractor…"). Mirrors the established panel pattern (`basin_panel.py`
   / `_panel_helpers.py`): a `_ConradiWorker(QObject)` runs
