@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-05-31, Conradi attractor panel — CSC-001, CSC-009)
 
 - **CSC-2026-05-30-conradi-panel-009 — colormap registry** (commit
-  `<pending>`, 2026-05-31). Adds `visualization/colormaps.py`, a single
+  `a2b5773`, 2026-05-31). Adds `visualization/colormaps.py`, a single
   lookup point (`available()` / `get(name)`) resolving `conradi`, `magma`,
   `inferno` to matplotlib `Colormap`s — so the forthcoming density renderer
   (CSC-002) and GUI never reach for `matplotlib.colormaps[...]` inline. The
