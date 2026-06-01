@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-05-31, Conradi attractor panel — CSC-001)
 
 - **CSC-2026-05-30-conradi-panel-001 — `ConradiMap` discrete system** (commit
-  `<pending>`, 2026-05-31). First (foundational) item of
+  `73258d8`, 2026-05-31). First (foundational) item of
   `docs/proposals/conradi-attractor-panel-2026-05-31.md`: the Conradi
   trigonometric map `x' = sin(x²−y²+a)`, `y' = cos(2xy+b)` as a new
   `DiscreteSystem` subclass in `systems/conradi.py`, registered in the maps
