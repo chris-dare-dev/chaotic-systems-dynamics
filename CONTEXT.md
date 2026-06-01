@@ -111,7 +111,34 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-007)
+## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-007)
+
+- **CSC-2026-05-30-conradi-panel-004 — (a,b) Lyapunov screening overlay**
+  (commit `__PENDING__`, 2026-06-01). A new pure-compute
+  `visualization/attractor_screen.py`: `lyapunov_grid(grid, ...)` computes the
+  largest Lyapunov exponent over `(a,b) ∈ [0,2π]²` as the **vectorized** form of
+  CSC-003's Benettin estimator (one tangent vector iterated for every grid cell
+  at once as `(grid,grid)` arrays), returning the LLE field + an orbit-spread
+  field; `interesting_mask(lle, spread)` flags chaotic-and-non-degenerate cells
+  (Sprott's std-floor guard rejects collapsed point attractors,
+  `SPREAD_FLOOR=1e-2`). SOTA: Sprott (1993), *Computers & Graphics*
+  17(3):325-332, DOI 10.1016/0097-8493(93)90082-K; Benettin (1980). Wired into
+  `gui/conradi_panel.py`: a "Screen (a, b)" button computes the grid on a
+  `_ScreenWorker` thread, shows the LLE heatmap (matplotlib imshow over [0,2π]²,
+  colorbar via the registry `inferno`, a `+` marker at the current `(a,b)`), and
+  **click-to-pick** sets the a/b spinboxes (a single `mpl_connect` handler gated
+  by a `_screen_mode` flag — net-new, as no click-to-pick idiom existed despite
+  the proposal's `basin_panel` claim). Observables: the screening classifier
+  (sign of λ₁ at the screening budget) agrees **20/20** with a hand-labelled
+  validation set (10 chaotic |λ₁|>0.15, 10 quiet λ₁<-0.10; labels fixed by a
+  precise n=30000 single-point estimate) — exceeds the proposal's ≥90% bar; a
+  1×1 grid reproduces the scalar CSC-003 estimator; the degeneracy guard rejects
+  the canonical art point (5.46,4.55), which collapses to a **fixed point**
+  (spread≈0). 7 new screening tests + 5 new panel tests. **Framing per the
+  CSC-003 finding:** the overlay is informational — high-LLE = chaotic, NOT "the
+  art look"; the canonical stills are periodic, so the screening must not be
+  used to exclude them. visualization suite 160→167; GUI panel tests 15→20.
+  SHA stamped post-commit.
 
 - **CSC-2026-05-30-conradi-panel-007 — Conradi panel scaffold + QThread worker**
   (commit `7ba2f1d`, 2026-06-01). The first GUI surface of the feature: a

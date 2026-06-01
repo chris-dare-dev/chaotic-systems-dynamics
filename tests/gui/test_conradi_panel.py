@@ -124,6 +124,71 @@ def test_small_render_flows_to_canvas(qtbot) -> None:  # type: ignore[no-untyped
     assert panel.canvas.objectName() == "conradi_canvas"
 
 
+def test_screen_button_exists(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    assert panel.screen_button.objectName() == "conradi_screen"
+    assert panel.last_lle() is None
+    assert panel._screen_mode is False  # noqa: SLF001
+
+
+def test_screen_finished_stores_lle_and_enters_screen_mode(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """A real small screening grid flows through to the heatmap + screen mode."""
+    from chaotic_systems.visualization import attractor_screen
+
+    panel = _make_panel(qtbot)
+    panel.render_button.setEnabled(False)
+    panel.screen_button.setEnabled(False)
+    lle, _ = attractor_screen.lyapunov_grid(16, n=120, n_transient=40)
+    panel._on_screen_finished(lle)  # noqa: SLF001
+    assert panel.last_lle() is lle
+    assert panel._screen_mode is True  # noqa: SLF001
+    assert panel.render_button.isEnabled() is True
+    assert panel.screen_button.isEnabled() is True
+    assert "chaotic" in panel.status_label.text()
+
+
+def test_canvas_click_in_screen_mode_sets_ab(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Clicking the heatmap in screen mode sets the a/b spinboxes."""
+    from types import SimpleNamespace
+
+    from chaotic_systems.visualization import attractor_screen
+
+    panel = _make_panel(qtbot)
+    lle, _ = attractor_screen.lyapunov_grid(16, n=120, n_transient=40)
+    panel._on_screen_finished(lle)  # noqa: SLF001 - enter screen mode
+    # A fake matplotlib button-press event over the axes.
+    event = SimpleNamespace(inaxes=object(), xdata=2.0, ydata=3.0)
+    panel._on_canvas_click(event)  # noqa: SLF001
+    assert panel.a_spin.value() == pytest.approx(2.0, abs=1e-6)
+    assert panel.b_spin.value() == pytest.approx(3.0, abs=1e-6)
+
+
+def test_canvas_click_ignored_outside_screen_mode(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Clicks do nothing when a density render (not the heatmap) is shown."""
+    from types import SimpleNamespace
+
+    panel = _make_panel(qtbot)
+    assert panel._screen_mode is False  # noqa: SLF001
+    a0, b0 = panel.a_spin.value(), panel.b_spin.value()
+    event = SimpleNamespace(inaxes=object(), xdata=1.0, ydata=1.0)
+    panel._on_canvas_click(event)  # noqa: SLF001
+    assert panel.a_spin.value() == pytest.approx(a0)
+    assert panel.b_spin.value() == pytest.approx(b0)
+
+
+def test_render_after_screen_leaves_screen_mode(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """A density render after screening clears screen mode (clicks go inert)."""
+    from chaotic_systems.visualization import attractor_density, attractor_screen
+
+    panel = _make_panel(qtbot)
+    lle, _ = attractor_screen.lyapunov_grid(16, n=120, n_transient=40)
+    panel._on_screen_finished(lle)  # noqa: SLF001
+    assert panel._screen_mode is True  # noqa: SLF001
+    rgba = attractor_density.render(5.46, 4.55, n_points=40, n_iter=40, bins=48)
+    panel._on_finished(rgba)  # noqa: SLF001
+    assert panel._screen_mode is False  # noqa: SLF001
+
+
 def test_dialog_wraps_panel(qtbot) -> None:  # type: ignore[no-untyped-def]
     from PySide6.QtWidgets import QWidget
 

@@ -12,6 +12,12 @@ The first GUI surface of the Conradi attractor feature
 4. Press Render and watch an indeterminate progress pill while a worker thread
    runs :func:`chaotic_systems.visualization.attractor_density.render` off the
    UI thread, then see the resulting density image.
+5. Press "Screen (a, b)" to compute a largest-Lyapunov-exponent heatmap over the
+   ``(a, b)`` plane (CSC-004, :mod:`chaotic_systems.visualization.attractor_screen`)
+   off the UI thread, then click the heatmap to pick ``(a, b)``. The heatmap is
+   an informational backdrop: high LLE marks *chaotic* regions, which are
+   distinct from the (often periodic) parameters that produce the signature art
+   (see ``CONTEXT.md`` CSC-003).
 
 The default ``(a, b) = (5.46, 4.55)`` is Conradi's canonical art regime: a
 single orbit there is periodic, but the rendered image is the *transient flow*
@@ -44,7 +50,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from chaotic_systems.core._numba import NUMBA_AVAILABLE
-from chaotic_systems.visualization import attractor_density, colormaps
+from chaotic_systems.visualization import (
+    attractor_density,
+    attractor_screen,
+    colormaps,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type hints
     from PySide6.QtWidgets import QWidget
@@ -78,6 +88,14 @@ _MAX_BINS: int = 1600
 _DEFAULT_TONE: str = "log"
 _DEFAULT_CMAP: str = "magma"
 _TONE_MODES: tuple[str, ...] = ("eq_hist", "log", "cbrt", "linear")
+
+# Screening-heatmap grid resolution (per axis). Coarser than a still render so
+# the (a, b) sweep stays interactive on the worker thread.
+_SCREEN_GRID: int = 120 if NUMBA_AVAILABLE else 72
+# The screening LLE heatmap reads best on a near-black sequential map (the
+# chaotic high-LLE ridges glow), routed through the registry like everything
+# else (no inline cm.get_cmap).
+_SCREEN_CMAP: str = "inferno"
 
 
 def _build_worker_class() -> type:
@@ -135,6 +153,61 @@ def _build_worker_class() -> type:
     return _ConradiWorker
 
 
+def _build_screen_worker_class() -> type:
+    """Build the (a, b) Lyapunov-screening worker class lazily."""
+
+    from PySide6.QtCore import QObject, Signal
+
+    class _ScreenWorker(QObject):
+        """Run :func:`attractor_screen.lyapunov_grid` on a worker thread."""
+
+        finished = Signal(object)  # np.ndarray (grid, grid) LLE field
+        error = Signal(str, str)
+
+        def __init__(self, grid: int) -> None:
+            super().__init__()
+            self._grid = int(grid)
+
+        def run(self) -> None:
+            try:
+                lle, _spread = attractor_screen.lyapunov_grid(self._grid)
+            except (ValueError, KeyError, TypeError) as exc:
+                self.error.emit(type(exc).__name__, str(exc))
+                return
+            except Exception as exc:  # pragma: no cover - last-resort guard
+                self.error.emit("Exception", f"{type(exc).__name__}: {exc}")
+                return
+            self.finished.emit(lle)
+
+    return _ScreenWorker
+
+
+def _build_screen_figure(lle: np.ndarray, a: float, b: float) -> Any:
+    """Build a matplotlib Figure of the (a, b) LLE screening heatmap."""
+    from matplotlib.figure import Figure
+
+    a0, a1 = attractor_screen.SCREEN_A_RANGE
+    b0, b1 = attractor_screen.SCREEN_B_RANGE
+    fig = Figure(figsize=(6.0, 6.0))
+    ax = fig.add_subplot(111)
+    im = ax.imshow(
+        lle,
+        origin="lower",
+        extent=(a0, a1, b0, b1),
+        cmap=colormaps.get(_SCREEN_CMAP),
+        aspect="auto",
+        interpolation="nearest",
+    )
+    fig.colorbar(im, ax=ax, label="largest Lyapunov exponent")
+    # Marker at the current (a, b) — click the heatmap to move it.
+    ax.plot([a], [b], marker="+", color="white", markersize=12, mew=2.0)
+    ax.set_title("(a, b) Lyapunov screening — click to pick", fontsize=10)
+    ax.set_xlabel("a")
+    ax.set_ylabel("b")
+    fig.tight_layout()
+    return fig
+
+
 def _build_figure(rgba: np.ndarray, a: float, b: float) -> Any:
     """Build a matplotlib Figure showing an RGBA density image on black."""
     from matplotlib.figure import Figure
@@ -186,6 +259,7 @@ def _build_panel_class() -> type:
     )
 
     worker_cls = _build_worker_class()
+    screen_worker_cls = _build_screen_worker_class()
 
     class ConradiPanel(QWidget):
         """Self-contained Conradi trigonometric-attractor density renderer."""
@@ -195,6 +269,10 @@ def _build_panel_class() -> type:
             self._worker: object | None = None
             self._thread: QThread | None = None
             self._last_rgba: np.ndarray | None = None
+            # (a, b) Lyapunov screening state (CSC-004).
+            self._last_lle: np.ndarray | None = None
+            self._screen_mode: bool = False
+            self._click_cid: int | None = None
 
             from chaotic_systems.gui._panel_helpers import apply_panel_margins
 
@@ -288,6 +366,17 @@ def _build_panel_class() -> type:
             self.render_button.clicked.connect(self._on_render)
             action_row.addWidget(self.render_button)
 
+            self.screen_button = QPushButton("Screen (a, b)", self)
+            self.screen_button.setObjectName("conradi_screen")
+            self.screen_button.setToolTip(
+                "Compute the largest Lyapunov exponent over the (a, b) plane "
+                "and show it as a heatmap. Click the heatmap to pick (a, b). "
+                "Note: high LLE = chaotic, which is distinct from the (often "
+                "periodic) parameters that produce the signature art."
+            )
+            self.screen_button.clicked.connect(self._on_screen)
+            action_row.addWidget(self.screen_button)
+
             self.progress_bar = QProgressBar(self)
             self.progress_bar.setObjectName("conradi_progress")
             # Indeterminate (busy) bar: render is one fused kernel call.
@@ -311,7 +400,32 @@ def _build_panel_class() -> type:
             # --- Canvas (placeholder until first render) ------------------
             self.canvas = FigureCanvasQTAgg(_placeholder_figure())
             self.canvas.setObjectName("conradi_canvas")
+            self._bind_click(self.canvas)
             outer.addWidget(self.canvas, 1)
+
+        # ----- click-to-pick (screening mode) -------------------------
+
+        def _bind_click(self, canvas: Any) -> None:
+            """Connect the matplotlib button-press handler to ``canvas``."""
+            self._click_cid = canvas.mpl_connect(
+                "button_press_event", self._on_canvas_click
+            )
+
+        def _on_canvas_click(self, event: Any) -> None:
+            """In screening mode, a click sets (a, b) to the clicked cell."""
+            if not self._screen_mode or event.inaxes is None:
+                return
+            if event.xdata is None or event.ydata is None:
+                return
+            a = min(max(float(event.xdata), 0.0), _TWO_PI)
+            b = min(max(float(event.ydata), 0.0), _TWO_PI)
+            self.a_spin.setValue(a)
+            self.b_spin.setValue(b)
+            self.status_label.setText(
+                f"Picked a = {a:.3f}, b = {b:.3f}. Press Render to draw it."
+            )
+            if self._last_lle is not None:
+                self._show_screen(self._last_lle)  # redraw marker at new (a, b)
 
         # ----- actions ------------------------------------------------
 
@@ -323,6 +437,7 @@ def _build_panel_class() -> type:
             bins = int(self.bins_spin.value())
 
             self.render_button.setEnabled(False)
+            self.screen_button.setEnabled(False)
             self.progress_bar.setVisible(True)
             self.status_label.setText(
                 f"Rendering {n_points}×{n_points} seeds × {n_iter} iterations "
@@ -353,6 +468,7 @@ def _build_panel_class() -> type:
 
         def _on_finished(self, rgba: np.ndarray | None) -> None:
             self.render_button.setEnabled(True)
+            self.screen_button.setEnabled(True)
             self.progress_bar.setVisible(False)
             if rgba is None:
                 self.status_label.setText("Cancelled.")
@@ -368,8 +484,65 @@ def _build_panel_class() -> type:
 
         def _on_error(self, kind: str, message: str) -> None:
             self.render_button.setEnabled(True)
+            self.screen_button.setEnabled(True)
             self.progress_bar.setVisible(False)
             self.status_label.setText(f"{kind}: {message}")
+
+        # ----- screening (CSC-004) ------------------------------------
+
+        def _on_screen(self) -> None:
+            if self._thread is not None and self._thread.isRunning():
+                return
+            self.render_button.setEnabled(False)
+            self.screen_button.setEnabled(False)
+            self.progress_bar.setVisible(True)
+            self.status_label.setText(
+                f"Screening the (a, b) plane on a {_SCREEN_GRID}×{_SCREEN_GRID} "
+                "grid (largest Lyapunov exponent)..."
+            )
+            worker = screen_worker_cls(_SCREEN_GRID)
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_screen_finished)
+            worker.error.connect(self._on_error)
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_thread)
+            self._worker = worker
+            self._thread = thread
+            thread.start()
+
+        def _on_screen_finished(self, lle: np.ndarray | None) -> None:
+            self.render_button.setEnabled(True)
+            self.screen_button.setEnabled(True)
+            self.progress_bar.setVisible(False)
+            if lle is None:
+                self.status_label.setText("Cancelled.")
+                return
+            self._last_lle = lle
+            frac = float((lle > 0.0).mean())
+            self.status_label.setText(
+                f"(a, b) screening done: {frac:.0%} of the plane is chaotic "
+                "(λ₁ > 0). Click the heatmap to pick (a, b)."
+            )
+            self._show_screen(lle)
+
+        def _show_screen(self, lle: np.ndarray) -> None:
+            """Swap the canvas to the (a, b) screening heatmap."""
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
+            fig = _build_screen_figure(
+                lle, float(self.a_spin.value()), float(self.b_spin.value())
+            )
+            new_canvas = FigureCanvasQTAgg(fig)
+            new_canvas.setObjectName("conradi_canvas")
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
+            self.canvas = new_canvas
+            self._bind_click(new_canvas)
+            self._screen_mode = True
 
         def _cleanup_thread(self) -> None:
             if self._worker is not None:
@@ -392,12 +565,19 @@ def _build_panel_class() -> type:
             new_canvas.setObjectName("conradi_canvas")
             swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
             self.canvas = new_canvas
+            self._bind_click(new_canvas)
+            # Showing a density render leaves screening mode (clicks inert).
+            self._screen_mode = False
 
         # ----- public read-only accessors used by tests ---------------
 
         def last_rgba(self) -> np.ndarray | None:
             """Return the most-recently-rendered RGBA image (or ``None``)."""
             return self._last_rgba
+
+        def last_lle(self) -> np.ndarray | None:
+            """Return the most-recent (a, b) screening LLE field (or ``None``)."""
+            return self._last_lle
 
     return ConradiPanel
 
