@@ -111,7 +111,25 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-05-31, Conradi attractor panel — CSC-001)
+## Recently shipped (2026-05-31, Conradi attractor panel — CSC-001, CSC-009)
+
+- **CSC-2026-05-30-conradi-panel-009 — colormap registry** (commit
+  `<pending>`, 2026-05-31). Adds `visualization/colormaps.py`, a single
+  lookup point (`available()` / `get(name)`) resolving `conradi`, `magma`,
+  `inferno` to matplotlib `Colormap`s — so the forthcoming density renderer
+  (CSC-002) and GUI never reach for `matplotlib.colormaps[...]` inline. The
+  `conradi` ramp is a custom black→`#ffe100` `LinearSegmentedColormap` matching
+  Conradi's `Nice_orbits.ipynb` palette (pure-black low end, so zero-count
+  cells vanish on a black background); magma/inferno are the perceptually-
+  uniform built-ins (Smith & van der Walt 2015), also near-black at the low
+  end. **Scope correction:** the proposal (from an inaccurate sourcing brief)
+  said to "surface already-registered `ember`/`ice` ramps" — no colormap module
+  or those ramps existed, so this *creates* the registry with the genuinely-
+  sourced entries rather than inventing two unspecified ramps; `colorcet` left
+  out (matplotlib suffices). 7 new tests (`tests/visualization/test_colormaps.py`):
+  every `available()` name resolves to a `Colormap`, the `conradi` endpoints are
+  black / `#ffe100`, magma/inferno low ends are near-black, unknown names raise
+  `KeyError`. Additive — no existing file changed. SHA stamped post-commit.
 
 - **CSC-2026-05-30-conradi-panel-001 — `ConradiMap` discrete system** (commit
   `73258d8`, 2026-05-31). First (foundational) item of
