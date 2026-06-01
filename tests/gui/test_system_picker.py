@@ -1,33 +1,27 @@
-"""Tests for FU-006 — superqt ``QSearchableComboBox`` system picker.
+"""Tests for the system picker (attractor dropdown).
 
-Pre-FU-006 the system picker was a plain ``QComboBox`` that grew
-to 13+ entries (Lorenz, Rossler, RosslerHyper, DoublePendulum,
-Chua, Duffing, HenonHeiles, Kuramoto, MackeyGlass, plus the four
-discrete maps) — past the scroll-vs-search threshold for ergonomic
-selection. FU-006 swaps it for superqt's ``QSearchableComboBox``,
-which subclasses ``QComboBox`` and adds a type-to-filter on the
-dropdown.
+FU-006 briefly swapped the plain ``QComboBox`` system picker for
+superqt's editable ``QSearchableComboBox`` (type-to-filter over the
+13+ systems: Lorenz, Rossler, RosslerHyper, DoublePendulum, Chua,
+Duffing, HenonHeiles, Kuramoto, MackeyGlass, plus the four discrete
+maps). That widget rendered correctly on macOS but broke on Windows —
+its embedded ``QLineEdit`` painted a blank white field under Fusion,
+and its ``QCompleter`` popup (a separate top-level window) appeared
+detached and offset from the box at the fractional display scaling
+Windows uses. The picker was reverted to a plain non-editable
+``QComboBox`` (identical to the integrator picker), which renders
+correctly on every platform; the 13-entry list is short enough to
+scroll.
 
-Scope of FU-006 as shipped (reduced from the synthesis):
-
-- ``QSearchableComboBox`` migration for the system picker ONLY.
-- ``superqt`` is added to runtime deps for future migrations.
-- ``_ParamWidget`` migration is DEFERRED — superqt 0.8's
-  ``QLabeledDoubleSlider`` has no log-scale support, and the
-  project's Kuramoto K (range 0.01–50, log-scale) depends on it.
-  Mixing two widget types in the parameter form would be churn
-  for marginal benefit.
-- Notes-section ``QCollapsible`` migration is DEFERRED — the
-  existing ``_CollapsibleSection`` works correctly; replacement
-  would be churn without a clear user win.
+``superqt`` remains a runtime dependency for the slider widgets used
+elsewhere in the GUI.
 
 Coverage:
 
-- ``self.system_box`` is a ``QSearchableComboBox`` (IS-A
-  ``QComboBox``, so all existing accessors still work).
-- Every previously-registered system still appears.
-- ``transport_actions()`` and the ``currentIndexChanged`` slot
-  wiring continue to work — the migration is API-compatible.
+- ``self.system_box`` is a plain, non-editable ``QComboBox``.
+- Every registered system still appears.
+- The ``preselect=`` kwarg and the ``currentIndexChanged`` slot
+  wiring continue to work.
 """
 
 from __future__ import annotations
@@ -35,7 +29,6 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("PySide6")
-pytest.importorskip("superqt")
 pytest.importorskip("pyvistaqt")
 
 
@@ -53,32 +46,25 @@ def _make_window(qtbot):  # type: ignore[no-untyped-def]
 # ---------------------------------------------------------------------------
 
 
-def test_system_box_is_a_searchable_combobox(qtbot) -> None:  # type: ignore[no-untyped-def]
-    """FU-006 — ``self.system_box`` is a ``QSearchableComboBox`` instance."""
+def test_system_box_is_a_plain_qcombobox(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """``self.system_box`` is a plain, non-editable ``QComboBox``.
 
-    from superqt import QSearchableComboBox
-
-    window = _make_window(qtbot)
-    assert isinstance(window.system_box, QSearchableComboBox), (
-        f"FU-006 — system_box should be QSearchableComboBox; "
-        f"got {type(window.system_box).__name__}"
-    )
-
-
-def test_system_box_is_still_a_qcombobox(qtbot) -> None:  # type: ignore[no-untyped-def]
-    """Backwards-compat: ``QSearchableComboBox`` IS-A ``QComboBox``.
-
-    Existing callers that introspect ``system_box`` as a
-    ``QComboBox`` must continue to work — that's the migration
-    contract that lets us swap without touching downstream code.
+    The editable ``QSearchableComboBox`` was reverted because its inner
+    line-edit rendered as a blank white field and its completer popup
+    appeared detached/offset on Windows. A non-editable ``QComboBox``
+    renders correctly on every platform.
     """
 
     from PySide6.QtWidgets import QComboBox
 
     window = _make_window(qtbot)
     assert isinstance(window.system_box, QComboBox), (
-        "FU-006 — system_box must remain a QComboBox subclass so "
-        "existing accessors keep working"
+        f"system_box should be a QComboBox; "
+        f"got {type(window.system_box).__name__}"
+    )
+    assert not window.system_box.isEditable(), (
+        "system_box must be non-editable — an editable combobox shows a "
+        "blank white line-edit under Fusion on Windows"
     )
 
 
@@ -154,31 +140,30 @@ def test_system_box_index_change_still_fires_rebuild(qtbot) -> None:  # type: ig
 
 
 # ---------------------------------------------------------------------------
-# Filter / completer surface
+# Non-editable contract (the Windows-regression fix)
 # ---------------------------------------------------------------------------
 
 
-def test_searchable_combobox_carries_a_completer(qtbot) -> None:  # type: ignore[no-untyped-def]
-    """``QSearchableComboBox`` adds a ``QCompleter`` for type-to-filter.
+def test_system_box_has_no_editable_line_edit(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """The picker exposes no editable line-edit.
 
-    The user-visible value of FU-006 is the filter; without a
-    completer the picker degrades to a plain ``QComboBox`` which
-    would silently undo the migration's intent.
+    The editable ``QSearchableComboBox`` was reverted because its inner
+    ``QLineEdit`` rendered as a blank white field under Fusion on
+    Windows. A plain ``QComboBox`` has no line-edit; assert that so a
+    future re-introduction of an editable picker fails loudly here.
     """
 
     window = _make_window(qtbot)
-    completer = window.system_box.completer()
-    assert completer is not None, (
-        "FU-006 — QSearchableComboBox should expose a non-null completer"
+    assert window.system_box.lineEdit() is None, (
+        "system_box must have no line-edit — an editable combobox shows a "
+        "blank white field under Fusion on Windows"
     )
 
 
 def test_preselect_argument_still_works(qtbot) -> None:  # type: ignore[no-untyped-def]
     """The ``preselect=`` kwarg on ``_MainWindow.__init__`` continues to honor.
 
-    Pre-FU-006 ``self.system_box.findText(preselect)`` set the
-    initial index. ``QSearchableComboBox`` inherits ``findText``
-    from ``QComboBox`` so the contract should survive — but pin
+    ``self.system_box.findText(preselect)`` sets the initial index; pin
     it because tests / external launchers may rely on it.
     """
 

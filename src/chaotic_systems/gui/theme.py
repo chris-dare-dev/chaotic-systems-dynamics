@@ -20,12 +20,21 @@ Public surface
   to for the active theme. Used by the renderer wiring in
   ``main_window``.
 
-Why not Qt palettes?
---------------------
-``QApplication.setPalette()`` doesn't reach every widget reliably across
-styles (in particular on macOS, the native style intercepts many
-palette colors). QSS is the more durable approach and matches what
-napari, Krita, and other modern Qt apps do.
+Why Fusion + a palette *and* QSS?
+---------------------------------
+``QApplication.setPalette()`` doesn't reach every widget reliably under
+the platform *native* styles: on macOS the native style intercepts many
+palette colors, and on Windows ``windows11`` / ``windowsvista`` ignores
+large parts of a stylesheet and falls back to the light *system* palette
+for native-drawn subcontrols (combobox drop-downs, spinbox buttons) and
+for unstyled container backgrounds. That divergence is what made the GUI
+look correct on macOS but render white/grey panel-title blocks and a
+mis-placed attractor dropdown on Windows. The fix is to pin the
+**Fusion** style — the one built-in style that honours a stylesheet
+*and* a palette uniformly on every OS — and back it with a dark palette
+derived from :data:`PALETTE`. The QSS then paints the detailed chrome on
+top while the palette fills anything the QSS leaves unstyled, keeping the
+window identical across platforms. See :func:`apply_theme`.
 """
 
 from __future__ import annotations
@@ -139,6 +148,56 @@ def _stylesheet_path(mode: str) -> Path:
     return _ASSETS_DIR / "dark.qss"
 
 
+def _apply_base_style(app: QApplication) -> None:
+    """Pin the Fusion style + a dark ``QPalette`` so the QSS renders the
+    same on every platform.
+
+    Qt's *native* styles only partially honour stylesheets and fall back
+    to the light *system* palette for native-drawn subcontrols (combobox
+    drop-downs, spinbox buttons) and for unstyled container backgrounds.
+    macOS's native style cooperated with our QSS; Windows'
+    ``windows11`` / ``windowsvista`` did not, producing white/grey
+    panel-title blocks and a mis-placed attractor dropdown. Fusion is the
+    only built-in style that respects a stylesheet *and* a palette
+    uniformly across platforms, so we pin it everywhere and back it with
+    a palette derived from :data:`PALETTE`. Qt imports are local so this
+    module stays importable without a running ``QApplication``.
+    """
+
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QStyleFactory
+
+    fusion = QStyleFactory.create("Fusion")
+    if fusion is not None:  # pragma: no branch - Fusion always ships with Qt
+        app.setStyle(fusion)
+
+    p = PALETTE
+    role = QPalette.ColorRole
+    palette = QPalette()
+    palette.setColor(role.Window, QColor(p.bg_window))
+    palette.setColor(role.WindowText, QColor(p.text_primary))
+    palette.setColor(role.Base, QColor(p.bg_panel))
+    palette.setColor(role.AlternateBase, QColor(p.bg_elevated))
+    palette.setColor(role.Text, QColor(p.text_primary))
+    palette.setColor(role.Button, QColor(p.bg_elevated))
+    palette.setColor(role.ButtonText, QColor(p.text_primary))
+    palette.setColor(role.BrightText, QColor(p.error))
+    palette.setColor(role.ToolTipBase, QColor(p.bg_elevated))
+    palette.setColor(role.ToolTipText, QColor(p.text_primary))
+    palette.setColor(role.PlaceholderText, QColor(p.text_muted))
+    palette.setColor(role.Highlight, QColor(p.accent))
+    palette.setColor(role.HighlightedText, QColor(p.accent_text))
+    palette.setColor(role.Link, QColor(p.accent))
+    palette.setColor(role.LinkVisited, QColor(p.accent_strong))
+
+    disabled = QPalette.ColorGroup.Disabled
+    palette.setColor(disabled, role.WindowText, QColor(p.text_muted))
+    palette.setColor(disabled, role.Text, QColor(p.text_muted))
+    palette.setColor(disabled, role.ButtonText, QColor(p.text_muted))
+
+    app.setPalette(palette)
+
+
 def apply_theme(app: QApplication, mode: str = "dark") -> None:
     """Install the QSS stylesheet for ``mode`` on ``app``.
 
@@ -173,6 +232,14 @@ def apply_theme(app: QApplication, mode: str = "dark") -> None:
     # render via Qt-native chevrons. The icon-path-rewriting hack
     # that lived here pre-FU-005 is gone — no asset directory is
     # referenced by the shipped QSS anymore.
+    #
+    # Cross-platform parity: pin Fusion + a dark palette *before* the
+    # stylesheet so native styles (notably Windows ``windows11``) can't
+    # leak the light system palette into combobox drop-downs, spinbox
+    # buttons or unstyled container backgrounds. Without this the dark
+    # QSS rendered correctly on macOS but showed white/grey panel-title
+    # blocks and a mis-placed attractor dropdown on Windows.
+    _apply_base_style(app)
     app.setStyleSheet(stylesheet)
     _current_theme = normalized
 

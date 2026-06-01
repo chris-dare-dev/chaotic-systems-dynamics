@@ -291,6 +291,27 @@ QComboBox QAbstractItemView {
     padding: 4px;
 }
 
+/* Editable combo box — defensive styling for any future editable
+ * QComboBox. An editable QComboBox embeds a QLineEdit; under Fusion on
+ * Windows that inner line-edit paints its own light Base background and
+ * shows up as a blank white field, so we make it inherit the dark
+ * combobox chrome. The shipped pickers (system + integrator) are
+ * non-editable, so this is dormant today but keeps any future editable
+ * picker from regressing. */
+QComboBox:editable {
+    background-color: #2a2e42;            /* bg-elevated, matches base box */
+}
+
+QComboBox QLineEdit,
+QComboBox:editable QLineEdit {
+    background: transparent;             /* show the combobox bg, not white */
+    color: #c0caf5;                      /* text-primary */
+    border: none;
+    padding: 0;
+    selection-background-color: #7aa2f7; /* accent */
+    selection-color: #1f2335;            /* accent-text */
+}
+
 /* Spin boxes. */
 QDoubleSpinBox,
 QSpinBox,

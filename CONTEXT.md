@@ -111,6 +111,61 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-05-31, Windows GUI cross-platform parity)
+
+The GUI was developed and verified on macOS but rendered badly on Windows 11:
+section/panel-title areas showed up as white/grey blocks, and the toolbar
+attractor (system) picker was a black, text-less box whose drop-down list
+floated detached in mid-window. Root cause was platform-style divergence — the
+dark Tokyo Night QSS was layered on top of each platform's *native* Qt style.
+macOS's native style cooperated with the stylesheet; Windows'
+`windows11`/`windowsvista` style ignored large parts of it and filled
+native-drawn subcontrols + unstyled containers from the light *system* palette.
+
+- **Pin Fusion + a dark `QPalette` before the QSS** (`src/chaotic_systems/gui/theme.py`).
+  New `_apply_base_style()` calls `app.setStyle(QStyleFactory.create("Fusion"))`
+  and installs a `QPalette` derived from `theme.PALETTE`, run from `apply_theme()`
+  *before* `setStyleSheet()`. Fusion is the one built-in style that honours a
+  stylesheet *and* a palette identically on every OS; the palette fills anything
+  the QSS leaves unstyled. This fixed the white/grey panel-title blocks. Applied
+  on all platforms (not Windows-only) so "verified on macOS" now means "verified
+  everywhere." Observable: `app.style()` base is `QFusionStyle`; palette `Window`
+  = `#24283b`, `Base` = `#1f2335`, `Highlight` = `#7aa2f7`.
+
+- **`_ToolbarComboBox` for the toolbar system picker** (`src/chaotic_systems/gui/main_window.py`).
+  The system picker is the only combobox embedded in the `QToolBar` (via
+  `addWidget` → `QWidgetAction`). On Windows + Fusion + fractional display
+  scaling (125 %/150 %) that wrapper broke two things the identical *left-panel*
+  integrator combobox never hit (which is how the cause was isolated): (1) the
+  closed-box label paints through Fusion's *palette* roles, and the QSS→palette
+  back-translation didn't reach the wrapped instance → black, text-less box; and
+  (2) `showPopup()` anchors the drop-down via `mapToGlobal` through the toolbar
+  parent chain, which mis-rounds under fractional DPI → detached, offset list.
+  The new `_ToolbarComboBox(QComboBox)` subclass forces the palette roles Fusion
+  reads (`ButtonText`/`Text`/`WindowText` + `Button`/`Window`/`Base`, sourced
+  from `theme.PALETTE`) and overrides `showPopup()` to re-anchor the popup flush
+  under the box in logical coordinates (DPR cancels), clamped to the screen with
+  flip-up-if-no-room. It also supersedes FU-006's editable superqt
+  `QSearchableComboBox`, which was the original buggy widget (its embedded
+  `QLineEdit` rendered as a blank white field and its `QCompleter` popup
+  detached); the picker is now a non-editable combobox. `superqt` remains a
+  runtime dep for the slider widgets used elsewhere. Root cause was confirmed by
+  a `/frontend-uplift`-style multi-agent investigation (web known-bugs + codebase
+  + Qt-internals lenses, adversarially verified). `tests/gui/test_system_picker.py`
+  updated to the non-editable contract.
+
+- **Combobox QSS hardening** (`src/chaotic_systems/gui/assets/dark.qss`).
+  Added defensive `QComboBox:editable` / `QComboBox QLineEdit` dark rules so any
+  future editable picker can't regress to a white line-edit under Fusion. Dormant
+  today (both shipped pickers are non-editable).
+
+The `/frontend-uplift` pipeline itself could not run on this Windows box — its
+`ensure_gui_bootable.py` preflight and headless-construction probes segfault on
+this machine's VTK/OpenGL (`failed to get valid pixel format`), and the visual
+scout's screenshot driver is macOS-only (`screencapture`). Those are
+pipeline-portability gaps, tracked separately; the fixes above were verified by
+running the real windowed app.
+
 ## Recently shipped (2026-05-31, python-only pipeline tooling)
 
 - **PT4 — delete the dead `.sh` scripts; close the portability ceiling**

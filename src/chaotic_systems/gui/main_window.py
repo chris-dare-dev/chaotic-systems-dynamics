@@ -372,6 +372,7 @@ def _build_window_class() -> type:
 
     from PySide6.QtCore import (
         QObject,
+        QPoint,
         QSize,
         Qt,
         QThread,
@@ -380,6 +381,7 @@ def _build_window_class() -> type:
     )
     from PySide6.QtGui import (
         QAction,
+        QColor,
         QImage,
         QKeySequence,
         QPalette,
@@ -435,6 +437,77 @@ def _build_window_class() -> type:
             return color.name()  # "#RRGGBB"
         except Exception:  # pragma: no cover - defensive
             return "#cccccc"
+
+    class _ToolbarComboBox(QComboBox):
+        """A ``QComboBox`` that survives being embedded in the ``QToolBar``
+        on Windows + Fusion + fractional display scaling.
+
+        ``QToolBar.addWidget`` wraps a widget in a ``QWidgetAction``. On
+        Windows at 125 % / 150 % scaling that wrapper breaks two things for
+        a plain ``QComboBox`` (the identical picker in a normal left-panel
+        layout is unaffected, which is how the cause was isolated):
+
+        1. **Black / textless closed box.** Fusion paints the closed-box
+           label through *palette* roles (``ButtonText`` / ``Text`` /
+           ``WindowText``), and the QSS→palette back-translation does not
+           reach the wrapped instance, leaving dark-on-dark. We set those
+           roles explicitly from :data:`theme.PALETTE` so the label paints.
+
+        2. **Detached / offset drop-down.** ``QComboBox.showPopup`` anchors
+           the popup via ``mapToGlobal`` through the toolbar parent chain,
+           which mis-rounds under fractional DPI and throws the list toward
+           mid-window. We re-anchor the popup directly under the box in
+           logical coordinates (DPR cancels), clamped to the screen.
+
+        macOS never hits this (no fractional scaling), so the original
+        macOS-verified build looked correct there. See the frontend-uplift
+        investigation for the full root-cause analysis.
+        """
+
+        def __init__(self, parent: QWidget | None = None) -> None:
+            super().__init__(parent)
+            # Force the palette roles Fusion reads when drawing the closed
+            # box label + frame, sourced from the theme tokens so a palette
+            # migration stays single-touch.
+            from chaotic_systems.gui import theme
+
+            pal = self.palette()
+            bg = QColor(theme.PALETTE.bg_elevated)
+            fg = QColor(theme.PALETTE.text_primary)
+            base = QColor(theme.PALETTE.bg_panel)
+            for role in (
+                QPalette.ColorRole.Button,
+                QPalette.ColorRole.Window,
+            ):
+                pal.setColor(role, bg)
+            pal.setColor(QPalette.ColorRole.Base, base)
+            for role in (
+                QPalette.ColorRole.ButtonText,
+                QPalette.ColorRole.Text,
+                QPalette.ColorRole.WindowText,
+            ):
+                pal.setColor(role, fg)
+            self.setPalette(pal)
+
+        def showPopup(self) -> None:
+            """Re-anchor the popup flush under the box (Windows DPI fix)."""
+
+            super().showPopup()
+            view = self.view()
+            if view is None:  # pragma: no cover - defensive
+                return
+            popup = view.window()
+            screen = self.screen()
+            if popup is None or screen is None:  # pragma: no cover - defensive
+                return
+            avail = screen.availableGeometry()
+            target = self.mapToGlobal(QPoint(0, self.height()))
+            x = max(avail.left(), min(target.x(), avail.right() - popup.width()))
+            y = target.y()
+            if y + popup.height() > avail.bottom():
+                # No room below — flip the list above the box.
+                y = self.mapToGlobal(QPoint(0, 0)).y() - popup.height()
+            popup.move(x, y)
 
     # -----------------------------------------------------------------------
     # LaTeX flowing widget — scales rendered pixmaps to fit the available
@@ -1896,20 +1969,25 @@ def _build_window_class() -> type:
             # combobox here, before the toolbar build, so other cards can
             # depend on it; the toolbar builder takes ownership of layout.
             #
-            # FU-006 — ``QSearchableComboBox`` (superqt) subclasses
-            # ``QComboBox`` and adds a filter input on the dropdown so
-            # the user can type a few letters of the system name
-            # instead of scrolling through 13+ entries (Lorenz /
-            # Rossler / RosslerHyper / DoublePendulum / Chua / Duffing
-            # / HenonHeiles / Kuramoto / MackeyGlass / logistic /
-            # henon_map / ikeda / standard_map). Full ``QComboBox``
-            # API surface so no caller changes are needed.
-            from superqt import QSearchableComboBox
-
-            self.system_box = QSearchableComboBox(self)
+            # FU-006 swapped this plain ``QComboBox`` for superqt's editable
+            # ``QSearchableComboBox`` (type-to-filter over the 13+ systems:
+            # Lorenz / Rossler / RosslerHyper / DoublePendulum / Chua /
+            # Duffing / HenonHeiles / Kuramoto / MackeyGlass / logistic /
+            # henon_map / ikeda / standard_map). That editable widget broke on
+            # Windows and was reverted to a non-editable combobox. We use
+            # ``_ToolbarComboBox`` (not a plain ``QComboBox``) because this
+            # picker is embedded in the ``QToolBar`` via ``addWidget`` — a
+            # ``QWidgetAction`` wrapper that, on Windows + Fusion + fractional
+            # display scaling, leaves a plain combobox rendering as a black /
+            # textless box with a detached, offset drop-down. The subclass
+            # forces the palette roles Fusion reads and re-anchors the popup.
+            # See ``_ToolbarComboBox`` for the full root-cause note. The
+            # left-panel integrator picker stays a plain ``QComboBox`` — it is
+            # not toolbar-embedded and never hit the bug.
+            self.system_box = _ToolbarComboBox(self)
             self.system_box.setObjectName("system_picker")
             self.system_box.setToolTip(
-                "Switch to a different dynamical system. Type to filter."
+                "Switch to a different dynamical system."
             )
             for sys_obj in self._systems:
                 self.system_box.addItem(getattr(sys_obj, "name", repr(sys_obj)))
