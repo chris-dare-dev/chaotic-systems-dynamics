@@ -23,6 +23,9 @@ The first GUI surface of the Conradi attractor feature
    around a closed Fourier curve and a frame rendered at each step with a fixed
    brightness scale (no flicker), then played back via a ``QTimer`` with a
    synchronized ``(a, b)`` inset + moving marker and a frame scrubber.
+7. Press "Export loop" to save the precomputed frames as a seamless GIF (loops
+   forever) or MP4 (CSC-006, via
+   :func:`chaotic_systems.visualization.renderer.write_frames`).
 
 The default ``(a, b) = (5.46, 4.55)`` is Conradi's canonical art regime: a
 single orbit there is periodic, but the rendered image is the *transient flow*
@@ -349,6 +352,7 @@ def _build_panel_class() -> type:
         QCheckBox,
         QComboBox,
         QDoubleSpinBox,
+        QFileDialog,
         QFormLayout,
         QHBoxLayout,
         QLabel,
@@ -520,6 +524,17 @@ def _build_panel_class() -> type:
             self.scrubber.setRange(0, 0)
             self.scrubber.valueChanged.connect(self._on_scrub)
             anim_row.addWidget(self.scrubber, 1)
+
+            self.export_button = QPushButton("Export loop…", self)
+            self.export_button.setObjectName("conradi_export")
+            self.export_button.setEnabled(False)
+            self.export_button.setToolTip(
+                "Save the precomputed loop as a seamless GIF (loops forever) or "
+                "MP4. GIF is portable but 256-colour (mild banding); MP4 is "
+                "higher fidelity."
+            )
+            self.export_button.clicked.connect(self._on_export)
+            anim_row.addWidget(self.export_button)
             outer.addLayout(anim_row)
 
             # --- Status ---------------------------------------------------
@@ -694,6 +709,7 @@ def _build_panel_class() -> type:
                 return
             self._stop_play()
             self._set_busy(True)
+            self.export_button.setEnabled(False)
             self.progress_bar.setRange(0, _ANIM_N_FRAMES)
             self.progress_bar.setValue(0)
             self.progress_bar.setVisible(True)
@@ -744,9 +760,10 @@ def _build_panel_class() -> type:
             self.scrubber.setRange(0, len(frames) - 1)
             self.scrubber.setValue(0)
             self.scrubber.blockSignals(False)
+            self.export_button.setEnabled(True)
             self.status_label.setText(
-                f"Loop ready: {len(frames)} frames. Press Play, or drag the "
-                "scrubber. Closed path -> seamless loop."
+                f"Loop ready: {len(frames)} frames. Press Play, drag the "
+                "scrubber, or Export loop. Closed path -> seamless loop."
             )
 
         def _build_anim_canvas(self) -> None:
@@ -848,6 +865,41 @@ def _build_panel_class() -> type:
             self._stop_play()
             self._show_frame(int(value))
 
+        # ----- export (CSC-006) ---------------------------------------
+
+        def _on_export(self) -> None:
+            if not self._frames:
+                return
+            self._stop_play()
+            path, _selected = QFileDialog.getSaveFileName(
+                self,
+                "Export attractor loop",
+                "conradi_loop.gif",
+                "Animated GIF (*.gif);;MP4 video (*.mp4)",
+            )
+            if not path:
+                return
+            self._export_frames_to(path)
+
+        def _export_frames_to(self, path: str) -> bool:
+            """Write the precomputed loop to ``path`` (GIF or MP4). Returns ok."""
+            from chaotic_systems.visualization.renderer import write_frames
+
+            if not self._frames:
+                self.status_label.setText("Nothing to export — animate first.")
+                return False
+            try:
+                out = write_frames(path, self._frames, fps=_ANIM_FPS)
+            except (ValueError, OSError, RuntimeError, ImportError) as exc:
+                self.status_label.setText(
+                    f"Export failed: {type(exc).__name__}: {exc}"
+                )
+                return False
+            self.status_label.setText(
+                f"Saved {len(self._frames)} frames to {out.name}."
+            )
+            return True
+
         def _teardown_anim_view(self) -> None:
             """Drop the animation artists + transport when leaving anim view.
 
@@ -859,6 +911,7 @@ def _build_panel_class() -> type:
             self._anim_marker = None
             self.play_button.setEnabled(False)
             self.scrubber.setEnabled(False)
+            self.export_button.setEnabled(False)
 
         def _cleanup_thread(self) -> None:
             if self._worker is not None:

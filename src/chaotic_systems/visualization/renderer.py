@@ -92,6 +92,118 @@ def render_lines_as_tubes_default() -> bool:
 # `render_to_video`.
 MAX_VIDEO_SECONDS = 60
 
+# Default playback rate for an exported attractor-art loop (CSC-006).
+DEFAULT_LOOP_FPS: int = 24
+# GIF "loop forever" flag (imageio / Pillow convention: 0 = infinite).
+GIF_LOOP_FOREVER: int = 0
+_GIF_SUFFIX: str = ".gif"
+
+
+def _open_export_writer(
+    out_path: Path,
+    *,
+    fps: int,
+    quality: int = 8,
+    codec: str = "libx264",
+    loop: int = GIF_LOOP_FOREVER,
+) -> Any:
+    """Open an ``imageio`` writer, branching on the output extension (CSC-006).
+
+    ``.gif`` -> a Pillow-backed GIF writer with ``loop`` (0 = loop forever);
+    anything else -> the well-tested ``libx264`` MP4 path (``macro_block_size=1``,
+    ``quality``). Both ``render_to_video`` and :func:`write_frames` share this so
+    the MP4 path stays byte-for-byte the one the existing export tests exercise.
+    """
+    import imageio.v2 as imageio
+
+    if out_path.suffix.lower() == _GIF_SUFFIX:
+        # Pillow's GIF plugin wants per-frame duration in ms, not fps.
+        duration_ms = 1000.0 / float(fps)
+        return imageio.get_writer(
+            str(out_path), mode="I", duration=duration_ms, loop=loop
+        )
+    return imageio.get_writer(
+        str(out_path),
+        fps=fps,
+        codec=codec,
+        quality=quality,
+        macro_block_size=1,
+    )
+
+
+def write_frames(
+    path: str | Path,
+    frames: list[np.ndarray],
+    *,
+    fps: int = DEFAULT_LOOP_FPS,
+    loop: int = GIF_LOOP_FOREVER,
+    quality: int = 8,
+    codec: str = "libx264",
+    progress: Callable[[int, int], None] | None = None,
+    cancel: Callable[[], bool] | None = None,
+) -> Path:
+    """Write a list of RGBA/RGB ``uint8`` frames to an MP4 or GIF (CSC-006).
+
+    The container is chosen from ``path``'s extension: ``.gif`` produces a
+    seamless looping GIF (``loop=0`` = forever), anything else an MP4 via
+    ``libx264``. Frames are coerced to contiguous RGB ``uint8`` (an alpha channel
+    is dropped). This is the reusable export path for the Conradi animation loop
+    (CSC-005), which already holds its frames in memory; ``render_to_video``
+    generates its frames from the 3D scene and keeps its own loop.
+
+    Notes
+    -----
+    GIF is limited to a 256-colour palette, so Pillow quantizes each frame —
+    expect mild banding on the smooth magma/inferno gradients relative to the
+    MP4. MP4 is the higher-fidelity option; GIF is the portable, autoplaying one.
+
+    Parameters
+    ----------
+    path
+        Output file path; extension selects the format.
+    frames
+        Sequence of ``(H, W, 3|4)`` ``uint8`` arrays.
+    fps
+        Playback rate.
+    loop
+        GIF loop count (0 = forever); ignored for MP4.
+    quality, codec
+        MP4 encoder settings (ignored for GIF).
+    progress
+        Optional ``progress(done, total)`` callback, one call per written frame.
+    cancel
+        Optional ``cancel() -> bool`` polled between frames; stops early if True.
+
+    Returns
+    -------
+    Path
+        The resolved output path.
+    """
+    if not frames:
+        raise ValueError("write_frames requires at least one frame")
+
+    out_path = Path(path).expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    total = len(frames)
+    writer = _open_export_writer(
+        out_path, fps=fps, quality=quality, codec=codec, loop=loop
+    )
+    try:
+        for i, frame in enumerate(frames):
+            if cancel is not None and cancel():
+                break
+            arr = np.asarray(frame)
+            if arr.ndim == 3 and arr.shape[2] == 4:
+                arr = arr[..., :3]
+            arr = np.ascontiguousarray(arr, dtype=np.uint8)
+            writer.append_data(arr)
+            if progress is not None:
+                progress(i + 1, total)
+    finally:
+        writer.close()
+    return out_path
+
 
 def _full_polyline_connectivity(n: int) -> np.ndarray:
     """Return the VTK ``lines`` array for a single polyline of ``n`` points."""
@@ -1628,7 +1740,6 @@ class Renderer3D:
             The path the video was written to.
         """
 
-        import imageio.v2 as imageio
         import pyvista as pv
 
         out_path = Path(path).expanduser().resolve()
@@ -1666,12 +1777,8 @@ class Renderer3D:
             self._build_scene(plotter)
             plotter.show(auto_close=False, interactive=False)
 
-            writer = imageio.get_writer(
-                str(out_path),
-                fps=fps,
-                codec=codec,
-                quality=quality,
-                macro_block_size=1,
+            writer = _open_export_writer(
+                out_path, fps=fps, quality=quality, codec=codec
             )
             try:
                 radius = max(self._bbox_diag, 1.0)

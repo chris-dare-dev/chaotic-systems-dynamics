@@ -284,6 +284,51 @@ def test_anim_cancelled_finish_keeps_transport_disabled(qtbot) -> None:  # type:
     assert "ancel" in panel.status_label.text().lower()
 
 
+def test_export_button_exists_and_starts_disabled(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    assert panel.export_button.objectName() == "conradi_export"
+    assert panel.export_button.isEnabled() is False
+
+
+def test_export_enabled_after_animate(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    try:
+        assert panel.export_button.isEnabled() is True
+    finally:
+        panel._stop_play()  # noqa: SLF001
+
+
+def test_export_frames_to_writes_gif(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import imageio.v2 as imageio
+
+    panel = _make_panel(qtbot)
+    payload = _small_loop()
+    panel._on_anim_finished(payload)  # noqa: SLF001
+    out = tmp_path / "loop.gif"
+    ok = panel._export_frames_to(str(out))  # noqa: SLF001
+    assert ok is True
+    assert out.exists()
+    assert len(imageio.mimread(str(out))) == len(payload[0])
+    assert "Saved" in panel.status_label.text()
+
+
+def test_export_without_frames_returns_false(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    ok = panel._export_frames_to(str(tmp_path / "x.gif"))  # noqa: SLF001
+    assert ok is False
+
+
+def test_export_disabled_after_render_teardown(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import attractor_density
+
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    rgba = attractor_density.render(5.46, 4.55, n_points=40, n_iter=40, bins=48)
+    panel._on_finished(rgba)  # noqa: SLF001
+    assert panel.export_button.isEnabled() is False
+
+
 def test_dialog_wraps_panel(qtbot) -> None:  # type: ignore[no-untyped-def]
     from PySide6.QtWidgets import QWidget
 

@@ -111,7 +111,29 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-007)
+## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-006, CSC-007)
+
+- **CSC-2026-05-30-conradi-panel-006 — GIF + MP4 loop export**
+  (commit `__PENDING__`, 2026-06-01). Adds a reusable `write_frames(path,
+  frames, *, fps, loop, ...)` to `visualization/renderer.py` that writes an
+  in-memory list of RGBA frames to a seamless looping **GIF** (`loop=0` =
+  forever, via the Pillow plugin's `duration`-ms API) or an **MP4** (libx264),
+  chosen by the path extension. Factored the writer-open out of the existing
+  `render_to_video` into a shared `_open_export_writer` so the GIF branch is
+  added without touching the MP4 path (the existing renderer export test stays
+  green). Frames are coerced to contiguous RGB uint8 (alpha dropped); GIF is
+  256-colour so Pillow quantizes (mild banding vs MP4 — documented). Wired into
+  `gui/conradi_panel.py`: an "Export loop…" button (enabled once frames are
+  precomputed) opens a `QFileDialog` (GIF/MP4 filter) and calls the testable
+  `_export_frames_to(path)`. Observables (7 new export tests + 5 new panel
+  tests): a round-trip GIF re-read yields the **same frame count**; a closed
+  input loop (first==last frame) round-trips with first==last preserved
+  (seam intact); the GIF carries `loop=0`; cancel stops early; the MP4 branch
+  still writes a valid file through the shared opener. SOTA: N/A (engineering);
+  `imageio` / `imageio-ffmpeg` were already deps. visualization suite 174→181;
+  GUI panel tests 23→28. SHA stamped post-commit. **Milestone B (animation +
+  export) complete.** Remaining: CSC-010 (discrete LLE in Lyapunov panel — note
+  there is no Lyapunov panel; needs rethink), CSC-008 (Clifford preset).
 
 - **CSC-2026-05-30-conradi-panel-005 — closed-loop (a,b) animation + inset**
   (commit `95921fa`, 2026-06-01). A new pure-compute
