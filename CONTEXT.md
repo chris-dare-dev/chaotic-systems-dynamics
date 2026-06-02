@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-006, CSC-007)
 
 - **CSC-2026-05-30-conradi-panel-006 — GIF + MP4 loop export**
-  (commit `__PENDING__`, 2026-06-01). Adds a reusable `write_frames(path,
+  (commit `d3694f2`, 2026-06-01). Adds a reusable `write_frames(path,
   frames, *, fps, loop, ...)` to `visualization/renderer.py` that writes an
   in-memory list of RGBA frames to a seamless looping **GIF** (`loop=0` =
   forever, via the Pillow plugin's `duration`-ms API) or an **MP4** (libx264),
