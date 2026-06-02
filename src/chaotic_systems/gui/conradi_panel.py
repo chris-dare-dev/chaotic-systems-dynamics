@@ -137,6 +137,8 @@ def _build_worker_class() -> type:
             tone: str,
             cmap_name: str,
             bloom: bool,
+            map_fn: attractor_density.MapFn | None = None,
+            extent: tuple[float, float, float, float] | None = None,
         ) -> None:
             super().__init__()
             self._a = float(a)
@@ -147,6 +149,15 @@ def _build_worker_class() -> type:
             self._tone = tone
             self._cmap_name = cmap_name
             self._bloom = bool(bloom)
+            # CMP-001: forward the active map + its render window. Defaults keep
+            # the Conradi behaviour byte-stable (render()/accumulate() default to
+            # conradi_map / DEFAULT_EXTENT).
+            self._map_fn = (
+                attractor_density.conradi_map if map_fn is None else map_fn
+            )
+            self._extent = (
+                attractor_density.DEFAULT_EXTENT if extent is None else extent
+            )
 
         def run(self) -> None:
             try:
@@ -156,9 +167,11 @@ def _build_worker_class() -> type:
                     n_points=self._n_points,
                     n_iter=self._n_iter,
                     bins=self._bins,
+                    extent=self._extent,
                     tone=self._tone,  # type: ignore[arg-type]
                     cmap_name=self._cmap_name,
                     bloom=self._bloom,
+                    map_fn=self._map_fn,
                 )
             except (ValueError, KeyError, TypeError) as exc:
                 self.error.emit(type(exc).__name__, str(exc))
@@ -224,6 +237,8 @@ def _build_anim_worker_class() -> type:
             bins: int,
             cmap_name: str,
             bloom: bool,
+            map_fn: attractor_density.MapFn | None = None,
+            extent: tuple[float, float, float, float] | None = None,
         ) -> None:
             super().__init__()
             self._n_frames = int(n_frames)
@@ -232,6 +247,13 @@ def _build_anim_worker_class() -> type:
             self._bins = int(bins)
             self._cmap_name = cmap_name
             self._bloom = bool(bloom)
+            # CMP-001: forward the active map + render window (Conradi defaults).
+            self._map_fn = (
+                attractor_density.conradi_map if map_fn is None else map_fn
+            )
+            self._extent = (
+                attractor_density.DEFAULT_EXTENT if extent is None else extent
+            )
             self._cancelled = False
 
         def cancel(self) -> None:
@@ -246,6 +268,8 @@ def _build_anim_worker_class() -> type:
             try:
                 payload = param_path.precompute_loop_frames(
                     self._n_frames,
+                    map_fn=self._map_fn,
+                    extent=self._extent,
                     n_points=self._n_points,
                     n_iter=self._n_iter,
                     bins=self._bins,
@@ -312,8 +336,18 @@ def _build_screen_figure(lle: np.ndarray, a: float, b: float) -> Any:
     return fig
 
 
-def _build_figure(rgba: np.ndarray, a: float, b: float) -> Any:
-    """Build a matplotlib Figure showing an RGBA density image on black."""
+def _build_figure(
+    rgba: np.ndarray,
+    a: float,
+    b: float,
+    extent: tuple[float, float, float, float] = attractor_density.DEFAULT_EXTENT,
+) -> Any:
+    """Build a matplotlib Figure showing an RGBA density image on black.
+
+    ``extent`` is the render window the image was binned over (CMP-001); it
+    defaults to the Conradi ``[-1, 1]^2`` box but must match the active map's
+    extent (e.g. ``clifford_extent(c, d)``) so the axes are scaled correctly.
+    """
     from matplotlib.figure import Figure
 
     fig = Figure(figsize=(6.0, 6.0), facecolor="black")
@@ -323,7 +357,7 @@ def _build_figure(rgba: np.ndarray, a: float, b: float) -> Any:
     ax.imshow(
         rgba,
         origin="lower",
-        extent=attractor_density.DEFAULT_EXTENT,
+        extent=extent,
         interpolation="nearest",
         aspect="equal",
     )
@@ -388,6 +422,15 @@ def _build_panel_class() -> type:
             self._timer: QTimer | None = None
             self._anim_im: Any = None
             self._anim_marker: Any = None
+            # CMP-001: the active map's render callable + window. The panel is
+            # Conradi-only today (the map-preset picker is CMP-002); these fields
+            # are the single seam the picker will flip per selection. Workers and
+            # the figure builders read them so every render/animation path is
+            # already map-agnostic.
+            self._map_fn: Any = attractor_density.conradi_map
+            self._extent: tuple[float, float, float, float] = (
+                attractor_density.DEFAULT_EXTENT
+            )
 
             from chaotic_systems.gui._panel_helpers import apply_panel_margins
 
@@ -606,6 +649,8 @@ def _build_panel_class() -> type:
                 tone=self.tone_box.currentText(),
                 cmap_name=self.cmap_box.currentText(),
                 bloom=self.bloom_check.isChecked(),
+                map_fn=self._map_fn,
+                extent=self._extent,
             )
             thread = QThread(self)
             worker.moveToThread(thread)
@@ -724,6 +769,8 @@ def _build_panel_class() -> type:
                 _ANIM_BINS,
                 self.cmap_box.currentText(),
                 self.bloom_check.isChecked(),
+                map_fn=self._map_fn,
+                extent=self._extent,
             )
             thread = QThread(self)
             worker.moveToThread(thread)
@@ -781,7 +828,7 @@ def _build_panel_class() -> type:
             self._anim_im = ax.imshow(
                 self._frames[self._anim_index],
                 origin="lower",
-                extent=attractor_density.DEFAULT_EXTENT,
+                extent=self._extent,
                 interpolation="nearest",
                 aspect="equal",
             )
@@ -928,7 +975,10 @@ def _build_panel_class() -> type:
             from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
 
             fig = _build_figure(
-                rgba, float(self.a_spin.value()), float(self.b_spin.value())
+                rgba,
+                float(self.a_spin.value()),
+                float(self.b_spin.value()),
+                extent=self._extent,
             )
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("conradi_canvas")

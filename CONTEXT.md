@@ -111,6 +111,30 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001)
+
+- **CMP-001 — generalize panel worker plumbing to forward `map_fn` + `extent`**
+  (commit `__PENDING__`, 2026-06-02). First item of
+  `docs/proposals/conradi-map-picker-2026-06-02.md` (the follow-up proposal from
+  capability-scout `2026-06-01-conradi-followups` → `/draft-proposal`). Threads
+  `map_fn` + `extent` (Conradi defaults) through `_ConradiWorker`, `_AnimWorker`,
+  `_build_figure`, `_build_anim_canvas`, and `param_path.precompute_loop_frames`
+  so the already-general `attractor_density.render`/`accumulate` pipeline can
+  render ANY registered art-map from the panel — the foundational unlock for the
+  map-preset picker (CMP-002) and per-map screening (CMP-004). The panel gains a
+  single `self._map_fn` / `self._extent` seam (defaults `conradi_map` /
+  `DEFAULT_EXTENT`); the picker will flip it per selection. **Purely additive** —
+  all new params default to Conradi, so existing behavior is byte-stable.
+  Observables (3 new tests): `precompute_loop_frames` with a Clifford `map_fn` +
+  `clifford_extent` produces frames byte-identical to `render(..., map_fn=...,
+  extent=..., count_max=...)` (forwarding correct); `_ConradiWorker` with a
+  Clifford map renders a non-trivial multi-lobe RGBA; omitting `map_fn` is
+  byte-identical to the Conradi `render` (default unchanged); the panel's seam
+  defaults to `conradi_map`/`DEFAULT_EXTENT`. visualization suite 181→182; GUI
+  panel tests 28→31. No GUI surface yet (the picker is CMP-002). SHA stamped
+  post-commit. **Next:** CMP-005 (preset catalogue, XS) then CMP-002 (the picker
+  UI — first user-visible payoff).
+
 ## Recently shipped (2026-06-01, Conradi attractor panel COMPLETE — CSC-002 through CSC-010)
 
 The Conradi attractor-panel proposal (`docs/proposals/conradi-attractor-panel-2026-05-31.md`)

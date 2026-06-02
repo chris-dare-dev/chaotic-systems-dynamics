@@ -353,3 +353,69 @@ def test_main_window_exposes_conradi_action(qtbot) -> None:  # type: ignore[no-u
     action = actions["action_conradi"]
     assert action.isEnabled() is True
     assert "Conradi" in action.text() or "conradi" in action.text().lower()
+
+
+# --- CMP-001: worker forwards map_fn + extent ------------------------------
+
+
+def test_worker_forwards_clifford_map_and_extent(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """The render worker renders a non-Conradi map when given map_fn + extent."""
+    import numpy as np
+
+    from chaotic_systems.gui.conradi_panel import _build_worker_class
+    from chaotic_systems.systems.clifford import (
+        clifford_extent,
+        make_clifford_map_fn,
+    )
+
+    worker = _build_worker_class()(
+        a=-1.4,
+        b=1.6,
+        n_points=40,
+        n_iter=40,
+        bins=48,
+        tone="log",
+        cmap_name="magma",
+        bloom=False,
+        map_fn=make_clifford_map_fn(1.0, 0.7),
+        extent=clifford_extent(1.0, 0.7),
+    )
+    captured: list[np.ndarray] = []
+    worker.finished.connect(captured.append)
+    worker.run()  # synchronous emit (no thread) for the test
+    assert len(captured) == 1
+    rgba = captured[0]
+    assert rgba.shape == (48, 48, 4) and rgba.dtype == np.uint8
+    lit = np.any(rgba[..., :3] > 0, axis=2)
+    assert lit.any() and not lit.all()  # a real figure on a black background
+
+
+def test_worker_default_map_is_conradi(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Omitting map_fn/extent keeps the Conradi path (byte-stable default)."""
+    import numpy as np
+
+    from chaotic_systems.gui.conradi_panel import _build_worker_class
+    from chaotic_systems.visualization import attractor_density
+
+    worker = _build_worker_class()(
+        a=5.46, b=4.55, n_points=40, n_iter=40, bins=48,
+        tone="log", cmap_name="magma", bloom=False,
+    )
+    captured: list[np.ndarray] = []
+    worker.finished.connect(captured.append)
+    worker.run()
+    assert len(captured) == 1
+    expected = attractor_density.render(
+        5.46, 4.55, n_points=40, n_iter=40, bins=48,
+        tone="log", cmap_name="magma", bloom=False,
+    )
+    assert np.array_equal(captured[0], expected)
+
+
+def test_panel_defaults_to_conradi_map(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """The panel's active-map seam defaults to the Conradi map + its extent."""
+    from chaotic_systems.visualization import attractor_density
+
+    panel = _make_panel(qtbot)
+    assert panel._map_fn is attractor_density.conradi_map  # noqa: SLF001
+    assert panel._extent == attractor_density.DEFAULT_EXTENT  # noqa: SLF001

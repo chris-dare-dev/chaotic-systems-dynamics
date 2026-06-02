@@ -113,6 +113,8 @@ def precompute_loop_frames(
     n_frames: int = DEFAULT_N_FRAMES,
     *,
     path_fn: PathFn | None = None,
+    map_fn: attractor_density.MapFn | None = None,
+    extent: tuple[float, float, float, float] | None = None,
     n_points: int = attractor_density.DEFAULT_N_POINTS,
     n_iter: int = attractor_density.DEFAULT_N_ITER,
     bins: int = attractor_density.DEFAULT_BINS,
@@ -137,6 +139,13 @@ def precompute_loop_frames(
         Number of frames in the loop.
     path_fn
         ``t -> (a, b)``; defaults to :func:`param_loop` with the default shape.
+    map_fn
+        Vectorized map ``(x, y, a, b) -> (x', y')`` forwarded to the renderer;
+        defaults to the Conradi map. Pass ``make_clifford_map_fn(c, d)`` (with the
+        matching ``extent``) to precompute a Clifford loop.
+    extent
+        Render window ``(xmin, xmax, ymin, ymax)``; defaults to the Conradi
+        ``[-1, 1]^2`` box. Use ``clifford_extent(c, d)`` for a Clifford map.
     n_points, n_iter, bins, gamma, cmap_name, bloom
         Render settings passed through to
         :func:`chaotic_systems.visualization.attractor_density.render`.
@@ -160,6 +169,10 @@ def precompute_loop_frames(
         raise ValueError(f"n_frames must be >= 1, got {n_frames}")
     if path_fn is None:
         path_fn = param_loop
+    if map_fn is None:
+        map_fn = attractor_density.conradi_map
+    if extent is None:
+        extent = attractor_density.DEFAULT_EXTENT
 
     ts = np.linspace(0.0, 1.0, n_frames, endpoint=False)
     ab: list[tuple[float, float]] = []
@@ -179,7 +192,13 @@ def precompute_loop_frames(
     for j in scan_idx:
         a, b = ab[int(j)]
         counts = attractor_density.accumulate(
-            a, b, n_points=n_points, n_iter=n_iter, bins=bins
+            a,
+            b,
+            n_points=n_points,
+            n_iter=n_iter,
+            bins=bins,
+            extent=extent,
+            map_fn=map_fn,
         )
         count_max = max(count_max, float(counts.max()))
     count_max = max(count_max, 1.0)
@@ -194,11 +213,13 @@ def precompute_loop_frames(
             n_points=n_points,
             n_iter=n_iter,
             bins=bins,
+            extent=extent,
             tone="log",
             gamma=gamma,
             cmap_name=cmap_name,
             bloom=bloom,
             count_max=count_max,
+            map_fn=map_fn,
         )
         frames.append(rgba)
     if progress is not None:

@@ -90,3 +90,41 @@ def test_path_actually_moves() -> None:
 def test_invalid_n_frames_raises() -> None:
     with pytest.raises(ValueError, match="n_frames must be"):
         pp.precompute_loop_frames(0)
+
+
+def test_precompute_forwards_map_fn_and_extent_clifford() -> None:
+    """CMP-001: a non-Conradi map_fn + extent flow through to every frame.
+
+    The fixed-count_max byte-identity contract must hold when the SAME map_fn +
+    extent are passed to precompute and to the per-frame render reference.
+    """
+    from chaotic_systems.systems.clifford import (
+        clifford_extent,
+        make_clifford_map_fn,
+    )
+
+    c, d = 1.0, 0.7
+    map_fn = make_clifford_map_fn(c, d)
+    extent = clifford_extent(c, d)
+    kw = dict(n_points=40, n_iter=40, bins=48)
+    frames, ab, count_max = pp.precompute_loop_frames(
+        4, map_fn=map_fn, extent=extent, prescan_frames=2, **kw
+    )
+    assert len(frames) == 4
+    # Each frame is byte-identical to render() at the same map_fn/extent/count_max.
+    for i, (a, b) in enumerate(ab):
+        expected = attractor_density.render(
+            a,
+            b,
+            extent=extent,
+            tone="log",
+            gamma=attractor_density.DEFAULT_GAMMA,
+            cmap_name="magma",
+            bloom=False,
+            count_max=count_max,
+            map_fn=map_fn,
+            **kw,
+        )
+        assert np.array_equal(frames[i], expected)
+    # The Clifford frames are non-trivial (lit pixels on a black background).
+    assert any(bool(np.any(f[..., :3] > 0)) for f in frames)
