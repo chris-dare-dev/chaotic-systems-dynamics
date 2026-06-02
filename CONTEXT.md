@@ -119,7 +119,7 @@ CSC-011 dropped, CSC-012/FLI deferred by design). Milestones A (static art MVP),
 B (animation + export), and C (Lyapunov screening) all landed.
 
 - **CSC-2026-05-30-conradi-panel-008 — Clifford attractor preset**
-  (commit `__PENDING__`, 2026-06-01). Adds `systems/clifford.py`: `CliffordMap`
+  (commit `8a2de89`, 2026-06-01). Adds `systems/clifford.py`: `CliffordMap`
   (Pickover's four-parameter map `x'=sin(a y)+c cos(a x)`, `y'=sin(b x)+d cos(b y)`)
   as a second `DiscreteSystem` art-map, with an analytic Jacobian and canonical
   Bourke params `(a,b,c,d)=(-1.4,1.6,1.0,0.7)`. Registered in
