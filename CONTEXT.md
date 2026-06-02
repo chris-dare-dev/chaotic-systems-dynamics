@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001)
 
 - **CMP-001 — generalize panel worker plumbing to forward `map_fn` + `extent`**
-  (commit `__PENDING__`, 2026-06-02). First item of
+  (commit `068bfb2`, 2026-06-02). First item of
   `docs/proposals/conradi-map-picker-2026-06-02.md` (the follow-up proposal from
   capability-scout `2026-06-01-conradi-followups` → `/draft-proposal`). Threads
   `map_fn` + `extent` (Conradi defaults) through `_ConradiWorker`, `_AnimWorker`,
