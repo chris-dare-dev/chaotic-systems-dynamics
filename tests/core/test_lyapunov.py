@@ -22,7 +22,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from chaotic_systems.core.lyapunov import largest_lyapunov_discrete
+from chaotic_systems.core.lyapunov import (
+    largest_lyapunov_discrete,
+    largest_lyapunov_discrete_system,
+)
 from chaotic_systems.systems.conradi import ConradiMap
 from chaotic_systems.systems.henon_map import HenonMap
 from chaotic_systems.systems.logistic import Logistic
@@ -149,3 +152,54 @@ def test_invalid_n_raises() -> None:
         largest_lyapunov_discrete(
             lambda y: y, lambda y: np.eye(1), np.array([0.5]), n=0
         )
+
+
+# --- largest_lyapunov_discrete_system convenience (CSC-010) ----------------
+# "Discrete-map LLE for free" on any registered map: analytic Jacobian when the
+# map ships one, else central finite-difference. The proposal's GUI target (a
+# Lyapunov panel with a map dropdown) does not exist -- the Lyapunov card only
+# sees ODE systems -- so this ships the capability + observable at the core.
+
+
+def test_discrete_system_henon_fd_jacobian() -> None:
+    """HenonMap (no analytic Jacobian) -> FD path -> lambda_1 ~ 0.419."""
+    lle = largest_lyapunov_discrete_system(
+        HenonMap(), n=40_000, n_transient=2_000
+    )
+    assert lle == pytest.approx(0.419, abs=0.02)
+
+
+def test_discrete_system_logistic_r4_is_ln2() -> None:
+    """Logistic at r=4 via the convenience (FD Jacobian) -> ln 2."""
+    lle = largest_lyapunov_discrete_system(
+        Logistic(),
+        params={"r": 4.0},
+        x0=np.array([0.123]),
+        n=60_000,
+        n_transient=2_000,
+    )
+    assert lle == pytest.approx(np.log(2.0), abs=0.02)
+
+
+def test_discrete_system_conradi_uses_analytic_jacobian() -> None:
+    """ConradiMap ships an analytic Jacobian; convenience matches the manual call."""
+    m = ConradiMap()
+    via_system = largest_lyapunov_discrete_system(
+        m, params={"a": 3.9, "b": 4.6}, n=30_000, n_transient=2_000
+    )
+    manual = largest_lyapunov_discrete(
+        lambda y: m.step(y, a=3.9, b=4.6),
+        lambda y: m.jacobian(y, a=3.9, b=4.6),
+        np.array([0.1, 0.1]),
+        n=30_000,
+        n_transient=2_000,
+    )
+    assert via_system > 0.1
+    assert via_system == pytest.approx(manual, abs=1e-9)
+
+
+def test_discrete_system_defaults_to_map_params_and_state() -> None:
+    """With no overrides the convenience uses the map's defaults (Henon chaotic)."""
+    lle = largest_lyapunov_discrete_system(HenonMap(), n=20_000)
+    assert np.isfinite(lle)
+    assert lle > 0.0

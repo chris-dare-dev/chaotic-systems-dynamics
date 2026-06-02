@@ -111,7 +111,29 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-006, CSC-007)
+## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-006, CSC-007, CSC-010)
+
+- **CSC-2026-05-30-conradi-panel-010 — discrete-map LLE "for free" (core convenience)**
+  (commit `__PENDING__`, 2026-06-01). Adds `largest_lyapunov_discrete_system(system,
+  *, params, x0, n, n_transient, rng)` to `core/lyapunov.py`: a convenience that
+  builds `step_fn` + `jacobian_fn` from any `DiscreteSystem` and calls CSC-003's
+  `largest_lyapunov_discrete` — analytic Jacobian when the map ships one
+  (ConradiMap), else a central finite-difference Jacobian of `step` (Hénon /
+  logistic / standard / Ikeda, which have none). Purely additive. Observables (4
+  new tests in `tests/core/test_lyapunov.py`): Hénon (1.4,0.3) → λ₁≈0.419 via FD
+  (Hénon 1976); logistic r=4 → ln 2 via FD; ConradiMap via the convenience
+  (analytic) matches the manual `largest_lyapunov_discrete` call to 1e-9. core
+  suite 217→221. SOTA: Benettin (1980) DOI 10.1007/BF02128236; Hénon (1976).
+  **Scope deviation (important):** the proposal targeted a GUI "Lyapunov panel
+  with a map dropdown" that **does not exist** — the Lyapunov feature is the
+  Diagnostics-card button/worker in `main_window.py`, and its `current_system`
+  only ever comes from the ODE-only `system_box` (`list_systems()`); discrete
+  maps live in the separate `list_maps()` registry (bifurcation/Conradi panels).
+  So there is no map dropdown next to the Lyapunov UI to wire into. Per a user
+  decision this milestone ships the genuine "capability for free" at the **core**
+  (the testable Hénon/logistic anchors) and defers any GUI surfacing; a future
+  item could add a λ₁ readout to the bifurcation panel (which *does* have the
+  logistic/Hénon/Ikeda/standard dropdown). SHA stamped post-commit.
 
 - **CSC-2026-05-30-conradi-panel-006 — GIF + MP4 loop export**
   (commit `d3694f2`, 2026-06-01). Adds a reusable `write_frames(path,

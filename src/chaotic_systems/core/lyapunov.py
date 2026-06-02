@@ -42,11 +42,15 @@ References
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.integrate import solve_ivp
 
 from chaotic_systems.core.base import DynamicalSystem, FloatArray
+
+if TYPE_CHECKING:  # pragma: no cover - import only for type hints
+    from chaotic_systems.core.discrete import DiscreteSystem
 
 
 def _public_rhs(
@@ -403,6 +407,108 @@ def largest_lyapunov_discrete(
     return log_sum / counted
 
 
+def _finite_diff_jacobian_map(
+    step_fn: Callable[[FloatArray], FloatArray],
+    y: FloatArray,
+    eps: float = 1e-7,
+) -> FloatArray:
+    """Central-difference Jacobian of a discrete map ``y -> step_fn(y)``.
+
+    The map analogue of :func:`_finite_diff_jacobian` (no time argument).
+    ``O(d)`` extra ``step_fn`` evaluations.
+    """
+    d = y.shape[0]
+    jac = np.empty((d, d), dtype=np.float64)
+    for i in range(d):
+        e = np.zeros(d, dtype=np.float64)
+        e[i] = eps
+        jac[:, i] = (
+            np.asarray(step_fn(y + e), dtype=np.float64)
+            - np.asarray(step_fn(y - e), dtype=np.float64)
+        ) / (2.0 * eps)
+    return jac
+
+
+def largest_lyapunov_discrete_system(
+    system: DiscreteSystem,
+    *,
+    params: Mapping[str, float] | None = None,
+    x0: FloatArray | None = None,
+    n: int = 20_000,
+    n_transient: int = 1_000,
+    rng: np.random.Generator | None = None,
+) -> float:
+    r"""Largest Lyapunov exponent of a :class:`DiscreteSystem` instance.
+
+    A convenience wrapper around :func:`largest_lyapunov_discrete` that builds
+    the ``step_fn`` and ``jacobian_fn`` from a registered map, so the discrete
+    estimator (CSC-003) is available "for free" on every shipped map. The
+    Jacobian is taken from the map's analytic ``jacobian`` method when it has one
+    (e.g. :class:`~chaotic_systems.systems.conradi.ConradiMap`), otherwise a
+    central finite-difference Jacobian of ``step`` is used (e.g. the Henon /
+    logistic / standard maps, which ship no analytic Jacobian).
+
+    Parameters
+    ----------
+    system
+        Any :class:`~chaotic_systems.core.discrete.DiscreteSystem` instance.
+    params
+        Parameter overrides; merged with the map's defaults. ``None`` uses the
+        map's default parameters.
+    x0
+        Initial state. ``None`` uses ``system.initial_state``.
+    n, n_transient, rng
+        Forwarded to :func:`largest_lyapunov_discrete`.
+
+    Returns
+    -------
+    float
+        The estimated largest Lyapunov exponent (per iteration).
+
+    Notes
+    -----
+    Regression anchors (the proposal's observable for this wire-up): the Henon
+    map at ``(a, b) = (1.4, 0.3)`` gives :math:`\lambda_1 \approx 0.419`
+    (Henon 1976) and the logistic map at ``r = 4`` gives :math:`\lambda_1 =
+    \ln 2` exactly -- both via the finite-difference Jacobian path here.
+
+    References
+    ----------
+    - G. Benettin et al. (1980), *Meccanica* 15:9, DOI 10.1007/BF02128236
+      (the tangent-map estimator).
+    - M. Henon (1976), *A two-dimensional mapping with a strange attractor*,
+      *Commun. Math. Phys.* 50:69 (the :math:`\lambda_1 \approx 0.419` anchor).
+    """
+    merged = system.merged_params(params)
+    start = (
+        np.asarray(system.initial_state, dtype=np.float64)
+        if x0 is None
+        else np.asarray(x0, dtype=np.float64)
+    )
+
+    def step_fn(y: FloatArray) -> FloatArray:
+        return system.step(y, **merged)
+
+    analytic = getattr(system, "jacobian", None)
+    if callable(analytic):
+
+        def jacobian_fn(y: FloatArray) -> FloatArray:
+            return np.asarray(analytic(y, **merged), dtype=np.float64)
+    else:
+
+        def jacobian_fn(y: FloatArray) -> FloatArray:
+            return _finite_diff_jacobian_map(step_fn, y)
+
+    return largest_lyapunov_discrete(
+        step_fn,
+        jacobian_fn,
+        start,
+        n=n,
+        n_transient=n_transient,
+        rng=rng,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Derived diagnostic: Kaplan-Yorke (Lyapunov) dimension.
 # ---------------------------------------------------------------------------
@@ -489,6 +595,7 @@ def kaplan_yorke_dimension(spectrum: FloatArray) -> float:
 __all__ = [
     "kaplan_yorke_dimension",
     "largest_lyapunov_discrete",
+    "largest_lyapunov_discrete_system",
     "largest_lyapunov_two_trajectory",
     "lyapunov_spectrum",
 ]
