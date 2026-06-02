@@ -460,8 +460,9 @@ def test_selecting_clifford_switches_page_and_gates_buttons(qtbot) -> None:  # t
 
     panel.map_box.setCurrentText("Clifford")
     assert panel.param_stack.currentIndex() == 1
-    # Screening + animation are Conradi-only until CMP-004 / a Clifford loop.
-    assert panel.screen_button.isEnabled() is False
+    # CMP-004: screening is per-map now, so Screen works for Clifford too; the
+    # (a, b) animation loop is still Conradi-only.
+    assert panel.screen_button.isEnabled() is True
     assert panel.animate_button.isEnabled() is False
 
     panel.map_box.setCurrentText("Conradi")
@@ -470,13 +471,13 @@ def test_selecting_clifford_switches_page_and_gates_buttons(qtbot) -> None:  # t
     assert panel.animate_button.isEnabled() is True
 
 
-def test_set_busy_keeps_clifford_screen_animate_disabled(qtbot) -> None:  # type: ignore[no-untyped-def]
+def test_set_busy_keeps_clifford_animate_disabled(qtbot) -> None:  # type: ignore[no-untyped-def]
     panel = _make_panel(qtbot)
     panel.map_box.setCurrentText("Clifford")
-    panel._set_busy(False)  # noqa: SLF001 - idle, but Clifford selected
+    panel._set_busy(False)  # noqa: SLF001 - idle, Clifford selected
     assert panel.render_button.isEnabled() is True
-    assert panel.screen_button.isEnabled() is False
-    assert panel.animate_button.isEnabled() is False
+    assert panel.screen_button.isEnabled() is True  # CMP-004: screening per-map
+    assert panel.animate_button.isEnabled() is False  # loop still Conradi-only
 
 
 def test_active_render_spec_per_map(qtbot) -> None:  # type: ignore[no-untyped-def]
@@ -530,3 +531,58 @@ def test_clifford_selection_renders_nontrivial_figure(qtbot) -> None:  # type: i
     )
     lit = np.any(rgba[..., :3] > 0, axis=2)
     assert lit.any() and not lit.all()
+
+
+# --- CMP-004: per-map screening ("Screen (a, b)" for Clifford too) ---------
+
+
+def test_active_screen_fns_and_range_per_map(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import attractor_screen
+
+    panel = _make_panel(qtbot)
+    # Conradi: None/None (lyapunov_grid's built-in default) + [0, 2pi] sweep.
+    step, jac = panel._active_screen_fns()  # noqa: SLF001
+    assert step is None and jac is None
+    a_range, b_range = panel._active_param_range()  # noqa: SLF001
+    assert a_range == attractor_screen.SCREEN_A_RANGE
+
+    panel.map_box.setCurrentText("Clifford")
+    step, jac = panel._active_screen_fns()  # noqa: SLF001
+    assert callable(step) and callable(jac)  # Clifford vectorized pair
+    a_range, b_range = panel._active_param_range()  # noqa: SLF001
+    assert a_range == (-3.0, 3.0) and b_range == (-3.0, 3.0)
+
+
+def test_clifford_screen_click_sets_clifford_spins(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """In Clifford screen mode, a click writes the Clifford a/b spins (CMP-004)."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    panel = _make_panel(qtbot)
+    panel.map_box.setCurrentText("Clifford")
+    # Enter screen mode with a stub LLE field + the Clifford sweep range.
+    panel._screen_a_range, panel._screen_b_range = panel._active_param_range()  # noqa: SLF001
+    panel._on_screen_finished(np.zeros((8, 8), dtype=np.float64))  # noqa: SLF001
+    assert panel._screen_mode is True  # noqa: SLF001
+    event = SimpleNamespace(inaxes=object(), xdata=-1.0, ydata=0.5)
+    panel._on_canvas_click(event)  # noqa: SLF001
+    # Clifford spins updated; the Conradi a_spin is untouched.
+    assert panel.clifford_spins["a"].value() == pytest.approx(-1.0)
+    assert panel.clifford_spins["b"].value() == pytest.approx(0.5)
+
+
+def test_clifford_screen_click_clamps_to_range(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    panel = _make_panel(qtbot)
+    panel.map_box.setCurrentText("Clifford")
+    panel._screen_a_range, panel._screen_b_range = panel._active_param_range()  # noqa: SLF001
+    panel._on_screen_finished(np.zeros((8, 8), dtype=np.float64))  # noqa: SLF001
+    # Click far outside the [-3, 3] Clifford range -> clamped.
+    event = SimpleNamespace(inaxes=object(), xdata=99.0, ydata=-99.0)
+    panel._on_canvas_click(event)  # noqa: SLF001
+    assert panel.clifford_spins["a"].value() == pytest.approx(3.0)
+    assert panel.clifford_spins["b"].value() == pytest.approx(-3.0)

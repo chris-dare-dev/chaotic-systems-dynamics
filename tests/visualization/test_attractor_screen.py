@@ -121,3 +121,47 @@ def test_invalid_args_raise() -> None:
         scr.lyapunov_grid(0)
     with pytest.raises(ValueError, match="n must be"):
         scr.lyapunov_grid(8, n=0)
+
+
+# --- CMP-004: per-map screening (step_fn / jacobian_push_fn) ---------------
+
+
+def test_clifford_screening_reports_positive_lle() -> None:
+    """Clifford screening at the canonical (-1.4, 1.6, 1.0, 0.7) is chaotic.
+
+    Matches the CSC-008 observable (lambda_1 ~ 0.29) — confirms the vectorized
+    Clifford step + Jacobian-push are wired correctly through lyapunov_grid.
+    """
+    step_fn, jacobian_push_fn = scr.clifford_screen_fns(1.0, 0.7)
+    lle, spread = scr.lyapunov_grid(
+        1,
+        n=20_000,
+        n_transient=3_000,
+        a_range=(-1.4, -1.4),
+        b_range=(1.6, 1.6),
+        step_fn=step_fn,
+        jacobian_push_fn=jacobian_push_fn,
+    )
+    assert float(lle[0, 0]) > 0.1
+    assert float(spread[0, 0]) > scr.SPREAD_FLOOR  # non-degenerate
+
+
+def test_clifford_screening_full_grid_finds_chaotic_and_quiet() -> None:
+    step_fn, jacobian_push_fn = scr.clifford_screen_fns(1.0, 0.7)
+    lle, _ = scr.lyapunov_grid(
+        32,
+        a_range=(-3.0, 3.0),
+        b_range=(-3.0, 3.0),
+        step_fn=step_fn,
+        jacobian_push_fn=jacobian_push_fn,
+    )
+    assert lle.shape == (32, 32)
+    assert 0.0 < float((lle > 0.0).mean()) < 1.0
+
+
+def test_default_step_fn_is_conradi_unchanged() -> None:
+    """step_fn=None reproduces the Conradi path (the chaotic anchor stays positive)."""
+    explicit, _ = scr.lyapunov_grid(
+        1, n=20_000, n_transient=3_000, a_range=(3.9, 3.9), b_range=(4.6, 4.6)
+    )
+    assert float(explicit[0, 0]) > 0.1  # Conradi (3.9, 4.6) is chaotic

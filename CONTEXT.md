@@ -111,7 +111,35 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-002, CMP-003, CMP-005)
+## Recently shipped (2026-06-02, Conradi map-picker follow-up COMPLETE — CMP-001..005)
+
+The `conradi-map-picker-2026-06-02.md` proposal is now **fully shipped** (CMP-001
+plumbing, CMP-002 picker UI, CMP-003 Clifford JIT kernel, CMP-004 per-map
+screening, CMP-005 presets). Clifford is fully usable from the GUI: render
+(JIT-fast), preset dropdown, and per-map LLE screening. Remaining deferral: the
+Clifford *animation loop* geometry (Animate stays Conradi-only — `param_loop`'s
+2π-wrap is Conradi-specific; a clean follow-up).
+
+- **CMP-004 — per-map screening generalization (`lyapunov_grid` accepts a map)**
+  (commit `__PENDING__`, 2026-06-02). Closes the silent-wrong-LLE correctness
+  bug from CMP-002: `lyapunov_grid` now takes vectorized `step_fn` /
+  `jacobian_push_fn` kwargs (default `None` → the Conradi inlined path, byte-
+  compatible — existing screen tests unchanged), and a new
+  `attractor_screen.clifford_screen_fns(c,d)` returns the Clifford vectorized
+  step + tangent-push (`J·v` over `(grid,grid)` arrays — NOT the scalar
+  `CliffordMap.jacobian`, AP3). The panel's `_ScreenWorker` now takes the
+  selected map's `step_fn`/`jacobian_push_fn` + per-map sweep domain (Conradi
+  `[0,2π]`, Clifford `[-3,3]`), `_build_screen_figure` uses the per-map axes,
+  and click-to-pick writes the *active* map's `(a,b)` spinboxes clamped to its
+  range. **"Screen (a,b)" is re-enabled for Clifford** (the CMP-002 stopgap
+  lifted; Animate stays Conradi-only). SOTA: Sprott (1993) DOI
+  10.1016/0097-8493(93)90082-K; Benettin (1980). Observables (3 screening + 4
+  panel tests, 2 CMP-002 gating tests updated): Clifford screening at
+  `(-1.4,1.6,1.0,0.7)` reports λ₁≈0.29 (>0, matching CSC-008) with spread above
+  the floor; the Conradi default path is unchanged; the panel's per-map
+  screen-fns/range resolve correctly; Clifford screen-mode click-to-pick writes
+  (and clamps to [-3,3]) the Clifford spins. visualization suite 187→190; GUI
+  panel tests 38→42. SHA stamped post-commit.
 
 - **CMP-003 — Clifford JIT kernel + per-map kernel registry**
   (commit `90e5fe6`, 2026-06-02). Adds `_accumulate_clifford_jit` (a

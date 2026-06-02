@@ -7,9 +7,9 @@ The first GUI surface of the Conradi attractor feature
 1. Choose an art-map (Conradi or Clifford) from the map selector and set its
    parameters via the per-map form (Conradi: ``a``/``b`` in ``[0, 2*pi]``;
    Clifford: ``a``/``b``/``c``/``d`` in ``[-3, 3]``), optionally from a curated
-   "Preset" dropdown (CMP-002 / CMP-005). Screening and animation are
-   Conradi-only for now (disabled for other maps until CMP-004 + a Clifford
-   loop geometry land).
+   "Preset" dropdown (CMP-002 / CMP-005). Screening works per-map (CMP-004); the
+   ``(a, b)`` animation loop is Conradi-only for now (a Clifford loop geometry
+   is a follow-up), so Animate is disabled for other maps.
 2. Tune the lattice (seeds per axis, iterations per seed) and histogram
    resolution.
 3. Pick a colormap (via :func:`chaotic_systems.visualization.colormaps.available`)
@@ -18,11 +18,12 @@ The first GUI surface of the Conradi attractor feature
    runs :func:`chaotic_systems.visualization.attractor_density.render` off the
    UI thread, then see the resulting density image.
 5. Press "Screen (a, b)" to compute a largest-Lyapunov-exponent heatmap over the
-   ``(a, b)`` plane (CSC-004, :mod:`chaotic_systems.visualization.attractor_screen`)
-   off the UI thread, then click the heatmap to pick ``(a, b)``. The heatmap is
-   an informational backdrop: high LLE marks *chaotic* regions, which are
-   distinct from the (often periodic) parameters that produce the signature art
-   (see ``CONTEXT.md`` CSC-003).
+   selected map's ``(a, b)`` plane (CSC-004 / CMP-004,
+   :mod:`chaotic_systems.visualization.attractor_screen`) off the UI thread,
+   then click the heatmap to pick ``(a, b)``. Works for every map (the screening
+   step + Jacobian-push are passed per-map). The heatmap is an informational
+   backdrop: high LLE marks *chaotic* regions, which are distinct from the
+   (often periodic) parameters that produce the signature art (CONTEXT.md CSC-003).
 6. Press "Animate loop" to precompute a seamless closed-loop animation (CSC-005,
    :mod:`chaotic_systems.visualization.param_path`): the ``(a, b)`` path is swept
    around a closed Fourier curve and a frame rendered at each step with a fixed
@@ -207,13 +208,30 @@ def _build_screen_worker_class() -> type:
         finished = Signal(object)  # np.ndarray (grid, grid) LLE field
         error = Signal(str, str)
 
-        def __init__(self, grid: int) -> None:
+        def __init__(
+            self,
+            grid: int,
+            a_range: tuple[float, float],
+            b_range: tuple[float, float],
+            step_fn: Any = None,
+            jacobian_push_fn: Any = None,
+        ) -> None:
             super().__init__()
             self._grid = int(grid)
+            self._a_range = a_range
+            self._b_range = b_range
+            self._step_fn = step_fn
+            self._jacobian_push_fn = jacobian_push_fn
 
         def run(self) -> None:
             try:
-                lle, _spread = attractor_screen.lyapunov_grid(self._grid)
+                lle, _spread = attractor_screen.lyapunov_grid(
+                    self._grid,
+                    a_range=self._a_range,
+                    b_range=self._b_range,
+                    step_fn=self._step_fn,
+                    jacobian_push_fn=self._jacobian_push_fn,
+                )
             except (ValueError, KeyError, TypeError) as exc:
                 self.error.emit(type(exc).__name__, str(exc))
                 return
@@ -322,12 +340,22 @@ def _loop_polyline(
     return a, b
 
 
-def _build_screen_figure(lle: np.ndarray, a: float, b: float) -> Any:
-    """Build a matplotlib Figure of the (a, b) LLE screening heatmap."""
+def _build_screen_figure(
+    lle: np.ndarray,
+    a: float,
+    b: float,
+    a_range: tuple[float, float],
+    b_range: tuple[float, float],
+) -> Any:
+    """Build a matplotlib Figure of the (a, b) LLE screening heatmap.
+
+    ``a_range`` / ``b_range`` are the swept parameter domain (per-map: Conradi
+    ``[0, 2*pi]``, Clifford ``[-3, 3]``), used for the imshow extent + axes.
+    """
     from matplotlib.figure import Figure
 
-    a0, a1 = attractor_screen.SCREEN_A_RANGE
-    b0, b1 = attractor_screen.SCREEN_B_RANGE
+    a0, a1 = a_range
+    b0, b1 = b_range
     fig = Figure(figsize=(6.0, 6.0))
     ax = fig.add_subplot(111)
     im = ax.imshow(
@@ -423,10 +451,14 @@ def _build_panel_class() -> type:
             self._worker: object | None = None
             self._thread: QThread | None = None
             self._last_rgba: np.ndarray | None = None
-            # (a, b) Lyapunov screening state (CSC-004).
+            # (a, b) Lyapunov screening state (CSC-004 / CMP-004).
             self._last_lle: np.ndarray | None = None
             self._screen_mode: bool = False
             self._click_cid: int | None = None
+            # The swept-parameter domain of the most recent screening heatmap
+            # (per-map; set in _on_screen). Drives the heatmap axes + click clamp.
+            self._screen_a_range: tuple[float, float] = attractor_screen.SCREEN_A_RANGE
+            self._screen_b_range: tuple[float, float] = attractor_screen.SCREEN_B_RANGE
             # Closed-loop animation state (CSC-005).
             self._frames: list[np.ndarray] | None = None
             self._frame_ab: list[tuple[float, float]] | None = None
@@ -456,6 +488,12 @@ def _build_panel_class() -> type:
             # The Conradi page keeps the original a_spin/b_spin objectNames so
             # the CSC-007 panel tests resolve them unchanged.
             cliff_params = CliffordMap().parameters
+            # Clifford's (a, b) share the [-3, 3] parameter range; the screening
+            # sweep + heatmap axes use it for non-Conradi maps (CMP-004).
+            self._clifford_ab_range: tuple[float, float] = (
+                cliff_params["a"].min,
+                cliff_params["a"].max,
+            )
 
             map_form = QFormLayout()
             map_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -688,15 +726,22 @@ def _build_panel_class() -> type:
             )
 
         def _on_canvas_click(self, event: Any) -> None:
-            """In screening mode, a click sets (a, b) to the clicked cell."""
+            """In screening mode, a click sets (a, b) to the clicked cell.
+
+            Clamps to and writes the *active* map's (a, b) spinboxes / parameter
+            range (Conradi or Clifford), so click-to-pick is correct per map.
+            """
             if not self._screen_mode or event.inaxes is None:
                 return
             if event.xdata is None or event.ydata is None:
                 return
-            a = min(max(float(event.xdata), 0.0), _TWO_PI)
-            b = min(max(float(event.ydata), 0.0), _TWO_PI)
-            self.a_spin.setValue(a)
-            self.b_spin.setValue(b)
+            a0, a1 = self._screen_a_range
+            b0, b1 = self._screen_b_range
+            a = min(max(float(event.xdata), a0), a1)
+            b = min(max(float(event.ydata), b0), b1)
+            a_spin, b_spin = self._active_ab_spins()
+            a_spin.setValue(a)
+            b_spin.setValue(b)
             self.status_label.setText(
                 f"Picked a = {a:.3f}, b = {b:.3f}. Press Render to draw it."
             )
@@ -731,6 +776,32 @@ def _build_panel_class() -> type:
                 clifford_extent(c, d),
             )
 
+        def _active_ab_spins(self) -> tuple[Any, Any]:
+            """The (a, b) spinboxes for the currently-selected map."""
+            if self._is_conradi_selected():
+                return self.a_spin, self.b_spin
+            return self.clifford_spins["a"], self.clifford_spins["b"]
+
+        def _active_param_range(
+            self,
+        ) -> tuple[tuple[float, float], tuple[float, float]]:
+            """The ``(a_range, b_range)`` screening sweep domain for the map."""
+            if self._is_conradi_selected():
+                return attractor_screen.SCREEN_A_RANGE, attractor_screen.SCREEN_B_RANGE
+            return self._clifford_ab_range, self._clifford_ab_range
+
+        def _active_screen_fns(self) -> tuple[Any, Any]:
+            """``(step_fn, jacobian_push_fn)`` for ``lyapunov_grid``.
+
+            ``(None, None)`` for Conradi (the function's built-in default);
+            the Clifford vectorized pair (closing over ``c, d``) otherwise (CMP-004).
+            """
+            if self._is_conradi_selected():
+                return None, None
+            c = float(self.clifford_spins["c"].value())
+            d = float(self.clifford_spins["d"].value())
+            return attractor_screen.clifford_screen_fns(c, d)
+
         def _on_map_changed(self, _index: int) -> None:
             """Switch the parameter page + sync the active map / control gating."""
             is_conradi = self._is_conradi_selected()
@@ -741,13 +812,13 @@ def _build_panel_class() -> type:
             _a, _b, map_fn, extent = self._active_render_spec()
             self._map_fn = map_fn
             self._extent = extent
-            # Screening (lyapunov_grid) + the (a, b) animation loop are
-            # Conradi-only until CMP-004 / a Clifford loop geometry land, so
-            # disable both for any non-Conradi map (the silent-wrong-LLE guard).
-            self.screen_button.setEnabled(is_conradi)
+            # CMP-004: screening (lyapunov_grid) is now per-map, so "Screen (a, b)"
+            # works for every map. The (a, b) animation loop is still Conradi-only
+            # (a Clifford loop geometry is a separate follow-up).
+            self.screen_button.setEnabled(True)
             self.animate_button.setEnabled(is_conradi)
             name = self.map_box.currentText()
-            extra = "" if is_conradi else " (screening + animation are Conradi-only)"
+            extra = "" if is_conradi else " (animation loop is Conradi-only)"
             self.status_label.setText(f"{name} map selected — press Render.{extra}")
 
         def _on_conradi_preset(self, index: int) -> None:
@@ -833,16 +904,15 @@ def _build_panel_class() -> type:
         def _set_busy(self, busy: bool) -> None:
             """Enable/disable the compute buttons while a worker runs.
 
-            Screen + Animate stay disabled for non-Conradi maps even when idle
-            (CMP-002: screening / the (a, b) loop are Conradi-only until CMP-004
-            and a Clifford loop geometry land).
+            Screen works for every map (CMP-004); the (a, b) animation loop is
+            still Conradi-only, so Animate stays disabled for non-Conradi maps
+            even when idle.
             """
-            idle_conradi = (not busy) and self._is_conradi_selected()
             self.render_button.setEnabled(not busy)
-            self.screen_button.setEnabled(idle_conradi)
-            self.animate_button.setEnabled(idle_conradi)
+            self.screen_button.setEnabled(not busy)
+            self.animate_button.setEnabled((not busy) and self._is_conradi_selected())
 
-        # ----- screening (CSC-004) ------------------------------------
+        # ----- screening (CSC-004 / CMP-004) --------------------------
 
         def _on_screen(self) -> None:
             if self._thread is not None and self._thread.isRunning():
@@ -851,11 +921,18 @@ def _build_panel_class() -> type:
             self._set_busy(True)
             self.progress_bar.setRange(0, 0)
             self.progress_bar.setVisible(True)
+            # Per-map sweep domain + screening callables (CMP-004).
+            a_range, b_range = self._active_param_range()
+            step_fn, jacobian_push_fn = self._active_screen_fns()
+            self._screen_a_range = a_range
+            self._screen_b_range = b_range
             self.status_label.setText(
-                f"Screening the (a, b) plane on a {_SCREEN_GRID}×{_SCREEN_GRID} "
-                "grid (largest Lyapunov exponent)..."
+                f"Screening the {self.map_box.currentText()} (a, b) plane on a "
+                f"{_SCREEN_GRID}×{_SCREEN_GRID} grid (largest Lyapunov exponent)..."
             )
-            worker = screen_worker_cls(_SCREEN_GRID)
+            worker = screen_worker_cls(
+                _SCREEN_GRID, a_range, b_range, step_fn, jacobian_push_fn
+            )
             thread = QThread(self)
             worker.moveToThread(thread)
             thread.started.connect(worker.run)
@@ -888,8 +965,13 @@ def _build_panel_class() -> type:
 
             from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
 
+            a_spin, b_spin = self._active_ab_spins()
             fig = _build_screen_figure(
-                lle, float(self.a_spin.value()), float(self.b_spin.value())
+                lle,
+                float(a_spin.value()),
+                float(b_spin.value()),
+                self._screen_a_range,
+                self._screen_b_range,
             )
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("conradi_canvas")
