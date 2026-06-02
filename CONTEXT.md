@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-002, CMP-005)
 
 - **CMP-002 — map-preset picker UI (QComboBox + dynamic parameter form)**
-  (commit `__PENDING__`, 2026-06-02). The user-visible payoff: a "Map" selector
+  (commit `9767af3`, 2026-06-02). The user-visible payoff: a "Map" selector
   in the Conradi panel switches between **Conradi** (`a,b`) and **Clifford**
   (`a,b,c,d`) via a `QComboBox` driving a `QStackedWidget` of per-map
   `QFormLayout` pages, hand-rolled from `DiscreteSystem.parameters` (zero new
