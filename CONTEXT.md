@@ -111,7 +111,38 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-005)
+## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-002, CMP-005)
+
+- **CMP-002 — map-preset picker UI (QComboBox + dynamic parameter form)**
+  (commit `__PENDING__`, 2026-06-02). The user-visible payoff: a "Map" selector
+  in the Conradi panel switches between **Conradi** (`a,b`) and **Clifford**
+  (`a,b,c,d`) via a `QComboBox` driving a `QStackedWidget` of per-map
+  `QFormLayout` pages, hand-rolled from `DiscreteSystem.parameters` (zero new
+  deps; HoloViz/ParaView idiom, mirrors the `colormaps` registry). Each page has
+  a "Preset" dropdown populated from CMP-005's `CONRADI_PRESETS` /
+  `CLIFFORD_PRESETS` that fills the spinboxes. `_on_render` reads the active
+  map's params → builds `map_fn`/`extent` (Clifford via
+  `make_clifford_map_fn(c,d)` + `clifford_extent(c,d)`, CSC-008) → renders
+  through the CMP-001 plumbing. **CliffordMap is now reachable from the GUI** (it
+  shipped render glue in CSC-008 but was unreachable). **MAJOR mitigations
+  honored:** (1) the existing Conradi `a_spin`/`b_spin` + all shared controls
+  keep their objectNames/attrs (moved onto the Conradi stack page) — the 10
+  CSC-007 tests pass unchanged; (2) the **"Screen (a,b)" button is disabled for
+  non-Conradi maps** (the silent-wrong-LLE guard — `lyapunov_grid` is
+  Conradi-only until CMP-004), enforced in both `_on_map_changed` and `_set_busy`.
+  **Scope choice:** Clifford's `(a,b)` are not 2π-periodic, so `param_loop`'s
+  `% 2π` wrap can't drive a Clifford loop without a `param_path` refactor — per
+  the proposal's sanctioned either/or, the **Animate button is also disabled for
+  non-Conradi** (defers the Clifford loop geometry as a clean follow-up); Conradi
+  animation is unchanged. Conradi-only `conradi_panel.py` change. Observables
+  (7 new tests): selector + per-map forms exist with stable objectNames; Clifford
+  spin ranges track `CliffordMap.parameters`; selecting Clifford switches the
+  page + disables Screen/Animate (re-enabled on Conradi); `_set_busy` keeps them
+  disabled for Clifford; `_active_render_spec` returns the right map_fn/extent
+  per map; presets populate spinboxes; a Clifford selection renders a non-trivial
+  multi-lobe figure. GUI panel tests 31→38. SHA stamped post-commit. **Next:**
+  CMP-003 (Clifford JIT kernel — make Clifford renders fast) then CMP-004
+  (per-map screening — re-enables Screen for Clifford + Clifford animation loop).
 
 - **CMP-005 — art-map preset catalogue (named parameter sets)**
   (commit `558fd38`, 2026-06-02). Adds code-resident named-parameter-set

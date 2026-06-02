@@ -419,3 +419,114 @@ def test_panel_defaults_to_conradi_map(qtbot) -> None:  # type: ignore[no-untype
     panel = _make_panel(qtbot)
     assert panel._map_fn is attractor_density.conradi_map  # noqa: SLF001
     assert panel._extent == attractor_density.DEFAULT_EXTENT  # noqa: SLF001
+
+
+# --- CMP-002: map-preset picker UI -----------------------------------------
+
+
+def test_map_selector_and_per_map_forms_exist(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    assert panel.map_box.objectName() == "conradi_map_select"
+    items = [panel.map_box.itemText(i) for i in range(panel.map_box.count())]
+    assert items == ["Conradi", "Clifford"]
+    assert panel.map_box.currentText() == "Conradi"
+    # Conradi page keeps the original a/b spinboxes (objectNames unchanged).
+    assert panel.a_spin.objectName() == "conradi_a"
+    assert panel.b_spin.objectName() == "conradi_b"
+    # Clifford page has four parameter spinboxes + a preset box.
+    assert set(panel.clifford_spins) == {"a", "b", "c", "d"}
+    assert panel.clifford_spins["c"].objectName() == "conradi_clifford_c"
+    assert panel.conradi_preset_box.objectName() == "conradi_preset"
+    assert panel.clifford_preset_box.objectName() == "conradi_clifford_preset"
+
+
+def test_clifford_spin_ranges_track_map_parameters(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.systems.clifford import CliffordMap
+
+    panel = _make_panel(qtbot)
+    params = CliffordMap().parameters
+    for key in ("a", "b", "c", "d"):
+        spin = panel.clifford_spins[key]
+        assert spin.minimum() == pytest.approx(params[key].min)
+        assert spin.maximum() == pytest.approx(params[key].max)
+
+
+def test_selecting_clifford_switches_page_and_gates_buttons(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    # Conradi (default): screen + animate enabled.
+    assert panel.param_stack.currentIndex() == 0
+    assert panel.screen_button.isEnabled() is True
+    assert panel.animate_button.isEnabled() is True
+
+    panel.map_box.setCurrentText("Clifford")
+    assert panel.param_stack.currentIndex() == 1
+    # Screening + animation are Conradi-only until CMP-004 / a Clifford loop.
+    assert panel.screen_button.isEnabled() is False
+    assert panel.animate_button.isEnabled() is False
+
+    panel.map_box.setCurrentText("Conradi")
+    assert panel.param_stack.currentIndex() == 0
+    assert panel.screen_button.isEnabled() is True
+    assert panel.animate_button.isEnabled() is True
+
+
+def test_set_busy_keeps_clifford_screen_animate_disabled(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel.map_box.setCurrentText("Clifford")
+    panel._set_busy(False)  # noqa: SLF001 - idle, but Clifford selected
+    assert panel.render_button.isEnabled() is True
+    assert panel.screen_button.isEnabled() is False
+    assert panel.animate_button.isEnabled() is False
+
+
+def test_active_render_spec_per_map(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.systems.clifford import clifford_extent
+    from chaotic_systems.visualization import attractor_density
+
+    panel = _make_panel(qtbot)
+    a, b, map_fn, extent = panel._active_render_spec()  # noqa: SLF001
+    assert map_fn is attractor_density.conradi_map
+    assert extent == attractor_density.DEFAULT_EXTENT
+    assert (a, b) == pytest.approx((panel.a_spin.value(), panel.b_spin.value()))
+
+    panel.map_box.setCurrentText("Clifford")
+    panel._on_clifford_preset(0)  # noqa: SLF001 - Bourke I (-1.4,1.6,1.0,0.7)
+    a, b, map_fn, extent = panel._active_render_spec()  # noqa: SLF001
+    assert (a, b) == pytest.approx((-1.4, 1.6))
+    assert extent == clifford_extent(1.0, 0.7)
+    assert map_fn is not attractor_density.conradi_map
+
+
+def test_presets_populate_spinboxes(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.systems.clifford import CLIFFORD_PRESETS
+    from chaotic_systems.systems.conradi import CONRADI_PRESETS
+
+    panel = _make_panel(qtbot)
+    # Conradi preset 1 (the alternate still).
+    _label, a, b = CONRADI_PRESETS[1]
+    panel._on_conradi_preset(1)  # noqa: SLF001
+    assert panel.a_spin.value() == pytest.approx(a)
+    assert panel.b_spin.value() == pytest.approx(b)
+    # Clifford preset 1.
+    _label, ca, cb, cc, cd = CLIFFORD_PRESETS[1]
+    panel._on_clifford_preset(1)  # noqa: SLF001
+    assert panel.clifford_spins["a"].value() == pytest.approx(ca)
+    assert panel.clifford_spins["d"].value() == pytest.approx(cd)
+
+
+def test_clifford_selection_renders_nontrivial_figure(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """End-to-end: the Clifford spec drives a non-trivial render."""
+    import numpy as np
+
+    from chaotic_systems.visualization import attractor_density
+
+    panel = _make_panel(qtbot)
+    panel.map_box.setCurrentText("Clifford")
+    panel._on_clifford_preset(0)  # noqa: SLF001
+    a, b, map_fn, extent = panel._active_render_spec()  # noqa: SLF001
+    rgba = attractor_density.render(
+        a, b, map_fn=map_fn, extent=extent,
+        n_points=60, n_iter=60, bins=80, tone="log",
+    )
+    lit = np.any(rgba[..., :3] > 0, axis=2)
+    assert lit.any() and not lit.all()

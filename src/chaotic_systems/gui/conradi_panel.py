@@ -4,7 +4,12 @@ The first GUI surface of the Conradi attractor feature
 (``docs/proposals/conradi-attractor-panel-2026-05-31.md``). Embeds a
 :class:`matplotlib.backends.backend_qtagg.FigureCanvasQTAgg` so the user can:
 
-1. Set the map parameters ``a`` / ``b`` (the two phase shifts in ``[0, 2*pi]``).
+1. Choose an art-map (Conradi or Clifford) from the map selector and set its
+   parameters via the per-map form (Conradi: ``a``/``b`` in ``[0, 2*pi]``;
+   Clifford: ``a``/``b``/``c``/``d`` in ``[-3, 3]``), optionally from a curated
+   "Preset" dropdown (CMP-002 / CMP-005). Screening and animation are
+   Conradi-only for now (disabled for other maps until CMP-004 + a Clifford
+   loop geometry land).
 2. Tune the lattice (seeds per axis, iterations per seed) and histogram
    resolution.
 3. Pick a colormap (via :func:`chaotic_systems.visualization.colormaps.available`)
@@ -58,6 +63,13 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from chaotic_systems.core._numba import NUMBA_AVAILABLE
+from chaotic_systems.systems.clifford import (
+    CLIFFORD_PRESETS,
+    CliffordMap,
+    clifford_extent,
+    make_clifford_map_fn,
+)
+from chaotic_systems.systems.conradi import CONRADI_PRESETS
 from chaotic_systems.visualization import (
     attractor_density,
     attractor_screen,
@@ -394,6 +406,7 @@ def _build_panel_class() -> type:
         QPushButton,
         QSlider,
         QSpinBox,
+        QStackedWidget,
         QVBoxLayout,
         QWidget,
     )
@@ -437,27 +450,95 @@ def _build_panel_class() -> type:
             outer = QVBoxLayout(self)
             apply_panel_margins(outer)
 
-            # --- Controls -------------------------------------------------
-            controls = QFormLayout()
-            controls.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+            # --- Map selector + per-map parameter form (CMP-002) ----------
+            # A QComboBox drives a QStackedWidget of per-map QFormLayout pages
+            # (HoloViz attractors / ParaView property-panel idiom, native Qt).
+            # The Conradi page keeps the original a_spin/b_spin objectNames so
+            # the CSC-007 panel tests resolve them unchanged.
+            cliff_params = CliffordMap().parameters
 
-            self.a_spin = QDoubleSpinBox(self)
+            map_form = QFormLayout()
+            map_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+            self.map_box = QComboBox(self)
+            self.map_box.setObjectName("conradi_map_select")
+            self.map_box.addItem("Conradi")
+            self.map_box.addItem("Clifford")
+            self.map_box.setToolTip(
+                "Choose the art-map to render (Conradi sin/cos-of-z² or "
+                "Clifford). Screening / animation are Conradi-only for now."
+            )
+            map_form.addRow(QLabel("Map"), self.map_box)
+            outer.addLayout(map_form)
+
+            self.param_stack = QStackedWidget(self)
+            self.param_stack.setObjectName("conradi_param_stack")
+
+            # -- Conradi page: preset + a + b -----------------------------
+            conradi_page = QWidget(self.param_stack)
+            conradi_form = QFormLayout(conradi_page)
+            conradi_form.setContentsMargins(0, 0, 0, 0)
+            self.conradi_preset_box = QComboBox(conradi_page)
+            self.conradi_preset_box.setObjectName("conradi_preset")
+            for entry in CONRADI_PRESETS:
+                self.conradi_preset_box.addItem(entry[0])
+            self.conradi_preset_box.setToolTip("Curated Conradi parameter sets.")
+            self.conradi_preset_box.activated.connect(self._on_conradi_preset)
+            conradi_form.addRow(QLabel("Preset"), self.conradi_preset_box)
+
+            self.a_spin = QDoubleSpinBox(conradi_page)
             self.a_spin.setObjectName("conradi_a")
             self.a_spin.setRange(0.0, _TWO_PI)
             self.a_spin.setDecimals(3)
             self.a_spin.setSingleStep(0.05)
             self.a_spin.setValue(_DEFAULT_A)
             self.a_spin.setToolTip("Real-channel phase shift a in [0, 2π].")
-            controls.addRow(QLabel("a (real phase)"), self.a_spin)
+            conradi_form.addRow(QLabel("a (real phase)"), self.a_spin)
 
-            self.b_spin = QDoubleSpinBox(self)
+            self.b_spin = QDoubleSpinBox(conradi_page)
             self.b_spin.setObjectName("conradi_b")
             self.b_spin.setRange(0.0, _TWO_PI)
             self.b_spin.setDecimals(3)
             self.b_spin.setSingleStep(0.05)
             self.b_spin.setValue(_DEFAULT_B)
             self.b_spin.setToolTip("Imag-channel phase shift b in [0, 2π].")
-            controls.addRow(QLabel("b (imag phase)"), self.b_spin)
+            conradi_form.addRow(QLabel("b (imag phase)"), self.b_spin)
+            self.param_stack.addWidget(conradi_page)
+
+            # -- Clifford page: preset + a + b + c + d --------------------
+            clifford_page = QWidget(self.param_stack)
+            clifford_form = QFormLayout(clifford_page)
+            clifford_form.setContentsMargins(0, 0, 0, 0)
+            self.clifford_preset_box = QComboBox(clifford_page)
+            self.clifford_preset_box.setObjectName("conradi_clifford_preset")
+            for entry in CLIFFORD_PRESETS:
+                self.clifford_preset_box.addItem(entry[0])
+            self.clifford_preset_box.setToolTip(
+                "Paul Bourke's reference Clifford parameter sets."
+            )
+            self.clifford_preset_box.activated.connect(self._on_clifford_preset)
+            clifford_form.addRow(QLabel("Preset"), self.clifford_preset_box)
+
+            # Built from CliffordMap.parameters so range/default stay single-sourced.
+            self.clifford_spins: dict[str, Any] = {}
+            for key in ("a", "b", "c", "d"):
+                p = cliff_params[key]
+                spin = QDoubleSpinBox(clifford_page)
+                spin.setObjectName(f"conradi_clifford_{key}")
+                spin.setRange(p.min, p.max)
+                spin.setDecimals(3)
+                spin.setSingleStep(0.05)
+                spin.setValue(p.default)
+                spin.setToolTip(p.description or f"Clifford parameter {key}.")
+                clifford_form.addRow(QLabel(key), spin)
+                self.clifford_spins[key] = spin
+            self.param_stack.addWidget(clifford_page)
+
+            outer.addWidget(self.param_stack)
+            self.map_box.currentIndexChanged.connect(self._on_map_changed)
+
+            # --- Shared lattice + render controls -------------------------
+            controls = QFormLayout()
+            controls.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
             self.n_points_spin = QSpinBox(self)
             self.n_points_spin.setObjectName("conradi_n_points")
@@ -622,6 +703,67 @@ def _build_panel_class() -> type:
             if self._last_lle is not None:
                 self._show_screen(self._last_lle)  # redraw marker at new (a, b)
 
+        # ----- map selection (CMP-002) --------------------------------
+
+        def _is_conradi_selected(self) -> bool:
+            return self.map_box.currentText() == "Conradi"
+
+        def _active_render_spec(self) -> tuple[float, float, Any, tuple]:
+            """Return ``(a, b, map_fn, extent)`` for the currently-selected map.
+
+            Conradi sweeps ``(a, b)`` over the default ``[-1, 1]^2`` window;
+            Clifford bakes its fixed ``(c, d)`` into the closure + bounding box
+            (``make_clifford_map_fn`` / ``clifford_extent``, CSC-008).
+            """
+            if self._is_conradi_selected():
+                return (
+                    float(self.a_spin.value()),
+                    float(self.b_spin.value()),
+                    attractor_density.conradi_map,
+                    attractor_density.DEFAULT_EXTENT,
+                )
+            c = float(self.clifford_spins["c"].value())
+            d = float(self.clifford_spins["d"].value())
+            return (
+                float(self.clifford_spins["a"].value()),
+                float(self.clifford_spins["b"].value()),
+                make_clifford_map_fn(c, d),
+                clifford_extent(c, d),
+            )
+
+        def _on_map_changed(self, _index: int) -> None:
+            """Switch the parameter page + sync the active map / control gating."""
+            is_conradi = self._is_conradi_selected()
+            self.param_stack.setCurrentIndex(0 if is_conradi else 1)
+            # Leaving the current map cancels any in-flight playback / anim view.
+            self._stop_play()
+            self._teardown_anim_view()
+            _a, _b, map_fn, extent = self._active_render_spec()
+            self._map_fn = map_fn
+            self._extent = extent
+            # Screening (lyapunov_grid) + the (a, b) animation loop are
+            # Conradi-only until CMP-004 / a Clifford loop geometry land, so
+            # disable both for any non-Conradi map (the silent-wrong-LLE guard).
+            self.screen_button.setEnabled(is_conradi)
+            self.animate_button.setEnabled(is_conradi)
+            name = self.map_box.currentText()
+            extra = "" if is_conradi else " (screening + animation are Conradi-only)"
+            self.status_label.setText(f"{name} map selected — press Render.{extra}")
+
+        def _on_conradi_preset(self, index: int) -> None:
+            if 0 <= index < len(CONRADI_PRESETS):
+                _label, a, b = CONRADI_PRESETS[index]
+                self.a_spin.setValue(a)
+                self.b_spin.setValue(b)
+
+        def _on_clifford_preset(self, index: int) -> None:
+            if 0 <= index < len(CLIFFORD_PRESETS):
+                _label, a, b, c, d = CLIFFORD_PRESETS[index]
+                self.clifford_spins["a"].setValue(a)
+                self.clifford_spins["b"].setValue(b)
+                self.clifford_spins["c"].setValue(c)
+                self.clifford_spins["d"].setValue(d)
+
         # ----- actions ------------------------------------------------
 
         def _on_render(self) -> None:
@@ -630,27 +772,31 @@ def _build_panel_class() -> type:
             n_points = int(self.n_points_spin.value())
             n_iter = int(self.n_iter_spin.value())
             bins = int(self.bins_spin.value())
+            a, b, map_fn, extent = self._active_render_spec()
+            # Keep the panel seam in sync so _refresh_plot uses the right extent.
+            self._map_fn = map_fn
+            self._extent = extent
 
             self._stop_play()
             self._set_busy(True)
             self.progress_bar.setRange(0, 0)  # indeterminate: one fused call
             self.progress_bar.setVisible(True)
             self.status_label.setText(
-                f"Rendering {n_points}×{n_points} seeds × {n_iter} iterations "
-                f"into a {bins}×{bins} histogram..."
+                f"Rendering {self.map_box.currentText()}: {n_points}×{n_points} "
+                f"seeds × {n_iter} iterations into a {bins}×{bins} histogram..."
             )
 
             worker = worker_cls(
-                a=float(self.a_spin.value()),
-                b=float(self.b_spin.value()),
+                a=a,
+                b=b,
                 n_points=n_points,
                 n_iter=n_iter,
                 bins=bins,
                 tone=self.tone_box.currentText(),
                 cmap_name=self.cmap_box.currentText(),
                 bloom=self.bloom_check.isChecked(),
-                map_fn=self._map_fn,
-                extent=self._extent,
+                map_fn=map_fn,
+                extent=extent,
             )
             thread = QThread(self)
             worker.moveToThread(thread)
@@ -685,10 +831,16 @@ def _build_panel_class() -> type:
             self.status_label.setText(f"{kind}: {message}")
 
         def _set_busy(self, busy: bool) -> None:
-            """Enable/disable the compute buttons while a worker runs."""
+            """Enable/disable the compute buttons while a worker runs.
+
+            Screen + Animate stay disabled for non-Conradi maps even when idle
+            (CMP-002: screening / the (a, b) loop are Conradi-only until CMP-004
+            and a Clifford loop geometry land).
+            """
+            idle_conradi = (not busy) and self._is_conradi_selected()
             self.render_button.setEnabled(not busy)
-            self.screen_button.setEnabled(not busy)
-            self.animate_button.setEnabled(not busy)
+            self.screen_button.setEnabled(idle_conradi)
+            self.animate_button.setEnabled(idle_conradi)
 
         # ----- screening (CSC-004) ------------------------------------
 
