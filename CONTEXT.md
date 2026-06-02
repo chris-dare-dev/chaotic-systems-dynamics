@@ -111,14 +111,41 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-06-02, Clifford animation loop — CAL-001)
+
+- **CAL-001 — non-wrapping `param_loop` + per-map animation loop geometry**
+  (commit `__PENDING__`, 2026-06-02). Closes the last deferral of the
+  conradi-map-picker feature set: the "Animate loop" button now works for
+  Clifford. `param_path.param_loop` gains `wrap: bool = True` — `wrap=False`
+  skips the Conradi-specific `% 2π` fold (Clifford's `a,b` are frequencies in
+  `[-3,3]`, not 2π-periodic phases); seamlessness holds in both modes (the
+  Fourier terms are periodic in `t` regardless). Adds `clifford_param_loop` (a
+  non-wrapping ellipse centred at `(-1.4,1.6)`, radius `(0.8,0.8)` → swept
+  `a∈[-2.2,-0.6]`, `b∈[0.8,2.4]`, strictly inside `[-3,3]`). The panel threads a
+  per-map `path_fn` through `_AnimWorker` → `precompute_loop_frames`, re-enables
+  Animate for all maps (`_on_map_changed`/`_set_busy`), and the `(a,b)` inset is
+  generalized: `_loop_polyline(path_fn, wrapped=…)` only NaN-splits the wrapped
+  (Conradi) loop, and `_loop_axis_limits` sizes the inset axes from the loop's
+  own range (so a Clifford loop fits instead of being squashed into `[0,2π]`).
+  Full-quality (the CMP-003 Clifford JIT kernel makes per-frame Clifford renders
+  fast — no lighter stopgap). Purely additive: `wrap=True` default keeps the
+  Conradi animation path byte-stable. SOTA: the truncated-Fourier closed-curve
+  `param_loop` derivation (`.claude/notes/conradi-analysis/math-parameterization.md`);
+  Bourke Clifford regime. Observables (4 param_path + 2 panel tests, 2 gating
+  tests updated): `param_loop(0,wrap=False)==param_loop(1,wrap=False)` to ~1e-12;
+  `wrap=False` keeps negative values while `wrap=True` folds to `[0,2π)`;
+  `clifford_param_loop` is seamless and stays in `[-3,3]`; a Clifford loop
+  precomputes byte-identically to `render(...)` per frame; the panel selects the
+  Clifford loop + builds the inset; Animate enabled for Clifford. visualization
+  suite 190→194; GUI panel tests 42→44. SHA stamped post-commit. **The Conradi
+  attractor "studio" is now complete for both maps: render (JIT-fast), preset
+  dropdown, per-map LLE screening, and seamless (a,b)-loop animation + export.**
+
 ## Recently shipped (2026-06-02, Conradi map-picker follow-up COMPLETE — CMP-001..005)
 
-The `conradi-map-picker-2026-06-02.md` proposal is now **fully shipped** (CMP-001
+The `conradi-map-picker-2026-06-02.md` proposal is fully shipped (CMP-001
 plumbing, CMP-002 picker UI, CMP-003 Clifford JIT kernel, CMP-004 per-map
-screening, CMP-005 presets). Clifford is fully usable from the GUI: render
-(JIT-fast), preset dropdown, and per-map LLE screening. Remaining deferral: the
-Clifford *animation loop* geometry (Animate stays Conradi-only — `param_loop`'s
-2π-wrap is Conradi-specific; a clean follow-up).
+screening, CMP-005 presets); CAL-001 (above) adds the Clifford animation loop.
 
 - **CMP-004 — per-map screening generalization (`lyapunov_grid` accepts a map)**
   (commit `3c38269`, 2026-06-02). Closes the silent-wrong-LLE correctness

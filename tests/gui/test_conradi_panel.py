@@ -460,10 +460,10 @@ def test_selecting_clifford_switches_page_and_gates_buttons(qtbot) -> None:  # t
 
     panel.map_box.setCurrentText("Clifford")
     assert panel.param_stack.currentIndex() == 1
-    # CMP-004: screening is per-map now, so Screen works for Clifford too; the
-    # (a, b) animation loop is still Conradi-only.
+    # CMP-004 + CAL-001: screening AND animation are per-map now, so Screen and
+    # Animate both work for Clifford too.
     assert panel.screen_button.isEnabled() is True
-    assert panel.animate_button.isEnabled() is False
+    assert panel.animate_button.isEnabled() is True
 
     panel.map_box.setCurrentText("Conradi")
     assert panel.param_stack.currentIndex() == 0
@@ -471,13 +471,14 @@ def test_selecting_clifford_switches_page_and_gates_buttons(qtbot) -> None:  # t
     assert panel.animate_button.isEnabled() is True
 
 
-def test_set_busy_keeps_clifford_animate_disabled(qtbot) -> None:  # type: ignore[no-untyped-def]
+def test_set_busy_enables_all_compute_buttons_per_map(qtbot) -> None:  # type: ignore[no-untyped-def]
     panel = _make_panel(qtbot)
     panel.map_box.setCurrentText("Clifford")
     panel._set_busy(False)  # noqa: SLF001 - idle, Clifford selected
+    # CMP-004 (screening) + CAL-001 (animation) work for every map.
     assert panel.render_button.isEnabled() is True
-    assert panel.screen_button.isEnabled() is True  # CMP-004: screening per-map
-    assert panel.animate_button.isEnabled() is False  # loop still Conradi-only
+    assert panel.screen_button.isEnabled() is True
+    assert panel.animate_button.isEnabled() is True
 
 
 def test_active_render_spec_per_map(qtbot) -> None:  # type: ignore[no-untyped-def]
@@ -586,3 +587,49 @@ def test_clifford_screen_click_clamps_to_range(qtbot) -> None:  # type: ignore[n
     panel._on_canvas_click(event)  # noqa: SLF001
     assert panel.clifford_spins["a"].value() == pytest.approx(3.0)
     assert panel.clifford_spins["b"].value() == pytest.approx(-3.0)
+
+
+# --- CAL-001: per-map animation loop geometry ------------------------------
+
+
+def test_loop_path_fn_selected_per_map(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import param_path
+
+    panel = _make_panel(qtbot)
+    # Conradi (default): the default param_loop (None) + wrapped.
+    assert panel._loop_path_fn is None  # noqa: SLF001
+    assert panel._loop_wrapped is True  # noqa: SLF001
+
+    panel.map_box.setCurrentText("Clifford")
+    assert panel._loop_path_fn is param_path.clifford_param_loop  # noqa: SLF001
+    assert panel._loop_wrapped is False  # noqa: SLF001
+
+    panel.map_box.setCurrentText("Conradi")
+    assert panel._loop_path_fn is None  # noqa: SLF001
+    assert panel._loop_wrapped is True  # noqa: SLF001
+
+
+def test_clifford_animation_precomputes_and_builds_inset(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """A Clifford loop animates: frames stored + the (a, b) inset builds."""
+    from chaotic_systems.systems.clifford import clifford_extent, make_clifford_map_fn
+    from chaotic_systems.visualization import param_path
+
+    panel = _make_panel(qtbot)
+    panel.map_box.setCurrentText("Clifford")
+    frames, ab, _cmax = param_path.precompute_loop_frames(
+        4,
+        path_fn=param_path.clifford_param_loop,
+        map_fn=make_clifford_map_fn(1.0, 0.7),
+        extent=clifford_extent(1.0, 0.7),
+        n_points=40,
+        n_iter=40,
+        bins=48,
+        prescan_frames=2,
+    )
+    panel._on_anim_finished((frames, ab, _cmax))  # noqa: SLF001
+    try:
+        assert panel.last_frames() is frames
+        assert panel.play_button.isEnabled() is True
+        assert panel._anim_im is not None  # the in-place AxesImage was built  # noqa: SLF001
+    finally:
+        panel._stop_play()  # noqa: SLF001

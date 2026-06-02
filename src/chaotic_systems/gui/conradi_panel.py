@@ -269,6 +269,7 @@ def _build_anim_worker_class() -> type:
             bloom: bool,
             map_fn: attractor_density.MapFn | None = None,
             extent: tuple[float, float, float, float] | None = None,
+            path_fn: param_path.PathFn | None = None,
         ) -> None:
             super().__init__()
             self._n_frames = int(n_frames)
@@ -284,6 +285,9 @@ def _build_anim_worker_class() -> type:
             self._extent = (
                 attractor_density.DEFAULT_EXTENT if extent is None else extent
             )
+            # CAL-001: per-map (a, b) loop geometry; None -> the default Conradi
+            # param_loop (precompute_loop_frames falls back to it).
+            self._path_fn = path_fn
             self._cancelled = False
 
         def cancel(self) -> None:
@@ -298,6 +302,7 @@ def _build_anim_worker_class() -> type:
             try:
                 payload = param_path.precompute_loop_frames(
                     self._n_frames,
+                    path_fn=self._path_fn,
                     map_fn=self._map_fn,
                     extent=self._extent,
                     n_points=self._n_points,
@@ -322,22 +327,47 @@ def _build_anim_worker_class() -> type:
 
 
 def _loop_polyline(
+    path_fn: param_path.PathFn | None = None,
     n: int = 400,
+    *,
+    wrapped: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Dense ``(a, b)`` polyline of the default loop, NaN-split at 2*pi wraps.
+    """Dense ``(a, b)`` polyline of the active loop for the inset (CAL-001).
 
-    The loop can cross the ``a``/``b`` = ``2*pi`` boundary (a, b are 2*pi-periodic
-    phase shifts); inserting NaN at the wrap stops matplotlib drawing a spurious
-    line straight across the inset.
+    ``path_fn`` defaults to the Conradi :func:`param_path.param_loop`. When
+    ``wrapped`` is ``True`` the loop can cross the ``2*pi`` boundary (Conradi's
+    ``a, b`` are 2*pi-periodic), so NaN is inserted at each wrap to stop
+    matplotlib drawing a spurious line across the inset. For a non-wrapping loop
+    (``wrapped=False``, e.g. Clifford) the curve is continuous and is NOT split.
     """
+    if path_fn is None:
+        path_fn = param_path.param_loop
     ts = np.linspace(0.0, 1.0, n)
-    a, b = param_path.param_loop(ts)
+    a, b = path_fn(ts)
     a = np.asarray(a, dtype=np.float64).copy()
     b = np.asarray(b, dtype=np.float64).copy()
-    jump = (np.abs(np.diff(a)) > np.pi) | (np.abs(np.diff(b)) > np.pi)
-    a[:-1][jump] = np.nan
-    b[:-1][jump] = np.nan
+    if wrapped:
+        jump = (np.abs(np.diff(a)) > np.pi) | (np.abs(np.diff(b)) > np.pi)
+        a[:-1][jump] = np.nan
+        b[:-1][jump] = np.nan
     return a, b
+
+
+def _loop_axis_limits(
+    values: np.ndarray, marker: float, margin_frac: float = 0.08
+) -> tuple[float, float]:
+    """Inset axis limits from a loop polyline's finite range + the marker (CAL-001).
+
+    Spans the loop's own coordinate range (NaN-aware) plus the current marker,
+    with a small margin, so the inset fits whatever map's loop is shown
+    (Conradi ``[0, 2*pi]`` or Clifford ``[-3, 3]``) instead of a fixed window.
+    """
+    finite = values[np.isfinite(values)]
+    lo = min(float(np.min(finite)), float(marker)) if finite.size else float(marker)
+    hi = max(float(np.max(finite)), float(marker)) if finite.size else float(marker)
+    span = hi - lo
+    pad = margin_frac * span if span > 1e-9 else 0.5
+    return lo - pad, hi + pad
 
 
 def _build_screen_figure(
@@ -476,6 +506,12 @@ def _build_panel_class() -> type:
             self._extent: tuple[float, float, float, float] = (
                 attractor_density.DEFAULT_EXTENT
             )
+            # CAL-001: per-map (a, b) animation-loop geometry. None -> the
+            # default Conradi param_loop (2*pi-wrapped). Clifford uses a
+            # non-wrapping loop centred in [-3, 3]; _loop_wrapped drives the
+            # inset's NaN-split (only the wrapped Conradi loop is split).
+            self._loop_path_fn: Any = None
+            self._loop_wrapped: bool = True
 
             from chaotic_systems.gui._panel_helpers import apply_panel_margins
 
@@ -812,14 +848,20 @@ def _build_panel_class() -> type:
             _a, _b, map_fn, extent = self._active_render_spec()
             self._map_fn = map_fn
             self._extent = extent
-            # CMP-004: screening (lyapunov_grid) is now per-map, so "Screen (a, b)"
-            # works for every map. The (a, b) animation loop is still Conradi-only
-            # (a Clifford loop geometry is a separate follow-up).
+            # CAL-001: per-map animation-loop geometry. Conradi uses the default
+            # 2*pi-wrapped param_loop; Clifford uses a non-wrapping loop in
+            # [-3, 3]. Screening (CMP-004) + animation (CAL-001) now both work
+            # for every map.
+            if is_conradi:
+                self._loop_path_fn = None
+                self._loop_wrapped = True
+            else:
+                self._loop_path_fn = param_path.clifford_param_loop
+                self._loop_wrapped = False
             self.screen_button.setEnabled(True)
-            self.animate_button.setEnabled(is_conradi)
+            self.animate_button.setEnabled(True)
             name = self.map_box.currentText()
-            extra = "" if is_conradi else " (animation loop is Conradi-only)"
-            self.status_label.setText(f"{name} map selected — press Render.{extra}")
+            self.status_label.setText(f"{name} map selected — press Render.")
 
         def _on_conradi_preset(self, index: int) -> None:
             if 0 <= index < len(CONRADI_PRESETS):
@@ -904,13 +946,12 @@ def _build_panel_class() -> type:
         def _set_busy(self, busy: bool) -> None:
             """Enable/disable the compute buttons while a worker runs.
 
-            Screen works for every map (CMP-004); the (a, b) animation loop is
-            still Conradi-only, so Animate stays disabled for non-Conradi maps
-            even when idle.
+            Render, Screen (CMP-004), and Animate (CAL-001) all work for every
+            map, so they simply track the idle state.
             """
             self.render_button.setEnabled(not busy)
             self.screen_button.setEnabled(not busy)
-            self.animate_button.setEnabled((not busy) and self._is_conradi_selected())
+            self.animate_button.setEnabled(not busy)
 
         # ----- screening (CSC-004 / CMP-004) --------------------------
 
@@ -1005,6 +1046,7 @@ def _build_panel_class() -> type:
                 self.bloom_check.isChecked(),
                 map_fn=self._map_fn,
                 extent=self._extent,
+                path_fn=self._loop_path_fn,
             )
             thread = QThread(self)
             worker.moveToThread(thread)
@@ -1071,16 +1113,23 @@ def _build_panel_class() -> type:
             for spine in ax.spines.values():
                 spine.set_visible(False)
 
-            # (a, b) loop inset, upper-right, with the moving marker.
+            # (a, b) loop inset, upper-right, with the moving marker. CAL-001:
+            # the inset draws the ACTIVE map's loop; axis limits come from the
+            # loop's own range (with a margin) so a Clifford loop in [-3, 3]
+            # renders correctly rather than being squashed into [0, 2*pi].
             inset = fig.add_axes((0.70, 0.70, 0.27, 0.27))
             inset.set_facecolor("black")
-            loop_a, loop_b = _loop_polyline()
+            loop_a, loop_b = _loop_polyline(
+                self._loop_path_fn, wrapped=self._loop_wrapped
+            )
             inset.plot(loop_a, loop_b, color="#ffe100", linewidth=1.0)
             (self._anim_marker,) = inset.plot(
                 [a], [b], marker="o", color="white", markersize=5
             )
-            inset.set_xlim(0.0, _TWO_PI)
-            inset.set_ylim(0.0, _TWO_PI)
+            xlo, xhi = _loop_axis_limits(loop_a, a)
+            ylo, yhi = _loop_axis_limits(loop_b, b)
+            inset.set_xlim(xlo, xhi)
+            inset.set_ylim(ylo, yhi)
             inset.set_xticks([])
             inset.set_yticks([])
             inset.set_title("(a, b)", color="white", fontsize=8)

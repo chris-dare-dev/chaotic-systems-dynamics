@@ -128,3 +128,67 @@ def test_precompute_forwards_map_fn_and_extent_clifford() -> None:
         assert np.array_equal(frames[i], expected)
     # The Clifford frames are non-trivial (lit pixels on a black background).
     assert any(bool(np.any(f[..., :3] > 0)) for f in frames)
+
+
+# --- CAL-001: non-wrapping loop + Clifford loop geometry -------------------
+
+
+def test_param_loop_wrap_false_is_seamless() -> None:
+    """The closure holds with wrap=False (seamless without 2*pi folding)."""
+    a0, b0 = pp.param_loop(0.0, wrap=False)
+    a1, b1 = pp.param_loop(1.0, wrap=False)
+    assert float(a0) == pytest.approx(float(a1), abs=1e-12)
+    assert float(b0) == pytest.approx(float(b1), abs=1e-12)
+
+
+def test_param_loop_wrap_false_keeps_negative_values() -> None:
+    """wrap=False returns raw (possibly negative) values; wrap=True folds to [0,2pi)."""
+    ts = np.linspace(0.0, 1.0, 64, endpoint=False)
+    a_raw, b_raw = pp.param_loop(ts, center=(-1.4, 1.6), radius=(0.8, 0.8),
+                                 harmonics=(), rotation=0.0, wrap=False)
+    a_wrapped, _ = pp.param_loop(ts, center=(-1.4, 1.6), radius=(0.8, 0.8),
+                                 harmonics=(), rotation=0.0, wrap=True)
+    assert float(np.min(a_raw)) < 0.0  # raw loop dips negative around a = -1.4
+    assert float(np.min(a_wrapped)) >= 0.0  # wrapped folds into [0, 2*pi)
+
+
+def test_clifford_param_loop_seamless_and_in_range() -> None:
+    """clifford_param_loop is seamless and stays inside the [-3, 3] range."""
+    a0, b0 = pp.clifford_param_loop(0.0)
+    a1, b1 = pp.clifford_param_loop(1.0)
+    assert float(a0) == pytest.approx(float(a1), abs=1e-12)
+    assert float(b0) == pytest.approx(float(b1), abs=1e-12)
+    ts = np.linspace(0.0, 1.0, 256, endpoint=False)
+    a, b = pp.clifford_param_loop(ts)
+    assert float(np.min(a)) >= -3.0 and float(np.max(a)) <= 3.0
+    assert float(np.min(b)) >= -3.0 and float(np.max(b)) <= 3.0
+
+
+def test_clifford_loop_precompute_byte_identical() -> None:
+    """A Clifford loop precomputes seamlessly and each frame matches render()."""
+    from chaotic_systems.systems.clifford import (
+        clifford_extent,
+        make_clifford_map_fn,
+    )
+
+    c, d = 1.0, 0.7
+    map_fn = make_clifford_map_fn(c, d)
+    extent = clifford_extent(c, d)
+    kw = dict(n_points=40, n_iter=40, bins=48)
+    frames, ab, count_max = pp.precompute_loop_frames(
+        5,
+        path_fn=pp.clifford_param_loop,
+        map_fn=map_fn,
+        extent=extent,
+        prescan_frames=2,
+        **kw,
+    )
+    assert len(frames) == 5
+    for i, (a, b) in enumerate(ab):
+        expected = attractor_density.render(
+            a, b, extent=extent, tone="log",
+            gamma=attractor_density.DEFAULT_GAMMA, cmap_name="magma",
+            bloom=False, count_max=count_max, map_fn=map_fn, **kw,
+        )
+        assert np.array_equal(frames[i], expected)
+    assert any(bool(np.any(f[..., :3] > 0)) for f in frames)
