@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-006, CSC-007, CSC-010)
 
 - **CSC-2026-05-30-conradi-panel-010 — discrete-map LLE "for free" (core convenience)**
-  (commit `__PENDING__`, 2026-06-01). Adds `largest_lyapunov_discrete_system(system,
+  (commit `20b343a`, 2026-06-01). Adds `largest_lyapunov_discrete_system(system,
   *, params, x0, n, n_transient, rng)` to `core/lyapunov.py`: a convenience that
   builds `step_fn` + `jacobian_fn` from any `DiscreteSystem` and calls CSC-003's
   `largest_lyapunov_discrete` — analytic Jacobian when the map ships one
