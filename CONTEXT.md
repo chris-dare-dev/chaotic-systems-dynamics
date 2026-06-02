@@ -111,7 +111,34 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-006, CSC-007, CSC-010)
+## Recently shipped (2026-06-01, Conradi attractor panel COMPLETE — CSC-002 through CSC-010)
+
+The Conradi attractor-panel proposal (`docs/proposals/conradi-attractor-panel-2026-05-31.md`)
+is now **fully shipped** (CSC-001, 002, 003, 004, 005, 006, 007, 008, 009, 010;
+CSC-011 dropped, CSC-012/FLI deferred by design). Milestones A (static art MVP),
+B (animation + export), and C (Lyapunov screening) all landed.
+
+- **CSC-2026-05-30-conradi-panel-008 — Clifford attractor preset**
+  (commit `__PENDING__`, 2026-06-01). Adds `systems/clifford.py`: `CliffordMap`
+  (Pickover's four-parameter map `x'=sin(a y)+c cos(a x)`, `y'=sin(b x)+d cos(b y)`)
+  as a second `DiscreteSystem` art-map, with an analytic Jacobian and canonical
+  Bourke params `(a,b,c,d)=(-1.4,1.6,1.0,0.7)`. Registered in
+  `systems/__init__.py` + `systems/registry.py` `_MAP_CLASSES` (now 6 maps).
+  Ships render glue so it flows through the existing CSC-002 pipeline:
+  `clifford_map` (vectorized), `make_clifford_map_fn(c,d)` (a 2-param closure for
+  the renderer's `map_fn(x,y,a,b)` interface, with c/d fixed) and
+  `clifford_extent(c,d)`. **Correction to the proposal:** Clifford is *bounded*,
+  not unbounded — `sin,cos ∈ [-1,1]` ⇒ `|x|≤1+|c|, |y|≤1+|d|`, so the render
+  window is the fixed `(c,d)` box, not an orbit auto-fit. The numba fast path is
+  Conradi-specific, so Clifford uses the NumPy fallback (graceful). SOTA: Paul
+  Bourke, "Clifford Attractors", paulbourke.net/fractals/clifford/ (dysts NOT
+  used). Observables (8 new tests, `tests/systems/test_clifford.py`): bounded to
+  the `(c,d)` box; analytic Jacobian matches finite-difference to ~1e-9; renders
+  a non-trivial multi-lobe figure through `attractor_density` (23993/40000 lit
+  px at 200²); default params chaotic (λ₁≈0.29 via the CSC-010 convenience).
+  systems suite +8. **Not wired into the GUI panel** (the proposal's authorized
+  "Where" was clifford.py + registration + test only); a map/preset picker in
+  `conradi_panel.py` is a natural follow-up. SHA stamped post-commit.
 
 - **CSC-2026-05-30-conradi-panel-010 — discrete-map LLE "for free" (core convenience)**
   (commit `20b343a`, 2026-06-01). Adds `largest_lyapunov_discrete_system(system,

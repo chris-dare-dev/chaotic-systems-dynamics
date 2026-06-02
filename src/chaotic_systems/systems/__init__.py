@@ -11,6 +11,7 @@ authoritative entry point used by the GUI / visualization.
 """
 
 from chaotic_systems.systems.chua import Chua
+from chaotic_systems.systems.clifford import CliffordMap
 from chaotic_systems.systems.conradi import ConradiMap
 from chaotic_systems.systems.double_pendulum import DoublePendulum
 from chaotic_systems.systems.duffing import Duffing
@@ -37,6 +38,7 @@ from chaotic_systems.systems.standard_map import StandardMap
 
 __all__ = [
     "Chua",
+    "CliffordMap",
     "ConradiMap",
     "DoublePendulum",
     "Duffing",

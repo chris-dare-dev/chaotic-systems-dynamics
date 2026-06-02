@@ -51,6 +51,7 @@ from __future__ import annotations
 from chaotic_systems.core.base import DynamicalSystem
 from chaotic_systems.core.discrete import DiscreteSystem
 from chaotic_systems.systems.chua import Chua
+from chaotic_systems.systems.clifford import CliffordMap
 from chaotic_systems.systems.conradi import ConradiMap
 from chaotic_systems.systems.double_pendulum import DoublePendulum
 from chaotic_systems.systems.duffing import Duffing
@@ -86,13 +87,15 @@ _SYSTEM_CLASSES: tuple[type[DynamicalSystem], ...] = (
 # Ordered tuple of discrete-map classes. Listed in pedagogical order
 # (Strogatz §10 traversal): 1D logistic → 2D Hénon → 2D Ikeda
 # (dissipative) → 2D area-preserving standard map, then the
-# density-art ConradiMap (sin/cos-of-z^2 trigonometric attractor).
+# density-art trigonometric attractors ConradiMap (sin/cos-of-z^2) and
+# CliffordMap (Pickover's four-parameter sin/cos map).
 _MAP_CLASSES: tuple[type[DiscreteSystem], ...] = (
     Logistic,
     HenonMap,
     Ikeda,
     StandardMap,
     ConradiMap,
+    CliffordMap,
 )
 
 
