@@ -62,6 +62,15 @@ _DEFAULT_B: float = 4.55
 # exactly this square). Stored as a named constant rather than a magic number.
 _TWO_PI: float = 2.0 * np.pi
 
+#: Curated named Conradi parameter sets, each ``(label, a, b)`` (CMP-005). Both
+#: are the canonical stills from Conradi's ``Nice_orbits.ipynb`` and lie within
+#: ``[0, 2*pi]``. The map-preset picker (a later item) populates a "Preset"
+#: dropdown from this list.
+CONRADI_PRESETS: list[tuple[str, float, float]] = [
+    ("Canonical (5.46, 4.55)", _DEFAULT_A, _DEFAULT_B),
+    ("Alternate (1.7, 2.3)", 1.7, 2.3),
+]
+
 
 class ConradiMap(DiscreteSystem):
     r"""The Conradi trigonometric map :math:`(x, y) \mapsto (\sin(x^2 - y^2 + a),\ \cos(2xy + b))`."""
@@ -150,4 +159,4 @@ pair from the source notebook.
         )
 
 
-__all__ = ["ConradiMap"]
+__all__ = ["CONRADI_PRESETS", "ConradiMap"]

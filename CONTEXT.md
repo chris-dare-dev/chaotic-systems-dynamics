@@ -111,7 +111,29 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001)
+## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-005)
+
+- **CMP-005 — art-map preset catalogue (named parameter sets)**
+  (commit `__PENDING__`, 2026-06-02). Adds code-resident named-parameter-set
+  constants: `CLIFFORD_PRESETS: list[tuple[str,float,float,float,float]]` in
+  `systems/clifford.py` (five of Paul Bourke's reference Clifford sets, all
+  within the `[-3,3]` param range) and `CONRADI_PRESETS:
+  list[tuple[str,float,float]]` in `systems/conradi.py` (the two `Nice_orbits.ipynb`
+  stills). Purely additive named constants — no YAML, no file I/O, no new
+  infrastructure; mirrors the shipped `colormaps` registry pattern (CSC-009). The
+  map-preset picker (CMP-002) will populate a per-map "Preset" dropdown from
+  these; **the dropdown wiring itself is CMP-002** (no `QStackedWidget` form
+  exists yet to host it), so this item ships the data layer only. SOTA: Paul
+  Bourke "Clifford Attractors" (paulbourke.net/fractals/clifford/) per Clifford
+  entry; Conradi `Nice_orbits.ipynb` for the two Conradi stills; Sprott (1993)
+  for the curated-chaotic-points rationale. Observables (4 new tests, +2 in
+  test_clifford.py, +1... actually 2 in test_clifford + 1 in test_conradi):
+  catalogues non-empty with unique labels, every preset's params within the
+  map's declared `Parameter` range, the default Bourke preset renders a
+  non-trivial multi-lobe figure through `attractor_density`, and the canonical
+  (5.46,4.55) Conradi still is present. systems suite 107→111. SHA stamped
+  post-commit. **Next:** CMP-002 (the picker UI — first user-visible payoff;
+  consumes CMP-001 plumbing + these preset constants).
 
 - **CMP-001 — generalize panel worker plumbing to forward `map_fn` + `extent`**
   (commit `068bfb2`, 2026-06-02). First item of

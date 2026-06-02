@@ -96,3 +96,23 @@ def test_registered_as_map() -> None:
     m = get_map("ConradiMap")
     assert m.state_dim == 2
     assert m.kind == "map"
+
+
+def test_conradi_presets_nonempty_unique_and_in_range() -> None:
+    """CONRADI_PRESETS lists the canonical stills as in-range (label, a, b) (CMP-005)."""
+    from chaotic_systems.systems.conradi import CONRADI_PRESETS
+
+    assert len(CONRADI_PRESETS) >= 1
+    labels = [entry[0] for entry in CONRADI_PRESETS]
+    assert len(set(labels)) == len(labels)
+    params = ConradiMap().parameters
+    for label, a, b in CONRADI_PRESETS:
+        assert isinstance(label, str) and label
+        for key, value in zip(("a", "b"), (a, b), strict=True):
+            p = params[key]
+            assert p.min <= value <= p.max, f"{label}: {key}={value} out of range"
+    # The canonical (5.46, 4.55) still is present.
+    assert any(
+        abs(a - 5.46) < 1e-9 and abs(b - 4.55) < 1e-9
+        for _label, a, b in CONRADI_PRESETS
+    )

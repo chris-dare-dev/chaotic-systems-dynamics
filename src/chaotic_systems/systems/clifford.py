@@ -53,6 +53,20 @@ _DEFAULT_D: float = 0.7
 _PARAM_LO: float = -3.0
 _PARAM_HI: float = 3.0
 
+#: Curated named Clifford parameter sets, each ``(label, a, b, c, d)`` (CMP-005).
+#: All are reference sets from Paul Bourke's "Clifford Attractors" page
+#: (http://paulbourke.net/fractals/clifford/) and lie within the
+#: ``[-3, 3]`` parameter range above; each renders a recognizable multi-lobe
+#: figure through ``visualization.attractor_density``. The map-preset picker
+#: (a later item) populates a "Preset" dropdown from this list.
+CLIFFORD_PRESETS: list[tuple[str, float, float, float, float]] = [
+    ("Bourke I (four-lobe)", -1.4, 1.6, 1.0, 0.7),
+    ("Bourke II", 1.7, 1.7, 0.6, 1.2),
+    ("Bourke III", -1.7, 1.3, -0.1, -1.21),
+    ("Bourke IV", 1.5, -1.8, 1.6, 0.9),
+    ("Bourke V", -1.8, -2.0, -0.5, -0.9),
+]
+
 
 def clifford_map(
     x: FloatArray,
@@ -189,6 +203,7 @@ density pipeline (the lattice-transient ink-drop method).
 
 
 __all__ = [
+    "CLIFFORD_PRESETS",
     "CliffordMap",
     "clifford_extent",
     "clifford_map",

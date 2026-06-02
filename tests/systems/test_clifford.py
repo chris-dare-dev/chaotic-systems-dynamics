@@ -114,3 +114,44 @@ def test_default_params_are_chaotic() -> None:
         CliffordMap(), n=40_000, n_transient=2_000
     )
     assert lle > 0.0
+
+
+# --- CMP-005: art-map preset catalogue ------------------------------------
+
+
+def test_clifford_presets_nonempty_unique_and_in_range() -> None:
+    """CLIFFORD_PRESETS is a non-empty list of unique-labelled in-range (a,b,c,d)."""
+    from chaotic_systems.systems.clifford import CLIFFORD_PRESETS
+
+    assert len(CLIFFORD_PRESETS) >= 3
+    labels = [entry[0] for entry in CLIFFORD_PRESETS]
+    assert len(set(labels)) == len(labels)  # labels are unique
+    params = CliffordMap().parameters
+    for label, a, b, c, d in CLIFFORD_PRESETS:
+        assert isinstance(label, str) and label
+        for key, value in zip(("a", "b", "c", "d"), (a, b, c, d), strict=True):
+            p = params[key]
+            assert p.min <= value <= p.max, f"{label}: {key}={value} out of range"
+
+
+def test_clifford_preset_renders_nontrivial_figure() -> None:
+    """Spot-check: the default Bourke preset renders a real figure (CMP-005)."""
+    from chaotic_systems.systems.clifford import (
+        CLIFFORD_PRESETS,
+        clifford_extent,
+        make_clifford_map_fn,
+    )
+
+    _label, a, b, c, d = CLIFFORD_PRESETS[0]
+    rgba = ad.render(
+        a,
+        b,
+        map_fn=make_clifford_map_fn(c, d),
+        extent=clifford_extent(c, d),
+        n_points=80,
+        n_iter=80,
+        bins=160,
+        tone="log",
+    )
+    lit = np.any(rgba[..., :3] > 0, axis=2)
+    assert lit.any() and not lit.all()
