@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-02, Clifford animation loop — CAL-001)
 
 - **CAL-001 — non-wrapping `param_loop` + per-map animation loop geometry**
-  (commit `__PENDING__`, 2026-06-02). Closes the last deferral of the
+  (commit `248b431`, 2026-06-02). Closes the last deferral of the
   conradi-map-picker feature set: the "Animate loop" button now works for
   Clifford. `param_path.param_loop` gains `wrap: bool = True` — `wrap=False`
   skips the Conradi-specific `% 2π` fold (Clifford's `a,b` are frequencies in
