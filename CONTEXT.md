@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-005)
 
 - **CMP-005 — art-map preset catalogue (named parameter sets)**
-  (commit `__PENDING__`, 2026-06-02). Adds code-resident named-parameter-set
+  (commit `558fd38`, 2026-06-02). Adds code-resident named-parameter-set
   constants: `CLIFFORD_PRESETS: list[tuple[str,float,float,float,float]]` in
   `systems/clifford.py` (five of Paul Bourke's reference Clifford sets, all
   within the `[-3,3]` param range) and `CONRADI_PRESETS:
