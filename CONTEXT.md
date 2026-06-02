@@ -111,7 +111,34 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-007)
+## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-007)
+
+- **CSC-2026-05-30-conradi-panel-005 — closed-loop (a,b) animation + inset**
+  (commit `__PENDING__`, 2026-06-01). A new pure-compute
+  `visualization/param_path.py`: `param_loop(t, ...)` is a truncated-Fourier /
+  epicycle **closed** curve in `(a,b)` (fundamental ellipse + decaying harmonics,
+  rotated, recentred, wrapped into [0,2π)) — seamless by construction
+  (`param_loop(0) == param_loop(1)` to machine precision); and
+  `precompute_loop_frames(n_frames, ...)` renders one density frame per `t=i/n`
+  with the `log` tone map at a **single fixed `count_max`** (pre-scanned over a
+  subset of frames at full bins) so brightness doesn't flicker across the loop —
+  the CSC-002 contract. Wired into `gui/conradi_panel.py`: an "Animate loop"
+  button precomputes frames on an `_AnimWorker` thread (determinate progress,
+  cancellable), then Play/Pause + a frame scrubber drive `QTimer` playback that
+  updates a persistent `AxesImage` in place (`set_data`, not a per-frame canvas
+  rebuild — fast) with a synchronized upper-right `(a,b)` inset (the loop drawn,
+  NaN-split at the 2π wrap, + a moving marker). Switching to Render/Screen tears
+  down the animation transport so a stray tick never touches a dead artist.
+  Observables: `param_loop(0)==param_loop(1)` (seamlessness, the proposal's
+  observable); each precomputed frame is byte-identical to
+  `attractor_density.render(..., count_max=count_max)` (proving the fixed-scale
+  no-flicker contract); plus the GUI transport handler tests. 7 new param_path
+  tests + 8 new panel tests. SOTA: the closed-curve Fourier `param_loop`
+  derivation in `.claude/notes/conradi-analysis/math-parameterization.md`.
+  visualization suite 167→174; GUI panel tests 15→23. **Note:** a,b are
+  2π-periodic phase shifts (they enter as `sin(...+a)`/`cos(...+b)`), so wrapping
+  the loop at 2π is lossless for the rendered frames. SHA stamped post-commit.
+  **Milestone B (animation) underway — next is CSC-006 (GIF/MP4 export).**
 
 - **CSC-2026-05-30-conradi-panel-004 — (a,b) Lyapunov screening overlay**
   (commit `b190de7`, 2026-06-01). A new pure-compute

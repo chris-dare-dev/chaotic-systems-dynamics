@@ -189,6 +189,101 @@ def test_render_after_screen_leaves_screen_mode(qtbot) -> None:  # type: ignore[
     assert panel._screen_mode is False  # noqa: SLF001
 
 
+def _small_loop():  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import param_path
+
+    return param_path.precompute_loop_frames(
+        4, n_points=40, n_iter=40, bins=48, prescan_frames=2
+    )
+
+
+def test_animation_controls_exist(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    assert panel.animate_button.objectName() == "conradi_animate"
+    assert panel.play_button.objectName() == "conradi_play"
+    assert panel.scrubber.objectName() == "conradi_scrub"
+    assert panel.play_button.isEnabled() is False
+    assert panel.scrubber.isEnabled() is False
+    assert panel.last_frames() is None
+
+
+def test_anim_finished_stores_frames_and_enables_transport(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    payload = _small_loop()
+    frames = payload[0]
+    panel._on_anim_finished(payload)  # noqa: SLF001
+    try:
+        assert panel.last_frames() is frames
+        assert panel.play_button.isEnabled() is True
+        assert panel.scrubber.isEnabled() is True
+        assert panel.scrubber.maximum() == len(frames) - 1
+        assert "frames" in panel.status_label.text()
+    finally:
+        panel._stop_play()  # noqa: SLF001
+
+
+def test_show_frame_updates_index(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    try:
+        panel._show_frame(2)  # noqa: SLF001
+        assert panel._anim_index == 2  # noqa: SLF001
+    finally:
+        panel._stop_play()  # noqa: SLF001
+
+
+def test_play_pause_toggles(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    try:
+        assert panel._is_playing is False  # noqa: SLF001
+        panel._on_play_pause()  # noqa: SLF001
+        assert panel._is_playing is True  # noqa: SLF001
+        assert panel.play_button.text() == "Pause"
+        panel._on_play_pause()  # noqa: SLF001
+        assert panel._is_playing is False  # noqa: SLF001
+        assert panel.play_button.text() == "Play"
+    finally:
+        panel._stop_play()  # noqa: SLF001
+
+
+def test_scrub_sets_frame_and_pauses(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    panel._start_play()  # noqa: SLF001
+    panel._on_scrub(1)  # noqa: SLF001
+    assert panel._anim_index == 1  # noqa: SLF001
+    assert panel._is_playing is False  # noqa: SLF001
+
+
+def test_anim_progress_updates_bar(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_anim_progress(2, 4)  # noqa: SLF001
+    assert panel.progress_bar.maximum() == 4
+    assert panel.progress_bar.value() == 2
+
+
+def test_render_after_animate_tears_down_transport(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import attractor_density
+
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    assert panel.play_button.isEnabled() is True
+    rgba = attractor_density.render(5.46, 4.55, n_points=40, n_iter=40, bins=48)
+    panel._on_finished(rgba)  # noqa: SLF001
+    assert panel.play_button.isEnabled() is False
+    assert panel.scrubber.isEnabled() is False
+    assert panel._anim_im is None  # noqa: SLF001
+
+
+def test_anim_cancelled_finish_keeps_transport_disabled(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(None)  # noqa: SLF001
+    assert panel.last_frames() is None
+    assert panel.play_button.isEnabled() is False
+    assert "ancel" in panel.status_label.text().lower()
+
+
 def test_dialog_wraps_panel(qtbot) -> None:  # type: ignore[no-untyped-def]
     from PySide6.QtWidgets import QWidget
 

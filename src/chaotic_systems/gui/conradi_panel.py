@@ -18,6 +18,11 @@ The first GUI surface of the Conradi attractor feature
    an informational backdrop: high LLE marks *chaotic* regions, which are
    distinct from the (often periodic) parameters that produce the signature art
    (see ``CONTEXT.md`` CSC-003).
+6. Press "Animate loop" to precompute a seamless closed-loop animation (CSC-005,
+   :mod:`chaotic_systems.visualization.param_path`): the ``(a, b)`` path is swept
+   around a closed Fourier curve and a frame rendered at each step with a fixed
+   brightness scale (no flicker), then played back via a ``QTimer`` with a
+   synchronized ``(a, b)`` inset + moving marker and a frame scrubber.
 
 The default ``(a, b) = (5.46, 4.55)`` is Conradi's canonical art regime: a
 single orbit there is periodic, but the rendered image is the *transient flow*
@@ -54,6 +59,7 @@ from chaotic_systems.visualization import (
     attractor_density,
     attractor_screen,
     colormaps,
+    param_path,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import only for type hints
@@ -88,6 +94,15 @@ _MAX_BINS: int = 1600
 _DEFAULT_TONE: str = "log"
 _DEFAULT_CMAP: str = "magma"
 _TONE_MODES: tuple[str, ...] = ("eq_hist", "log", "cbrt", "linear")
+
+# Animation: frames per loop and playback rate. Lighter when numba is absent.
+_ANIM_N_FRAMES: int = param_path.DEFAULT_N_FRAMES if NUMBA_AVAILABLE else 24
+_ANIM_FPS: int = 12
+_ANIM_TIMER_MS: int = max(1, round(1000 / _ANIM_FPS))
+# Lighter lattice for animation frames than a one-off still (many frames).
+_ANIM_N_POINTS: int = 220 if NUMBA_AVAILABLE else 120
+_ANIM_N_ITER: int = 160 if NUMBA_AVAILABLE else 100
+_ANIM_BINS: int = 480 if NUMBA_AVAILABLE else 320
 
 # Screening-heatmap grid resolution (per axis). Coarser than a still render so
 # the (a, b) sweep stays interactive on the worker thread.
@@ -182,6 +197,92 @@ def _build_screen_worker_class() -> type:
     return _ScreenWorker
 
 
+class _AnimCancelled(Exception):
+    """Internal sentinel raised by the anim worker's progress callback."""
+
+
+def _build_anim_worker_class() -> type:
+    """Build the loop-precompute worker class lazily."""
+
+    from PySide6.QtCore import QObject, Signal
+
+    class _AnimWorker(QObject):
+        """Precompute the closed-loop animation frames on a worker thread."""
+
+        progress = Signal(int, int)  # (done, total)
+        finished = Signal(object)  # (frames, ab, count_max) | None on cancel
+        error = Signal(str, str)
+
+        def __init__(
+            self,
+            n_frames: int,
+            n_points: int,
+            n_iter: int,
+            bins: int,
+            cmap_name: str,
+            bloom: bool,
+        ) -> None:
+            super().__init__()
+            self._n_frames = int(n_frames)
+            self._n_points = int(n_points)
+            self._n_iter = int(n_iter)
+            self._bins = int(bins)
+            self._cmap_name = cmap_name
+            self._bloom = bool(bloom)
+            self._cancelled = False
+
+        def cancel(self) -> None:
+            self._cancelled = True
+
+        def run(self) -> None:
+            def _progress(done: int, total: int) -> None:
+                if self._cancelled:
+                    raise _AnimCancelled
+                self.progress.emit(done, total)
+
+            try:
+                payload = param_path.precompute_loop_frames(
+                    self._n_frames,
+                    n_points=self._n_points,
+                    n_iter=self._n_iter,
+                    bins=self._bins,
+                    cmap_name=self._cmap_name,
+                    bloom=self._bloom,
+                    progress=_progress,
+                )
+            except _AnimCancelled:
+                self.finished.emit(None)
+                return
+            except (ValueError, KeyError, TypeError) as exc:
+                self.error.emit(type(exc).__name__, str(exc))
+                return
+            except Exception as exc:  # pragma: no cover - last-resort guard
+                self.error.emit("Exception", f"{type(exc).__name__}: {exc}")
+                return
+            self.finished.emit(payload)
+
+    return _AnimWorker
+
+
+def _loop_polyline(
+    n: int = 400,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Dense ``(a, b)`` polyline of the default loop, NaN-split at 2*pi wraps.
+
+    The loop can cross the ``a``/``b`` = ``2*pi`` boundary (a, b are 2*pi-periodic
+    phase shifts); inserting NaN at the wrap stops matplotlib drawing a spurious
+    line straight across the inset.
+    """
+    ts = np.linspace(0.0, 1.0, n)
+    a, b = param_path.param_loop(ts)
+    a = np.asarray(a, dtype=np.float64).copy()
+    b = np.asarray(b, dtype=np.float64).copy()
+    jump = (np.abs(np.diff(a)) > np.pi) | (np.abs(np.diff(b)) > np.pi)
+    a[:-1][jump] = np.nan
+    b[:-1][jump] = np.nan
+    return a, b
+
+
 def _build_screen_figure(lle: np.ndarray, a: float, b: float) -> Any:
     """Build a matplotlib Figure of the (a, b) LLE screening heatmap."""
     from matplotlib.figure import Figure
@@ -243,7 +344,7 @@ def _build_panel_class() -> type:
     """Build the ConradiPanel class lazily; mirrors the other panel modules."""
 
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-    from PySide6.QtCore import Qt, QThread
+    from PySide6.QtCore import Qt, QThread, QTimer
     from PySide6.QtWidgets import (
         QCheckBox,
         QComboBox,
@@ -253,6 +354,7 @@ def _build_panel_class() -> type:
         QLabel,
         QProgressBar,
         QPushButton,
+        QSlider,
         QSpinBox,
         QVBoxLayout,
         QWidget,
@@ -260,6 +362,7 @@ def _build_panel_class() -> type:
 
     worker_cls = _build_worker_class()
     screen_worker_cls = _build_screen_worker_class()
+    anim_worker_cls = _build_anim_worker_class()
 
     class ConradiPanel(QWidget):
         """Self-contained Conradi trigonometric-attractor density renderer."""
@@ -273,6 +376,14 @@ def _build_panel_class() -> type:
             self._last_lle: np.ndarray | None = None
             self._screen_mode: bool = False
             self._click_cid: int | None = None
+            # Closed-loop animation state (CSC-005).
+            self._frames: list[np.ndarray] | None = None
+            self._frame_ab: list[tuple[float, float]] | None = None
+            self._anim_index: int = 0
+            self._is_playing: bool = False
+            self._timer: QTimer | None = None
+            self._anim_im: Any = None
+            self._anim_marker: Any = None
 
             from chaotic_systems.gui._panel_helpers import apply_panel_margins
 
@@ -385,6 +496,32 @@ def _build_panel_class() -> type:
             action_row.addWidget(self.progress_bar, 1)
             outer.addLayout(action_row)
 
+            # --- Animation transport (CSC-005) ----------------------------
+            anim_row = QHBoxLayout()
+            self.animate_button = QPushButton("Animate loop", self)
+            self.animate_button.setObjectName("conradi_animate")
+            self.animate_button.setToolTip(
+                "Precompute a seamless closed-loop animation: sweep (a, b) "
+                "around a closed path and render a frame at each step "
+                "(fixed brightness scale, so the loop does not flicker)."
+            )
+            self.animate_button.clicked.connect(self._on_animate)
+            anim_row.addWidget(self.animate_button)
+
+            self.play_button = QPushButton("Play", self)
+            self.play_button.setObjectName("conradi_play")
+            self.play_button.setEnabled(False)
+            self.play_button.clicked.connect(self._on_play_pause)
+            anim_row.addWidget(self.play_button)
+
+            self.scrubber = QSlider(Qt.Orientation.Horizontal, self)
+            self.scrubber.setObjectName("conradi_scrub")
+            self.scrubber.setEnabled(False)
+            self.scrubber.setRange(0, 0)
+            self.scrubber.valueChanged.connect(self._on_scrub)
+            anim_row.addWidget(self.scrubber, 1)
+            outer.addLayout(anim_row)
+
             # --- Status ---------------------------------------------------
             base_msg = "Press Render to draw the Conradi attractor."
             if not NUMBA_AVAILABLE:
@@ -436,8 +573,9 @@ def _build_panel_class() -> type:
             n_iter = int(self.n_iter_spin.value())
             bins = int(self.bins_spin.value())
 
-            self.render_button.setEnabled(False)
-            self.screen_button.setEnabled(False)
+            self._stop_play()
+            self._set_busy(True)
+            self.progress_bar.setRange(0, 0)  # indeterminate: one fused call
             self.progress_bar.setVisible(True)
             self.status_label.setText(
                 f"Rendering {n_points}×{n_points} seeds × {n_iter} iterations "
@@ -467,8 +605,7 @@ def _build_panel_class() -> type:
             thread.start()
 
         def _on_finished(self, rgba: np.ndarray | None) -> None:
-            self.render_button.setEnabled(True)
-            self.screen_button.setEnabled(True)
+            self._set_busy(False)
             self.progress_bar.setVisible(False)
             if rgba is None:
                 self.status_label.setText("Cancelled.")
@@ -483,18 +620,24 @@ def _build_panel_class() -> type:
             self._refresh_plot(rgba)
 
         def _on_error(self, kind: str, message: str) -> None:
-            self.render_button.setEnabled(True)
-            self.screen_button.setEnabled(True)
+            self._set_busy(False)
             self.progress_bar.setVisible(False)
             self.status_label.setText(f"{kind}: {message}")
+
+        def _set_busy(self, busy: bool) -> None:
+            """Enable/disable the compute buttons while a worker runs."""
+            self.render_button.setEnabled(not busy)
+            self.screen_button.setEnabled(not busy)
+            self.animate_button.setEnabled(not busy)
 
         # ----- screening (CSC-004) ------------------------------------
 
         def _on_screen(self) -> None:
             if self._thread is not None and self._thread.isRunning():
                 return
-            self.render_button.setEnabled(False)
-            self.screen_button.setEnabled(False)
+            self._stop_play()
+            self._set_busy(True)
+            self.progress_bar.setRange(0, 0)
             self.progress_bar.setVisible(True)
             self.status_label.setText(
                 f"Screening the (a, b) plane on a {_SCREEN_GRID}×{_SCREEN_GRID} "
@@ -514,8 +657,7 @@ def _build_panel_class() -> type:
             thread.start()
 
         def _on_screen_finished(self, lle: np.ndarray | None) -> None:
-            self.render_button.setEnabled(True)
-            self.screen_button.setEnabled(True)
+            self._set_busy(False)
             self.progress_bar.setVisible(False)
             if lle is None:
                 self.status_label.setText("Cancelled.")
@@ -543,6 +685,180 @@ def _build_panel_class() -> type:
             self.canvas = new_canvas
             self._bind_click(new_canvas)
             self._screen_mode = True
+            self._teardown_anim_view()
+
+        # ----- closed-loop animation (CSC-005) ------------------------
+
+        def _on_animate(self) -> None:
+            if self._thread is not None and self._thread.isRunning():
+                return
+            self._stop_play()
+            self._set_busy(True)
+            self.progress_bar.setRange(0, _ANIM_N_FRAMES)
+            self.progress_bar.setValue(0)
+            self.progress_bar.setVisible(True)
+            self.status_label.setText(
+                f"Precomputing {_ANIM_N_FRAMES} loop frames "
+                "(fixed brightness scale)..."
+            )
+            worker = anim_worker_cls(
+                _ANIM_N_FRAMES,
+                _ANIM_N_POINTS,
+                _ANIM_N_ITER,
+                _ANIM_BINS,
+                self.cmap_box.currentText(),
+                self.bloom_check.isChecked(),
+            )
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.progress.connect(self._on_anim_progress)
+            worker.finished.connect(self._on_anim_finished)
+            worker.error.connect(self._on_error)
+            worker.finished.connect(thread.quit)
+            worker.error.connect(thread.quit)
+            thread.finished.connect(self._cleanup_thread)
+            self._worker = worker
+            self._thread = thread
+            thread.start()
+
+        def _on_anim_progress(self, done: int, total: int) -> None:
+            self.progress_bar.setRange(0, total)
+            self.progress_bar.setValue(done)
+
+        def _on_anim_finished(self, payload: object | None) -> None:
+            self._set_busy(False)
+            self.progress_bar.setVisible(False)
+            if payload is None:
+                self.status_label.setText("Cancelled.")
+                return
+            frames, ab, _count_max = payload  # type: ignore[misc]
+            self._frames = frames
+            self._frame_ab = ab
+            self._anim_index = 0
+            self._build_anim_canvas()
+            self.play_button.setEnabled(True)
+            self.play_button.setText("Play")
+            self.scrubber.setEnabled(True)
+            self.scrubber.blockSignals(True)
+            self.scrubber.setRange(0, len(frames) - 1)
+            self.scrubber.setValue(0)
+            self.scrubber.blockSignals(False)
+            self.status_label.setText(
+                f"Loop ready: {len(frames)} frames. Press Play, or drag the "
+                "scrubber. Closed path -> seamless loop."
+            )
+
+        def _build_anim_canvas(self) -> None:
+            """Build the animation figure (main image + (a, b) loop inset)."""
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
+            assert self._frames is not None and self._frame_ab is not None
+            a, b = self._frame_ab[self._anim_index]
+            fig = Figure(figsize=(6.0, 6.0), facecolor="black")
+            ax = fig.add_subplot(111)
+            ax.set_facecolor("black")
+            self._anim_im = ax.imshow(
+                self._frames[self._anim_index],
+                origin="lower",
+                extent=attractor_density.DEFAULT_EXTENT,
+                interpolation="nearest",
+                aspect="equal",
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+
+            # (a, b) loop inset, upper-right, with the moving marker.
+            inset = fig.add_axes((0.70, 0.70, 0.27, 0.27))
+            inset.set_facecolor("black")
+            loop_a, loop_b = _loop_polyline()
+            inset.plot(loop_a, loop_b, color="#ffe100", linewidth=1.0)
+            (self._anim_marker,) = inset.plot(
+                [a], [b], marker="o", color="white", markersize=5
+            )
+            inset.set_xlim(0.0, _TWO_PI)
+            inset.set_ylim(0.0, _TWO_PI)
+            inset.set_xticks([])
+            inset.set_yticks([])
+            inset.set_title("(a, b)", color="white", fontsize=8)
+            for spine in inset.spines.values():
+                spine.set_color("#555555")
+
+            new_canvas = FigureCanvasQTAgg(fig)
+            new_canvas.setObjectName("conradi_canvas")
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
+            self.canvas = new_canvas
+            self._bind_click(new_canvas)
+            self._screen_mode = False
+
+        def _show_frame(self, index: int) -> None:
+            """Display loop frame ``index`` by updating the artists in place."""
+            if self._frames is None or self._frame_ab is None:
+                return
+            index = max(0, min(index, len(self._frames) - 1))
+            self._anim_index = index
+            if self._anim_im is not None:
+                self._anim_im.set_data(self._frames[index])
+            if self._anim_marker is not None:
+                a, b = self._frame_ab[index]
+                self._anim_marker.set_data([a], [b])
+            self.canvas.draw_idle()
+
+        def _on_play_pause(self) -> None:
+            if self._frames is None:
+                return
+            if self._is_playing:
+                self._stop_play()
+            else:
+                self._start_play()
+
+        def _start_play(self) -> None:
+            if self._frames is None:
+                return
+            if self._timer is None:
+                self._timer = QTimer(self)
+                self._timer.setInterval(_ANIM_TIMER_MS)
+                self._timer.timeout.connect(self._on_timer_tick)
+            self._is_playing = True
+            self.play_button.setText("Pause")
+            self._timer.start()
+
+        def _stop_play(self) -> None:
+            if self._timer is not None:
+                self._timer.stop()
+            self._is_playing = False
+            if hasattr(self, "play_button"):
+                self.play_button.setText("Play")
+
+        def _on_timer_tick(self) -> None:
+            if self._frames is None:
+                return
+            nxt = (self._anim_index + 1) % len(self._frames)
+            self._show_frame(nxt)
+            self.scrubber.blockSignals(True)
+            self.scrubber.setValue(nxt)
+            self.scrubber.blockSignals(False)
+
+        def _on_scrub(self, value: int) -> None:
+            self._stop_play()
+            self._show_frame(int(value))
+
+        def _teardown_anim_view(self) -> None:
+            """Drop the animation artists + transport when leaving anim view.
+
+            Called when a render / screen canvas replaces the animation canvas so
+            the (now-dead) AxesImage / marker are never updated by a stray tick.
+            """
+            self._stop_play()
+            self._anim_im = None
+            self._anim_marker = None
+            self.play_button.setEnabled(False)
+            self.scrubber.setEnabled(False)
 
         def _cleanup_thread(self) -> None:
             if self._worker is not None:
@@ -568,6 +884,7 @@ def _build_panel_class() -> type:
             self._bind_click(new_canvas)
             # Showing a density render leaves screening mode (clicks inert).
             self._screen_mode = False
+            self._teardown_anim_view()
 
         # ----- public read-only accessors used by tests ---------------
 
@@ -578,6 +895,10 @@ def _build_panel_class() -> type:
         def last_lle(self) -> np.ndarray | None:
             """Return the most-recent (a, b) screening LLE field (or ``None``)."""
             return self._last_lle
+
+        def last_frames(self) -> list[np.ndarray] | None:
+            """Return the most-recent precomputed loop frames (or ``None``)."""
+            return self._frames
 
     return ConradiPanel
 
