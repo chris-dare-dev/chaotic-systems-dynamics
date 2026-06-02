@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-01, Conradi attractor panel — CSC-002, CSC-003, CSC-004, CSC-005, CSC-007)
 
 - **CSC-2026-05-30-conradi-panel-005 — closed-loop (a,b) animation + inset**
-  (commit `__PENDING__`, 2026-06-01). A new pure-compute
+  (commit `95921fa`, 2026-06-01). A new pure-compute
   `visualization/param_path.py`: `param_loop(t, ...)` is a truncated-Fourier /
   epicycle **closed** curve in `(a,b)` (fundamental ellipse + decaying harmonics,
   rotated, recentred, wrapped into [0,2π)) — seamless by construction
