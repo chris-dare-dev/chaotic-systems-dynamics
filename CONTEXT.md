@@ -121,7 +121,7 @@ Clifford *animation loop* geometry (Animate stays Conradi-only — `param_loop`'
 2π-wrap is Conradi-specific; a clean follow-up).
 
 - **CMP-004 — per-map screening generalization (`lyapunov_grid` accepts a map)**
-  (commit `__PENDING__`, 2026-06-02). Closes the silent-wrong-LLE correctness
+  (commit `3c38269`, 2026-06-02). Closes the silent-wrong-LLE correctness
   bug from CMP-002: `lyapunov_grid` now takes vectorized `step_fn` /
   `jacobian_push_fn` kwargs (default `None` → the Conradi inlined path, byte-
   compatible — existing screen tests unchanged), and a new
