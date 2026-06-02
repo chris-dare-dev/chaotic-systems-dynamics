@@ -114,7 +114,7 @@ follow-ups:
 ## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-002, CMP-003, CMP-005)
 
 - **CMP-003 — Clifford JIT kernel + per-map kernel registry**
-  (commit `__PENDING__`, 2026-06-02). Adds `_accumulate_clifford_jit` (a
+  (commit `90e5fe6`, 2026-06-02). Adds `_accumulate_clifford_jit` (a
   single-threaded `@maybe_njit(cache=True)` fused iterate-and-accumulate kernel
   for `x'=sin(a y)+c cos(a x)`, `y'=sin(b x)+d cos(b y)`) and a per-map JIT
   **registry** (`_JIT_ACCUMULATORS`) in `visualization/attractor_density.py`,
