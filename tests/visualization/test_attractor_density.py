@@ -127,3 +127,78 @@ def test_render_bloom_does_not_darken() -> None:
     no_bloom = ad.render(_CANONICAL_A, _CANONICAL_B, tone="log", bloom=False, **_KW)
     with_bloom = ad.render(_CANONICAL_A, _CANONICAL_B, tone="log", bloom=True, **_KW)
     assert with_bloom[..., :3].mean() >= no_bloom[..., :3].mean()
+
+
+# --- CMP-003: per-map JIT kernel registry (Clifford) -----------------------
+
+# Bourke's default Clifford set; the closure carries the _map_id/_map_params
+# tags the dispatch reads.
+_CLIFFORD_A, _CLIFFORD_B, _CLIFFORD_C, _CLIFFORD_D = -1.4, 1.6, 1.0, 0.7
+
+
+def _clifford_kw():  # type: ignore[no-untyped-def]
+    from chaotic_systems.systems.clifford import clifford_extent, make_clifford_map_fn
+
+    return {
+        "map_fn": make_clifford_map_fn(_CLIFFORD_C, _CLIFFORD_D),
+        "extent": clifford_extent(_CLIFFORD_C, _CLIFFORD_D),
+    }
+
+
+def test_clifford_map_fn_carries_dispatch_tags() -> None:
+    from chaotic_systems.systems.clifford import make_clifford_map_fn
+
+    fn = make_clifford_map_fn(1.0, 0.7)
+    assert getattr(fn, "_map_id", None) == "clifford"
+    assert getattr(fn, "_map_params", None) == (1.0, 0.7)
+    # The registry resolves that id to a JIT accumulator (CMP-003).
+    assert "clifford" in ad._JIT_ACCUMULATORS  # noqa: SLF001
+
+
+@pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba [performance] extra absent")
+def test_clifford_numba_and_numpy_paths_agree() -> None:
+    """Clifford takes the JIT path; it and the NumPy path bin equal mass + correlate."""
+    cliff = _clifford_kw()
+    jit = ad.accumulate(
+        _CLIFFORD_A, _CLIFFORD_B, use_numba=True, **cliff, **_KW
+    )
+    npy = ad.accumulate(
+        _CLIFFORD_A, _CLIFFORD_B, use_numba=False, **cliff, **_KW
+    )
+    expected_mass = float(_KW["n_points"] ** 2 * _KW["n_iter"])
+    assert jit.sum() == pytest.approx(expected_mass)  # bounded map drops nothing
+    assert npy.sum() == pytest.approx(expected_mass)
+    corr = np.corrcoef(jit.ravel(), npy.ravel())[0, 1]
+    assert corr > 0.8
+
+
+@pytest.mark.skipif(not NUMBA_AVAILABLE, reason="numba [performance] extra absent")
+def test_clifford_auto_dispatch_uses_numba_kernel() -> None:
+    """A fresh make_clifford_map_fn closure reaches the JIT path (the AP1 fix)."""
+    cliff = _clifford_kw()
+    auto = ad.accumulate(_CLIFFORD_A, _CLIFFORD_B, **cliff, **_KW)
+    forced = ad.accumulate(
+        _CLIFFORD_A, _CLIFFORD_B, use_numba=True, **cliff, **_KW
+    )
+    assert np.array_equal(auto, forced)  # auto-decision picked the numba kernel
+
+
+def test_clifford_render_byte_reproducible() -> None:
+    cliff = _clifford_kw()
+    first = ad.render(_CLIFFORD_A, _CLIFFORD_B, tone="log", **cliff, **_KW)
+    second = ad.render(_CLIFFORD_A, _CLIFFORD_B, tone="log", **cliff, **_KW)
+    assert np.array_equal(first, second)
+
+
+def test_unknown_map_forced_numba_falls_back_to_numpy() -> None:
+    """An untagged map_fn forced use_numba=True still renders (no wrong kernel)."""
+
+    def untagged(x, y, a, b):  # type: ignore[no-untyped-def]
+        return np.sin(x * x - y * y + a), np.cos(2.0 * x * y + b)
+
+    count = ad.accumulate(
+        _CANONICAL_A, _CANONICAL_B, map_fn=untagged, use_numba=True, **_KW
+    )
+    assert count.sum() == pytest.approx(
+        float(_KW["n_points"] ** 2 * _KW["n_iter"])
+    )

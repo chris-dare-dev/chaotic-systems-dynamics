@@ -129,6 +129,13 @@ def conradi_map(
     return np.sin(x * x - y * y + a), np.cos(2.0 * x * y + b)
 
 
+# Stable map-identity tag read by the JIT dispatch in ``accumulate`` (CMP-003).
+# Keying on this string — not the function object — lets a freshly-built map_fn
+# closure (e.g. ``make_clifford_map_fn(c, d)``) still reach its kernel; a plain
+# identity check fails on every new closure (the AP1 pitfall).
+conradi_map._map_id = "conradi"  # type: ignore[attr-defined]
+
+
 # -----------------------------------------------------------------------------
 # Accumulation
 # -----------------------------------------------------------------------------
@@ -174,6 +181,50 @@ def _accumulate_lattice_jit(
     return count
 
 
+@maybe_njit(cache=True)
+def _accumulate_clifford_jit(
+    a: float,
+    b: float,
+    c: float,
+    d: float,
+    n_points: int,
+    n_iter: int,
+    xmin: float,
+    xmax: float,
+    ymin: float,
+    ymax: float,
+    bins: int,
+) -> FloatArray:
+    """Fused iterate-and-accumulate for the Clifford recurrence (numba fast path).
+
+    Clifford map ``x' = sin(a y) + c cos(a x)``, ``y' = sin(b x) + d cos(b y)``
+    (CSC-008). Single-threaded by design — like the Conradi kernel, a
+    ``parallel=True`` variant would race on the shared ``count`` buffer. The map
+    is bounded to ``[-(1+|c|), 1+|c|] x [-(1+|d|), 1+|d|]`` (= the passed extent),
+    so every iterate lands in-window and the total mass is exactly
+    ``n_points**2 * n_iter``.
+    """
+    count = np.zeros((bins, bins), np.float64)
+    sx = (bins - 1) / (xmax - xmin)
+    sy = (bins - 1) / (ymax - ymin)
+    dx = (xmax - xmin) / (n_points - 1)
+    dy = (ymax - ymin) / (n_points - 1)
+    for i in range(n_points):
+        seed_x = xmin + dx * i
+        for j in range(n_points):
+            x = seed_x
+            y = ymin + dy * j
+            for _ in range(n_iter):
+                x_new = np.sin(a * y) + c * np.cos(a * x)
+                y_new = np.sin(b * x) + d * np.cos(b * y)
+                x, y = x_new, y_new
+                ix = int((x - xmin) * sx)
+                iy = int((y - ymin) * sy)
+                if 0 <= ix < bins and 0 <= iy < bins:
+                    count[iy, ix] += 1.0
+    return count
+
+
 def _accumulate_lattice_numpy(
     map_fn: MapFn,
     a: float,
@@ -210,6 +261,51 @@ def _accumulate_lattice_numpy(
     return count
 
 
+# Per-map JIT accumulator registry (CMP-003) — the "variation dispatch" of the
+# fractal-flame architecture (Draves & Reckase 2003): one accumulation loop per
+# map, selected by the map's stable ``_map_id`` tag rather than by the closure
+# object. Each adapter calls the right ``@maybe_njit`` kernel with the map's
+# secondary parameters (from ``map_fn._map_params``). Adding a future art-map is
+# one kernel + one registry entry, with no change to ``accumulate``/``render``.
+_JitAccumulator = Callable[
+    [float, float, tuple[float, ...], int, int, tuple[float, float, float, float], int],
+    FloatArray,
+]
+
+
+def _conradi_jit_accumulate(
+    a: float,
+    b: float,
+    map_params: tuple[float, ...],
+    n_points: int,
+    n_iter: int,
+    extent: tuple[float, float, float, float],
+    bins: int,
+) -> FloatArray:
+    return _accumulate_lattice_jit(a, b, n_points, n_iter, *extent, bins)
+
+
+def _clifford_jit_accumulate(
+    a: float,
+    b: float,
+    map_params: tuple[float, ...],
+    n_points: int,
+    n_iter: int,
+    extent: tuple[float, float, float, float],
+    bins: int,
+) -> FloatArray:
+    c, d = map_params
+    return _accumulate_clifford_jit(
+        a, b, float(c), float(d), n_points, n_iter, *extent, bins
+    )
+
+
+_JIT_ACCUMULATORS: dict[str, _JitAccumulator] = {
+    "conradi": _conradi_jit_accumulate,
+    "clifford": _clifford_jit_accumulate,
+}
+
+
 def accumulate(
     a: float,
     b: float,
@@ -223,18 +319,20 @@ def accumulate(
 ) -> FloatArray:
     """Accumulate the IC-lattice density histogram for ``map_fn`` at ``(a, b)``.
 
-    Returns a ``(bins, bins)`` float64 count field. Dispatches to the numba
-    fast path when available *and* ``map_fn`` is the built-in Conradi map (the
-    only recurrence the JIT kernel currently inlines); otherwise uses the NumPy
-    fallback over ``map_fn``. ``use_numba`` overrides the auto-decision (forcing
-    ``True`` always runs the Conradi kernel regardless of ``map_fn``).
+    Returns a ``(bins, bins)`` float64 count field. Dispatches to the numba fast
+    path when available *and* ``map_fn`` carries a ``_map_id`` registered in
+    :data:`_JIT_ACCUMULATORS` (Conradi and Clifford today); otherwise uses the
+    NumPy fallback over ``map_fn`` (which works for any callable). ``use_numba``
+    overrides the auto-decision; forcing ``True`` on a map with no registered
+    kernel still falls back to NumPy rather than running the wrong recurrence.
     """
+    map_id = getattr(map_fn, "_map_id", None)
+    jit = _JIT_ACCUMULATORS.get(map_id) if isinstance(map_id, str) else None
     if use_numba is None:
-        use_numba = NUMBA_AVAILABLE and (map_fn is conradi_map)
-    if use_numba:
-        return _accumulate_lattice_jit(
-            a, b, n_points, n_iter, *extent, bins
-        )
+        use_numba = NUMBA_AVAILABLE and jit is not None
+    if use_numba and jit is not None:
+        map_params: tuple[float, ...] = getattr(map_fn, "_map_params", ())
+        return jit(a, b, map_params, n_points, n_iter, extent, bins)
     return _accumulate_lattice_numpy(
         map_fn, a, b, n_points, n_iter, extent, bins
     )

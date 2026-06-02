@@ -99,6 +99,13 @@ def make_clifford_map_fn(
             map_fn=make_clifford_map_fn(c, d),
             extent=clifford_extent(c, d),
         )
+
+    The returned closure carries two tags the density renderer's JIT dispatch
+    reads (CMP-003): ``_map_id = "clifford"`` selects the Clifford ``@njit``
+    accumulation kernel, and ``_map_params = (c, d)`` passes the fixed
+    parameters to it. Tagging the closure (rather than relying on object
+    identity) is what lets a freshly-built closure still take the fast path.
+    These are plain attributes — no ``visualization`` import here.
     """
 
     def map_fn(
@@ -106,6 +113,8 @@ def make_clifford_map_fn(
     ) -> tuple[FloatArray, FloatArray]:
         return clifford_map(x, y, a, b, c, d)
 
+    map_fn._map_id = "clifford"  # type: ignore[attr-defined]
+    map_fn._map_params = (float(c), float(d))  # type: ignore[attr-defined]
     return map_fn
 
 

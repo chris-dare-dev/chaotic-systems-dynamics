@@ -111,7 +111,31 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
-## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-002, CMP-005)
+## Recently shipped (2026-06-02, Conradi map-picker follow-up — CMP-001, CMP-002, CMP-003, CMP-005)
+
+- **CMP-003 — Clifford JIT kernel + per-map kernel registry**
+  (commit `__PENDING__`, 2026-06-02). Adds `_accumulate_clifford_jit` (a
+  single-threaded `@maybe_njit(cache=True)` fused iterate-and-accumulate kernel
+  for `x'=sin(a y)+c cos(a x)`, `y'=sin(b x)+d cos(b y)`) and a per-map JIT
+  **registry** (`_JIT_ACCUMULATORS`) in `visualization/attractor_density.py`,
+  replacing the old `map_fn is conradi_map` identity guard. Dispatch keys on a
+  stable `map_fn._map_id` string (`"conradi"` / `"clifford"`), NOT the closure
+  object — so a freshly-built `make_clifford_map_fn(c,d)` closure (which now
+  carries `_map_id="clifford"` + `_map_params=(c,d)` tags, set in
+  `systems/clifford.py` with no `visualization` import) reaches its kernel
+  instead of silently falling to the slow NumPy path (the AP1 fix). **No
+  signature change** to `accumulate`/`render` (the factory/attribute approach,
+  not `map_kwargs`), so the 14 existing density tests pass untouched. AP2: the
+  Clifford kernel carries no `parallel=True`. Observables (6 new tests):
+  Clifford carries the dispatch tags + is in the registry; the JIT and NumPy
+  paths bin equal mass (`n_points²·n_iter`, bounded map) and correlate 1.000
+  (>0.8 contract); the auto-dispatch reaches the numba kernel (byte-identical to
+  forced); Clifford render is byte-reproducible; an untagged map_fn forced
+  `use_numba=True` safely falls back to NumPy. Throughput: Clifford auto-render
+  ≈0.036s vs Conradi ≈0.153s at 200²/120/120 (well within the "~2× of Conradi"
+  bar — actually faster, simpler recurrence). visualization suite 182→187. SHA
+  stamped post-commit. **Next:** CMP-004 (per-map screening — the last item;
+  re-enables Screen for Clifford + the Clifford animation loop).
 
 - **CMP-002 — map-preset picker UI (QComboBox + dynamic parameter form)**
   (commit `9767af3`, 2026-06-02). The user-visible payoff: a "Map" selector
