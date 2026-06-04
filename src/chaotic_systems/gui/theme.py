@@ -226,12 +226,19 @@ def apply_theme(app: QApplication, mode: str = "dark") -> None:
             f"theme stylesheet not found: {path}; the install is missing assets/"
         )
     stylesheet = path.read_text(encoding="utf-8")
-    # FU-005 — every icon previously loaded via the QSS asset path
-    # has been migrated to qtawesome MDI6 glyphs set programmatically
-    # (see ``icons.icon_for_stem``); QComboBox / QSpinBox arrows
-    # render via Qt-native chevrons. The icon-path-rewriting hack
-    # that lived here pre-FU-005 is gone — no asset directory is
-    # referenced by the shipped QSS anymore.
+    # FU-005 migrated toolbar/button icons to qtawesome MDI6 glyphs set
+    # programmatically (see ``icons.icon_for_stem``). It also dropped the
+    # combobox/spinbox arrow images on the assumption that Qt would draw a
+    # *native* chevron — but once the QSS styles ``::drop-down`` /
+    # ``::up-button``, the Qt Style Sheet engine owns the whole control and
+    # paints NOTHING for an arrow subcontrol with no ``image:``, so the
+    # pickers rendered arrow-less on Windows. FU-PATCH (2026-06-03) ships
+    # explicit chevron SVGs again, referenced via the ``__ASSETS__`` token
+    # below. Qt resolves a bare ``url(...)`` in a stylesheet against the
+    # process CWD rather than the QSS file, so we rewrite the token to the
+    # absolute ``assets/`` path here (a minimal revival of the pre-FU-005
+    # path-injection, scoped to the two chevron glyphs).
+    stylesheet = stylesheet.replace("__ASSETS__", _ASSETS_DIR.as_posix())
     #
     # Cross-platform parity: pin Fusion + a dark palette *before* the
     # stylesheet so native styles (notably Windows ``windows11``) can't

@@ -49,6 +49,13 @@
  *
  * Pixel values in this file are logical pixels — Qt scales them on
  * Hi-DPI displays automatically. Do not bake devicePixelRatio in here.
+ *
+ * Asset references: the ``__ASSETS__`` token (combobox / spinbox arrow
+ * images) is rewritten to the absolute ``assets/`` directory path by
+ * ``theme.apply_theme`` before the sheet is installed. Qt resolves a bare
+ * ``url(...)`` against the process CWD, not this file's location, so the
+ * token-rewrite is what makes the chevron SVGs load regardless of where
+ * the app is launched from.
  */
 
 QMainWindow,
@@ -273,13 +280,18 @@ QComboBox::drop-down {
     background: transparent;
 }
 
-/* QComboBox down-arrow — FU-005: use Qt's native chevron glyph so
- * there's no missing-SVG silent-degradation surface. Qt renders
- * the arrow in the widget's foreground colour, which inherits
- * ``color: #c0caf5`` from the rule above. */
+/* QComboBox down-arrow — FU-PATCH (2026-06-03): ship an explicit chevron
+ * SVG. FU-005 removed the arrow image on the assumption that Qt would draw
+ * a *native* chevron, but once the QSS styles ``::drop-down`` the Qt Style
+ * Sheet engine takes over the whole control and draws NOTHING for an arrow
+ * subcontrol that has no ``image:`` — so the dropdown rendered arrow-less on
+ * Windows. The ``__ASSETS__`` token is rewritten to the absolute assets dir
+ * by ``theme.apply_theme`` (Qt resolves bare ``url()`` against the CWD, not
+ * the QSS file). */
 QComboBox::down-arrow {
-    width: 10px;
-    height: 10px;
+    image: url(__ASSETS__/chevron-down.svg);
+    width: 12px;
+    height: 12px;
 }
 
 QComboBox QAbstractItemView {
@@ -367,17 +379,20 @@ QSpinBox::down-button:hover {
     background-color: #343a55;  /* accent-hover */
 }
 
-/* Spinbox up/down arrows — FU-005: Qt-native glyphs (no SVG ref).
- * The native arrows inherit the widget's foreground colour so they
- * remain legible on the dark theme without a custom asset. */
+/* Spinbox up/down arrows — FU-PATCH (2026-06-03): explicit chevron SVGs,
+ * for the same reason as QComboBox::down-arrow above. With ``::up-button`` /
+ * ``::down-button`` styled, a width/height-only arrow rule renders blank on
+ * Windows; the image guarantees the glyph paints on every platform. */
 QDoubleSpinBox::up-arrow,
 QSpinBox::up-arrow {
+    image: url(__ASSETS__/chevron-up.svg);
     width: 10px;
     height: 10px;
 }
 
 QDoubleSpinBox::down-arrow,
 QSpinBox::down-arrow {
+    image: url(__ASSETS__/chevron-down.svg);
     width: 10px;
     height: 10px;
 }

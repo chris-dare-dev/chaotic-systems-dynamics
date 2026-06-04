@@ -366,6 +366,72 @@ def test_qcheckbox_renders_with_dark_indicator(qapp) -> None:  # type: ignore[no
         cb.deleteLater()
 
 
+def test_combobox_and_spinbox_arrows_ship_an_image() -> None:
+    """FU-PATCH (2026-06-03) — the combobox/spinbox arrow subcontrols must
+    carry an explicit ``image:`` url.
+
+    Regression guard for the missing-arrow bug: once the QSS styles
+    ``::drop-down`` / ``::up-button`` / ``::down-button``, the Qt Style
+    Sheet engine owns the whole control and renders NOTHING for an arrow
+    subcontrol with no ``image:`` — so the pickers rendered arrow-less on
+    Windows. FU-005 hit exactly this by dropping the arrow images on the
+    assumption Qt would draw a native chevron. Each arrow rule must point
+    at a chevron SVG.
+    """
+
+    from pathlib import Path
+
+    qss_text = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "chaotic_systems"
+        / "gui"
+        / "assets"
+        / "dark.qss"
+    ).read_text(encoding="utf-8")
+
+    for selector in (
+        "QComboBox::down-arrow",
+        "QSpinBox::up-arrow",
+        "QSpinBox::down-arrow",
+    ):
+        idx = qss_text.index(selector)
+        block = qss_text[idx : qss_text.index("}", idx)]
+        assert "image:" in block and "url(" in block, (
+            f"{selector} must ship an explicit chevron image — without it "
+            "the arrow renders blank on Windows (see FU-PATCH 2026-06-03)"
+        )
+
+
+def test_apply_theme_resolves_asset_token_to_existing_files(qapp) -> None:  # type: ignore[no-untyped-def]
+    """``apply_theme`` rewrites every ``__ASSETS__`` token to a real file.
+
+    Qt resolves a bare ``url(...)`` in a stylesheet against the process CWD,
+    not the QSS file, so the token-rewrite in ``apply_theme`` is what makes
+    the chevron SVGs load regardless of launch directory. After applying the
+    theme there must be no leftover placeholder, and the chevron SVGs the QSS
+    points at must exist on disk.
+    """
+
+    from pathlib import Path
+
+    from chaotic_systems.gui.theme import apply_theme
+
+    apply_theme(qapp, "dark")
+    css = qapp.styleSheet()
+    assert "__ASSETS__" not in css, "apply_theme left an unresolved __ASSETS__ token"
+
+    assets_dir = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "chaotic_systems"
+        / "gui"
+        / "assets"
+    )
+    for svg in ("chevron-down.svg", "chevron-up.svg"):
+        assert (assets_dir / svg).is_file(), f"missing shipped chevron asset {svg}"
+
+
 def test_main_window_exposes_transport_actions() -> None:
     """The toolbar exposes the documented transport-action object names."""
 
