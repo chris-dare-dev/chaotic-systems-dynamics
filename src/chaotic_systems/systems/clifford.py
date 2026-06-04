@@ -155,7 +155,9 @@ same density-art idea as the Conradi map, with four parameters instead of
 two for a wider family of shapes.
 
 **Where to read about it:** Paul Bourke, "Clifford Attractors"
-(paulbourke.net/fractals/clifford/), with reference parameter sets.
+(paulbourke.net/fractals/clifford/), with reference parameter sets;
+J.C. Sprott, *Strange Attractors: Creating Patterns in Chaos* (1993),
+the canonical treatment of these iterated density-art maps.
 
 **Automatically bounded.** Because sin and cos live in [-1, 1], every
 iterate stays in [-(1+|c|), 1+|c|] x [-(1+|d|), 1+|d|] — the map cannot
