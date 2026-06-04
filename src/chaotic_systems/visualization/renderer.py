@@ -98,6 +98,12 @@ DEFAULT_LOOP_FPS: int = 24
 GIF_LOOP_FOREVER: int = 0
 _GIF_SUFFIX: str = ".gif"
 
+# Number of progress steps reported by the *CPU half* of
+# ``build_prerender_cache`` (arc-length table, then Catmull-Rom
+# oversampling). This is the only progress the prerender *worker*
+# thread can emit — the VTK warm-up half runs later on the GUI thread.
+_CPU_PHASE_STEPS: int = 2
+
 
 def _open_export_writer(
     out_path: Path,
@@ -480,6 +486,14 @@ class Renderer3D:
         # give VTK a denser curve to render so the polyline body reads
         # as a smooth curve instead of a chain of line segments.
         self._smooth_points: np.ndarray | None = None
+        # Tracks whether the dense ``_smooth_points`` geometry has been
+        # swapped into the plotter via :meth:`_install_smooth_geometry`.
+        # Decoupled from ``_smooth_points is not None`` because the
+        # Catmull-Rom array is built on a *worker* thread (pure NumPy,
+        # thread-safe) while the ``add_mesh`` that installs it must run on
+        # the GUI thread (it issues a VTK ``Render()`` against the GL
+        # context). See :meth:`build_prerender_cache`'s ``warm_vtk`` split.
+        self._smooth_geometry_installed: bool = False
         # Cumulative arc-length table over ``_smooth_points``. When this
         # is in place, :meth:`seek_arc_length` consults it instead of
         # ``_arc_lengths`` so head positions land on the smooth curve.
@@ -1265,6 +1279,7 @@ class Renderer3D:
         progress_cb: Callable[[int, int], None] | None = None,
         cancel_cb: Callable[[], bool] | None = None,
         smooth_factor: int | None = None,
+        warm_vtk: bool = True,
     ) -> bool:
         """Build the arc-length table and warm VTK's render pipeline.
 
@@ -1306,32 +1321,80 @@ class Renderer3D:
             disable the dense-curve geometry entirely (the renderer
             falls back to drawing the polyline against the raw
             integration samples — this is the legacy behavior).
+        warm_vtk:
+            When ``True`` (default) the method runs end-to-end: the
+            CPU-only steps (arc-length table + Catmull-Rom oversampling)
+            *and* the VTK pipeline warm-up (geometry install + the seek
+            redraws that populate the shader cache). When ``False`` only
+            the CPU-only steps run and the method returns *without*
+            setting ``has_prerender_cache``; the VTK half is left for a
+            follow-up call.
+
+            This split exists because the VTK half issues
+            ``vtkRenderWindow::Render()`` against the attached plotter,
+            which makes the OpenGL context current. That is only legal on
+            the thread that owns the context — the GUI thread. On
+            Windows/WGL, calling it from a worker thread fails with
+            ``wglMakeCurrent ... ERROR_BUSY (170)`` and corrupts the
+            shader cache (GLX on macOS/Linux is more permissive, which is
+            why this went unnoticed there). The GUI's prerender worker
+            therefore calls ``warm_vtk=False`` on its thread and the GUI
+            thread re-invokes with the default to finish the warm-up. See
+            ``docs/prerender_design.md``.
 
         Returns
         -------
         bool
-            ``True`` if the cache is fully built, ``False`` if the
+            ``True`` if the cache is fully built (or, when
+            ``warm_vtk=False``, the CPU half completed), ``False`` if the
             caller cancelled mid-warm-up.
         """
 
         if self.has_prerender_cache:
             return True
+        # ---- CPU phase (thread-safe; no VTK / GL calls) ----------------
+        # This half is what the GUI runs on the prerender *worker* thread
+        # (via ``warm_vtk=False``). It MUST NOT issue a single VTK / OpenGL
+        # call: the GL context belongs to the GUI thread, and touching it
+        # from a worker thread fails on Windows with
+        # ``wglMakeCurrent ... resource is in use (code 170)`` (the GUI
+        # thread holds the context current, so the worker's
+        # ``wglMakeCurrent`` is refused). The two CPU steps below report
+        # progress and poll cancel so the worker stays cancellable even
+        # though the VTK warm-up has moved to the GUI thread.
+        #
         # Step 1 — arc-length table. Cheap, always done.
         self._build_arc_length_table()
-        # Step 2 — Catmull-Rom oversampling. Done before any VTK warm-up
-        # so the shader cache is built against the *final* geometry.
+        if progress_cb is not None:
+            progress_cb(1, _CPU_PHASE_STEPS)
+        if cancel_cb is not None and cancel_cb():
+            return False
+        # Step 2 — Catmull-Rom oversampling. Pure NumPy; done before the
+        # VTK warm-up so the shader cache is built against the *final*
+        # geometry. This is the heavier of the two CPU steps, so it is the
+        # natural window for a mid-flight cancel to land.
         factor = int(
             self.SMOOTH_OVERSAMPLE_FACTOR if smooth_factor is None else smooth_factor
         )
-        had_smooth_before = self._smooth_points is not None
         if factor > 1 and self._smooth_points is None:
             self._build_smooth_points(factor)
-        # If we just installed the smooth geometry, swap the PolyData
-        # to render against it (needs bigger buffers).
-        if self._smooth_points is not None and not had_smooth_before:
+        if cancel_cb is not None and cancel_cb():
+            return False
+        if progress_cb is not None:
+            progress_cb(_CPU_PHASE_STEPS, _CPU_PHASE_STEPS)
+        if not warm_vtk:
+            # Stop short of any VTK call. ``_prerender_built`` stays False
+            # so ``has_prerender_cache`` reports the cache as incomplete
+            # until the GUI thread runs the warm-up (``warm_vtk=True``).
+            return True
+
+        # ---- VTK phase (MUST run on the GUI thread) --------------------
+        # Install the dense geometry now that we're on the context-owning
+        # thread to issue the ``add_mesh`` (it triggers a Render()).
+        if self._smooth_points is not None and not self._smooth_geometry_installed:
             self._install_smooth_geometry()
 
-        # Step 3 & 4 — VTK pipeline warm-up. Only meaningful when a
+        # Steps 3 & 4 — VTK pipeline warm-up. Only meaningful when a
         # plotter is attached; if not, we still expose the arc-length
         # table for headless callers (tests use this path).
         if self._plotter is None or self._polyline is None:
@@ -1416,6 +1479,7 @@ class Renderer3D:
         else:
             line_kwargs["color"] = self.line_color
         self._line_actor = self._plotter.add_mesh(self._polyline, **line_kwargs)
+        self._smooth_geometry_installed = True
 
     def seek_arc_length(self, s: float) -> None:
         """Move the playhead to arc-length position ``s``.

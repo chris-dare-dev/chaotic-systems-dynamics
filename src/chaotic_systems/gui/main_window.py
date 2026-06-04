@@ -1392,14 +1392,20 @@ def _build_window_class() -> type:
         few seconds of playback. See ``docs/prerender_design.md`` for
         the full design.
 
-        Important: the renderer owns VTK objects on the GUI thread.
-        Calling ``build_prerender_cache`` from a worker thread *does*
-        issue ``Render()`` against those VTK objects, which is generally
-        thread-unsafe — but the calls happen against a plotter that is
-        idle (no other code is touching it while the worker is running)
-        and the GUI's event loop is not pumping VTK during this window.
-        This matches the established pattern in
-        ``Renderer3D.render_to_video`` which also runs on a QThread.
+        Threading contract: the renderer owns its VTK objects on the GUI
+        thread, and issuing ``Render()`` against them from a worker
+        thread makes the OpenGL context current off the thread that owns
+        it — fatal on Windows/WGL (``wglMakeCurrent ... ERROR_BUSY``).
+        The worker therefore runs only the CPU-bound half of the warm-up
+        (``build_prerender_cache(warm_vtk=False)`` — the arc-length table
+        and the Catmull-Rom oversampling, both pure NumPy). The GUI
+        thread finishes the VTK half (geometry install + shader-cache
+        warm-up) in :meth:`_on_prerender_finished` before playback. See
+        ``docs/prerender_design.md``.
+
+        ``render_to_video`` also runs on a QThread but is *not* affected:
+        it creates its own off-screen plotter inside the worker thread,
+        so that context is born and used on the same thread.
         """
 
         finished = Signal()
@@ -1426,6 +1432,7 @@ def _build_window_class() -> type:
                 ok = self._renderer.build_prerender_cache(
                     progress_cb=self._emit_progress,
                     cancel_cb=self._is_cancelled,
+                    warm_vtk=False,
                 )
             except (RuntimeError, ValueError) as exc:
                 self.error.emit(type(exc).__name__, str(exc))
@@ -3839,6 +3846,28 @@ def _build_window_class() -> type:
             )
 
         def _on_prerender_finished(self) -> None:
+            # The worker built only the CPU half of the cache
+            # (``warm_vtk=False``) because the VTK warm-up issues
+            # ``Render()`` against the GUI plotter's OpenGL context, which
+            # is illegal off the owning thread (fatal on Windows/WGL). We
+            # are back on the GUI thread now, so finish the VTK half here.
+            # The CPU half is memoized, so this only runs the geometry
+            # install + the handful of shader-cache warm-up redraws — a
+            # brief, one-time hitch right before playback starts.
+            if self._current_renderer is not None:
+                try:
+                    self._current_renderer.build_prerender_cache()
+                except (RuntimeError, ValueError) as exc:
+                    # A failed warm-up is non-fatal: the trajectory is
+                    # still loaded and the user can scrub manually. Fall
+                    # through to the normal "complete" status.
+                    self._show_error(
+                        "Animation prep failed",
+                        self._hinted(type(exc).__name__, str(exc)),
+                    )
+                    self._show_busy(False)
+                    self.cancel_button.setEnabled(False)
+                    return
             self._set_status("Simulation complete.", state="done")
             # Spinner stops; the pill animates the last frame and
             # disappears at the end of the next status update.

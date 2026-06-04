@@ -248,11 +248,47 @@ The ``_PrerenderWorker`` is a ``QObject`` that runs ``build_prerender_cache``
 on a QThread. It emits:
 
 - ``progress(int current, int total)`` between each warm-up frame.
-- ``finished()`` when the cache is built.
+- ``finished()`` when the CPU half of the cache is built.
 - ``error(kind, message)`` if anything blows up.
 - ``cancelled()`` if the user clicks Cancel mid-prerender.
 
 The QTimer only arms after ``finished()``.
+
+#### Threading split (Windows/WGL fix)
+
+The warm-up has two halves with different threading requirements:
+
+- **CPU half** — the arc-length table and the Catmull-Rom oversampling.
+  Pure NumPy, thread-safe. Runs on the ``_PrerenderWorker``'s QThread.
+- **VTK half** — installing the dense geometry (``add_mesh``) and the
+  seek redraws that populate the shader cache. Every one of these issues
+  ``vtkRenderWindow::Render()``, which makes the GUI plotter's OpenGL
+  context *current*. That is only legal on the thread that owns the
+  context — the GUI thread.
+
+Running the VTK half on the worker thread works on macOS/Linux (GLX is
+permissive about cross-thread ``MakeCurrent``) but is fatal on
+Windows/WGL: ``wglMakeCurrent`` returns ``ERROR_BUSY (170)`` because the
+``HGLRC`` is still current on the GUI thread, the tube-line shader fails
+to compile against the now-contextless thread, and the process dies in a
+flood of ``vtkWin32OpenGLRenderWindow`` errors. (Observed 2026-06-03 on
+``render_lines_as_tubes`` — see the crash log.)
+
+The fix is the ``warm_vtk`` flag on ``build_prerender_cache``:
+
+- The worker calls ``build_prerender_cache(warm_vtk=False)`` — CPU half
+  only. ``has_prerender_cache`` stays ``False`` (the VTK half is still
+  owed) but the method returns ``True`` to signal the CPU work landed.
+- ``_on_prerender_finished`` (a Qt slot, so back on the GUI thread)
+  re-invokes ``build_prerender_cache()`` with the default
+  ``warm_vtk=True``. The CPU half is memoized, so this only runs the
+  geometry install + the ~6 warm-up redraws — a brief one-time hitch on
+  the GUI thread immediately before playback, which is exactly when the
+  warmth is needed.
+
+``render_to_video`` also runs on a QThread but is **not** affected: it
+builds its own ``pv.Plotter(off_screen=True)`` inside the worker, so that
+context is born and used on the same thread.
 
 ### Skip threshold
 

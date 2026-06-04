@@ -190,6 +190,50 @@ def test_cancel_on_attached_plotter_leaves_cache_incomplete(
         plotter.close()
 
 
+def test_warm_vtk_false_builds_cpu_half_only(points: np.ndarray) -> None:
+    """``warm_vtk=False`` does the NumPy work but leaves the cache unbuilt.
+
+    Regression for the Windows/WGL crash: the GUI's ``_PrerenderWorker``
+    runs on a worker thread, where issuing a VTK ``Render()`` against the
+    GUI plotter's GL context fails with ``wglMakeCurrent ... ERROR_BUSY``.
+    The worker must therefore stop short of the VTK warm-up — the
+    arc-length table is built, but ``has_prerender_cache`` stays False so
+    the GUI thread knows it still owes the VTK half.
+    """
+
+    r = Renderer3D(points)
+    ok = r.build_prerender_cache(warm_vtk=False)
+    assert ok is True
+    # CPU work happened...
+    assert r.total_arc_length > 0.0
+    assert r._smooth_points is not None  # noqa: SLF001
+    # ...but the geometry was NOT installed (that add_mesh is a VTK call)
+    # and the cache is not marked warm.
+    assert not r._smooth_geometry_installed  # noqa: SLF001
+    assert not r.has_prerender_cache
+
+
+def test_warm_vtk_false_then_default_completes(points: np.ndarray) -> None:
+    """The GUI-thread follow-up finishes the warm-up the worker deferred.
+
+    Mirrors the runtime flow: worker calls ``warm_vtk=False`` (CPU half),
+    then the GUI thread re-invokes with the default to run the VTK half.
+    The CPU half is memoized, so the second call only does the warm-up.
+    """
+
+    r = Renderer3D(points)
+    r.build_prerender_cache(warm_vtk=False)
+    assert not r.has_prerender_cache
+    arc_before = r.total_arc_length
+
+    # Headless follow-up: no plotter attached, so the VTK warm-up is a
+    # no-op redraw, but the cache flips to warm and the CPU table is
+    # untouched.
+    r.build_prerender_cache()
+    assert r.has_prerender_cache
+    assert r.total_arc_length == pytest.approx(arc_before, rel=1e-12)
+
+
 def test_arc_length_table_matches_cumsum(points: np.ndarray) -> None:
     """The internal arc-length table is exactly ``cumsum(norm(diff))``."""
 
