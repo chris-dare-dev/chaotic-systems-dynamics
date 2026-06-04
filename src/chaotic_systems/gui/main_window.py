@@ -62,6 +62,7 @@ Keyboard shortcuts
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -490,23 +491,61 @@ def _build_window_class() -> type:
             self.setPalette(pal)
 
         def showPopup(self) -> None:
-            """Re-anchor the popup flush under the box (Windows DPI fix)."""
+            """Re-anchor the popup flush under the box (Windows DPI fix).
+
+            We re-anchor *twice*: synchronously right after
+            ``super().showPopup()``, and again on a zero-delay
+            ``QTimer.singleShot``. On some real-Windows per-monitor-DPI
+            setups the platform repositions the popup on its own deferred
+            show event *after* our synchronous move, discarding it and
+            leaving the list stranded mid-window — the singleShot pass runs
+            after that and wins. Both passes go through
+            :meth:`_reanchor_popup`, which never early-returns on a missing
+            screen (that early-return was itself a failure mode: with no
+            screen the override did nothing and Qt's default centred
+            placement leaked through).
+            """
 
             super().showPopup()
+            self._reanchor_popup()
+            QTimer.singleShot(0, self._reanchor_popup)
+
+        def _reanchor_popup(self) -> None:
+            """Move the open popup flush under the box, clamped to the screen.
+
+            Robust to a missing ``screen()`` (falls back to the primary
+            screen, and if that is somehow also absent, anchors without
+            clamping rather than giving up). A no-op if the popup is closed.
+            """
+
             view = self.view()
             if view is None:  # pragma: no cover - defensive
                 return
             popup = view.window()
-            screen = self.screen()
-            if popup is None or screen is None:  # pragma: no cover - defensive
+            if popup is None or not popup.isVisible():
                 return
-            avail = screen.availableGeometry()
+
+            target_top = self.mapToGlobal(QPoint(0, 0))
             target = self.mapToGlobal(QPoint(0, self.height()))
-            x = max(avail.left(), min(target.x(), avail.right() - popup.width()))
-            y = target.y()
-            if y + popup.height() > avail.bottom():
-                # No room below — flip the list above the box.
-                y = self.mapToGlobal(QPoint(0, 0)).y() - popup.height()
+            x, y = target.x(), target.y()
+
+            screen = self.screen() or QApplication.primaryScreen()
+            if screen is not None:
+                avail = screen.availableGeometry()
+                x = max(avail.left(), min(x, avail.right() - popup.width()))
+                if y + popup.height() > avail.bottom():
+                    # No room below — flip the list above the box.
+                    y = target_top.y() - popup.height()
+
+            if os.environ.get("CHAOTIC_DEBUG_POPUP") == "1":
+                sname = screen.name() if screen is not None else "<none>"
+                print(
+                    f"[popup] box_bl={target.x()},{target.y()} "
+                    f"popup_wh={popup.width()}x{popup.height()} "
+                    f"-> move({x},{y}) screen={sname} "
+                    f"dpr={self.devicePixelRatioF():.3f}",
+                    flush=True,
+                )
             popup.move(x, y)
 
     # -----------------------------------------------------------------------
