@@ -17,9 +17,41 @@ running a full 4-phase pipeline.
 |---|---|---|
 | `ui-upgrade-scout` | Single-agent UI evaluation (deprecated — prefer `/frontend-uplift`). | `docs/proposals/ui-upgrade-<date>.md` |
 
-### Multi-agent pipeline workers
+### Registry-synced pipeline workers (`/milestone-pipeline` + `/roadmap`)
 
-Two slash commands orchestrate 4-phase parallel-agent pipelines (see
+The `/milestone-pipeline` and `/roadmap` slash commands, their base
+agents, references (`.claude/references/{milestone-pipeline,roadmap}-*`),
+and scripts (`.claude/scripts/{milestone-pipeline,roadmap}-*`) are
+**copy-synced from the claude-registry repo** — hashes recorded in
+`.claude/.registry-manifest.json`. Never edit the synced copies in-repo;
+edit the registry and re-sync.
+
+| Agent | Pipeline | Role |
+|---|---|---|
+| `milestone-researcher` | `/milestone-pipeline` Phase 1 | Research fan-out for the milestone brief. |
+| `milestone-implementer` | `/milestone-pipeline` Phase 2 | Delegated implementation in `isolation: worktree`. |
+| `milestone-adversary-critic` | `/milestone-pipeline` Phase 3 | Adversarial critique — always fires. |
+| `milestone-oss-scout` | `/milestone-pipeline` Phase 3 | Optional OSS-survey critic (`--oss-scout` flag). |
+| `roadmap-refiner` | `/roadmap` Phase 1 | HMW restatement, assumption ledger, outcome shaping. |
+| `roadmap-decomposer` | `/roadmap` Phase 2 | Epic/milestone decomposition (roadmap/1 items). |
+| `roadmap-sequencer` | `/roadmap` Phase 3 | MoSCoW cut + RICE rank via the synced scoring scripts. |
+| `roadmap-materializer` | `/roadmap` Phase 4 | Validation + gated external-write hand-off. |
+
+`/roadmap` writes `plans/<slug>/roadmap.yaml` (roadmap/1 format);
+`/milestone-pipeline` resolves briefs via
+`.claude/scripts/milestone-pipeline-resolve-brief.py` — canonical source
+`plans/*/roadmap.yaml`, with a legacy prose fallback over `plans/*.md`
+(`### <ID> — ` headings). NOTE: `docs/proposals/*.md` produced by
+`/draft-proposal` are NOT searched — promote a proposal's milestones
+into a `plans/` roadmap before invoking `/milestone-pipeline`.
+Repo-local Phase 3 overlay critics can be added as
+`.claude/agents/milestone-*-critic.md` files (NOT in the manifest) —
+the synced orchestrator discovers them by filename glob; none exist in
+this repo yet.
+
+### Multi-agent pipeline workers (repo-local)
+
+Three further slash commands orchestrate 4-phase parallel-agent pipelines (see
 `.claude/commands/`). These agents are not invoked individually in
 normal use — the slash commands dispatch them.
 

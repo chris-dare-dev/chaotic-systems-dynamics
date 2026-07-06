@@ -96,17 +96,24 @@ Until those are configured, follow PEP 8 and use type hints on every public func
 ## Project-local agents
 
 `.claude/agents/` ships reusable Claude Code agents scoped to this
-project. Two today:
+project, in two groups:
 
-- `ui-upgrade-scout` — outside-in evaluation of the GUI plus 2025-2026
-  web research; writes a proposal to `docs/proposals/ui-upgrade-<date>.md`.
-- `capability-research-scout` — catalog of current systems / integrators
-  / diagnostics plus SOTA research; writes
-  `docs/proposals/capability-roadmap-<date>.md`.
+- **Registry-synced pipeline workers** for the `/milestone-pipeline`
+  (execution: Research → Implement → Critique → Rectify) and `/roadmap`
+  (planning: Refine → Decompose → Sequence → Materialize) slash
+  commands: `milestone-{researcher,implementer,adversary-critic,oss-scout}`
+  and `roadmap-{refiner,decomposer,sequencer,materializer}`. These —
+  plus the two commands and the flat `milestone-pipeline-*` /
+  `roadmap-*` references and scripts — are copy-synced from the
+  claude-registry repo (hashes in `.claude/.registry-manifest.json`).
+  **Never edit synced copies in-repo**; edit the registry and re-sync.
+  `/roadmap` writes `plans/<slug>/roadmap.yaml` (roadmap/1 format).
+- **Repo-local pipeline workers and scouts** for `/capability-scout`,
+  `/frontend-uplift`, and `/draft-proposal` (read-only — they propose,
+  they don't ship), plus the deprecated standalone `ui-upgrade-scout`.
 
-Both are read-only — they propose, they don't ship. See
-`.claude/agents/README.md` for invocation and the convention for adding
-new agents.
+See `.claude/agents/README.md` for the full inventory, invocation
+notes, and the convention for adding new agents.
 
 ## Mathematical correctness
 
