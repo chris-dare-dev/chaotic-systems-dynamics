@@ -1,0 +1,51 @@
+# .claude/model-policy.yaml -- model + effort policy for chaotic-systems-dynamics
+# Tier DEFINITIONS live in the shared parent file (one place to swap Opus<->Fable
+# or raise effort fleet-wide). This file maps each agent + command-phase to a tier.
+# Edit, then:  python .claude/scripts/sync-model-policy.py
+# CI drift gate: python .claude/scripts/sync-model-policy.py --check
+schema_version: 1
+extends: ../../.claude/model-policy.tiers.yaml
+
+assignments:
+  # agent stem -> tier  (bootstrapped from current frontmatter; reclassify per
+  # MODEL-EFFORT-CROSS-ANALYSIS.md sec.4 -- e.g. *-challenger / synthesize -> deep,
+  # *-querier / *-extractor -> fast)
+  agents:
+    capability-scout-synthesizer: deep_max
+    capability-scout-academic: standard
+    capability-scout-challenger: deep
+    capability-scout-competitive: standard
+    capability-scout-internal-adversary: deep
+    capability-scout-oss: standard
+    draft-proposal-critic: deep
+    draft-proposal-drafter: standard
+    draft-proposal-refiner: standard
+    draft-proposal-sequencer: heavy
+    frontend-uplift-challenger: deep
+    frontend-uplift-current-state-critic: standard
+    frontend-uplift-inspiration: standard
+    frontend-uplift-library: standard
+    frontend-uplift-visual: standard
+    README: standard
+    ui-upgrade-scout: deep
+    milestone-adversary-critic: deep
+    milestone-frontend-ux: heavy
+    milestone-implementer: standard
+    milestone-oss-scout: standard
+    milestone-rectifier: deep
+    milestone-researcher: standard
+    roadmap-decomposer: standard
+    roadmap-materializer: standard
+    roadmap-refiner: standard
+    roadmap-sequencer: heavy
+
+  # command:phase -> tier (drives the generated MODEL-POLICY table in each
+  # command file; only injected where the BEGIN/END markers are present)
+  commands: {}
+
+  # tier applied to any agent file present on disk but absent from `agents:`
+  unmapped_default: standard
+
+# How CLI flags re-map a phase's tier at dispatch (declarative; rendered into
+# the command table's "With flags" column).
+flag_overrides: {}
