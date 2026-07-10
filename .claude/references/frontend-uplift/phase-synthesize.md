@@ -20,6 +20,16 @@ code citations, and writes `artifacts/synthesis.md`.
 
 ## Protocol
 
+### 0. Open with the art-direction frame (adopt, don't re-derive)
+
+The `art-direction-scout` brief carries the run's design frame — visual thesis + 3 divergent
+directions + the active BAN-1..15 list + surface map + the §10 cookie-cutter score of the current
+GUI (grounded in `design-system.md`). `synthesis.md` OPENS with that frame, and EVERY candidate is
+placed relative to it: `[DIRECTION-DEFINING]` / compatible / `[polish]`, with any frame-conflicting
+idea parked and its BAN-N cited. A frameless catalog is a Phase-3 BLOCKER (challenger Axis 11). If
+the art-direction brief is missing, build a provisional frame from `frontend-design-language.md`
+§8/§9 and say so loudly.
+
 ### 1. Read every brief + look at every screenshot
 
 Skim is not enough. The triangulation evidence lives in cross-brief

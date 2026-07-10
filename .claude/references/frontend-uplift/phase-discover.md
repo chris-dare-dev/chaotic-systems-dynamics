@@ -35,13 +35,24 @@ visual-evidence pipeline against a broken GUI.
   `.claude/notes/frontend-uplifts/<ID>/screenshots/<state>.png` (from
   visual-scout).
 
-## Dispatch matrix
+## Surface + dispatch matrix
+
+**Surface class — this repo is S-2 (native Qt tool); default `--surface tool`.** The
+`art-direction-scout` fires in EVERY mode: it authors the run's design frame (visual thesis + 3
+divergent directions + active BAN-1..15 list + surface map) from
+`.claude/references/frontend-design-language.md` + the house overlay
+`.claude/references/frontend-uplift/design-system.md`. Dropping it re-creates the undirected
+default look this pipeline exists to prevent. The `experiential-scout` is **INERT here and is NOT
+dispatched** — reverse-engineering award-winning WEBSITES has near-zero transfer to a native Qt
+desktop app (no DOM, no scroll surface, no WebGL hero); experiential motion is BLOCKED on S-2
+(design-language §3 / motion-vocabulary §0). Say that plainly rather than silently dropping it.
 
 | Mode | Agents dispatched | Notes |
 |---|---|---|
-| `standard` | visual + library + inspiration + current-state-critic | Default. 4 agents, sonnet, worktree-isolated. |
-| `lean` | visual + library + current-state-critic | Drop inspiration for fast scans. |
-| `deep` | visual + library + inspiration + current-state-critic (opus) | Same 4; opus-bump the critic when scope is wide. |
+| `standard` | art-direction + visual + library + inspiration + current-state-critic | Default. 5 agents, sonnet, worktree-isolated. |
+| `lean` | art-direction + visual + library + current-state-critic | Drop inspiration for fast scans — never art-direction. |
+| `deep` | art-direction + visual + library + inspiration + current-state-critic (opus) | Same 5; opus-bump the critic when scope is wide. |
+| `experiential` | art-direction + visual + library + current-state-critic | Offered for parity; the experiential lens is INERT on S-2 Qt — the report says so rather than dispatching a near-useless web-teardown scout. |
 
 ## Dispatch protocol — ONE assistant turn
 
@@ -49,8 +60,10 @@ ONE turn containing N parallel `Agent` tool blocks. Each uses
 `subagent_type: general-purpose`, `model: sonnet` (or opus for the
 deep critic), `isolation: worktree`.
 
-Prompts come verbatim from `agent-prompts.md` §1-§4. Substitute
-`{ID}`, `{BRIEF}`, `{BRIEF_PATH}`, `{SCREENSHOTS_DIR}`.
+Prompts for visual / library / inspiration / current-state-critic come verbatim from
+`agent-prompts.md` §1-§4 (substitute `{ID}`, `{BRIEF}`, `{BRIEF_PATH}`, `{SCREENSHOTS_DIR}`).
+The `art-direction-scout` reads the flat canon (`frontend-design-language.md`) + the house
+overlay (`design-system.md`) directly — it has no `agent-prompts.md §` entry.
 
 After dispatching, append each agent name to `agents_dispatched` and
 advance to `discover-running`.

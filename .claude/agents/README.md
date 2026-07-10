@@ -69,16 +69,19 @@ normal use — the slash commands dispatch them.
 
 | Agent | Phase | Role |
 |---|---|---|
-| `frontend-uplift-visual` | 1 (parallel) | Boots the GUI, screenshots multiple states, identifies visual defects. |
-| `frontend-uplift-library` | 1 (parallel) | Surveys active PySide6/PyVista/theme libraries (qtawesome, qfluentwidgets, superqt, etc.). |
-| `frontend-uplift-inspiration` | 1 (parallel) | Studies napari / ParaView / Houdini / Logic Pro patterns to borrow. |
+| `frontend-uplift-art-direction-scout` | 1 (every mode) | Authors the run's design frame — visual thesis + 3 divergent directions + BAN-1..15 list + surface map — from `frontend-design-language.md` + the house overlay `frontend-uplift/design-system.md`. |
+| `frontend-uplift-visual-scout` | 1 (parallel) | Boots the GUI, screenshots multiple states, identifies visual defects. |
+| `frontend-uplift-library-scout` | 1 (parallel) | Surveys active PySide6/PyVista/theme libraries (qtawesome, qfluentwidgets, superqt, etc.). |
+| `frontend-uplift-inspiration-scout` | 1 (parallel) | Studies napari / ParaView / Houdini / Logic Pro patterns to borrow. |
 | `frontend-uplift-current-state-critic` | 1 (parallel) | Reads GUI code + screenshots; surfaces token leaks, spec-vs-impl drift, dead code, reject list. |
-| `frontend-uplift-challenger` | 3 (sequential) | Argues against every candidate using a 10-axis checklist (native-only, worker-thread, token discipline, renderer pacing, hi-DPI, a11y, etc.). |
+| `frontend-uplift-challenger` | 3 (sequential) | Argues against every candidate using the 11-axis checklist (native-only, worker-thread, token discipline, renderer pacing, hi-DPI, a11y, keyboard-equivalent, + axis 11 distinctiveness/anti-template vs BAN-1..15). |
+| `frontend-uplift-experiential-scout` | — (INERT) | Synced canon agent; NOT dispatched on this S-2 native surface — award-website motion has near-zero transfer to Qt. |
 
 The Phase 2 (synthesize) and Phase 4 (prioritize) phases run in the
 **main session**, not as sub-agents, because synthesis requires all
-4 briefs in working memory and prioritization is the user-review
-surface.
+briefs in working memory and prioritization is the user-review surface.
+The synthesis OPENS with the art-direction frame; Phase 4 ranks in
+portfolio lanes (a11y-safety-debt mandatory, listed first).
 
 **`/draft-proposal`** — promote CSC items (or a freeform brief) into
 a clean `docs/proposals/*.md` ready for `/milestone-pipeline`.

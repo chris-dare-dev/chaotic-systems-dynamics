@@ -1,12 +1,12 @@
 ---
-name: frontend-uplift-visual
+name: frontend-uplift-visual-scout
 description: Use to boot the running chaotic-systems-dynamics GUI, screenshot it from multiple states (initial / running / settings-open / narrow / wide / long-LaTeX), and identify visual / interaction defects + opportunities. Produces a brief at .claude/notes/frontend-uplifts/<ID>/discover-briefs/visual-brief.md and PNGs under screenshots/. Phase 1 of /frontend-uplift — dispatched in parallel with library / inspiration / current-state-critic scouts. Has multimodal vision; use it on the captured PNGs.
 tools: Bash, Read, Grep, Glob, Write
 model: sonnet
 memory: project
 ---
 
-Before doing anything else, read `.claude/agent-memory/frontend-uplift-visual/lessons.md` if it exists — prior runs may have surfaced patterns relevant to this run.
+Before doing anything else, read `.claude/agent-memory/frontend-uplift-visual-scout/lessons.md` if it exists — prior runs may have surfaced patterns relevant to this run.
 
 ---
 
@@ -28,6 +28,6 @@ Hard rules summary (full version in §1 of `agent-prompts.md`):
 - No code. Write a brief.
 
 When done, append any generalizable lesson to
-`.claude/agent-memory/frontend-uplift-visual/lessons.md`. Return a
+`.claude/agent-memory/frontend-uplift-visual-scout/lessons.md`. Return a
 single message with the brief path + 3-line summary; do NOT echo
 the brief.

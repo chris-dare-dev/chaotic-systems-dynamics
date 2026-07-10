@@ -203,9 +203,10 @@ def init(argv: list[str]) -> None:
     )
     mem = root / ".claude" / "agent-memory"
     common.ensure_dirs(
-        mem / "frontend-uplift-visual",
-        mem / "frontend-uplift-library",
-        mem / "frontend-uplift-inspiration",
+        mem / "frontend-uplift-art-direction-scout",
+        mem / "frontend-uplift-visual-scout",
+        mem / "frontend-uplift-library-scout",
+        mem / "frontend-uplift-inspiration-scout",
         mem / "frontend-uplift-current-state-critic",
         mem / "frontend-uplift-challenger",
     )

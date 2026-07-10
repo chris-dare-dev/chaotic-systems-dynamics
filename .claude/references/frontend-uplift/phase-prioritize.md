@@ -17,6 +17,22 @@ writes `artifacts/final-report.md`.
 
 `.claude/notes/frontend-uplifts/<ID>/artifacts/final-report.md`.
 
+## Portfolio lanes (assign BEFORE ranking — RICE is only valid WITHIN a lane)
+
+Cross-lane RICE mathematically buries structural design under XS polish (a ×1.3 bonus cannot beat a
+32× effort ratio), so assign every non-dropped candidate to EXACTLY ONE lane, then compute
+RICE-light only within each lane and rank within lanes only. Present lanes in this order:
+
+1. **`a11y-safety-debt`** — MANDATORY lane, listed FIRST, NEVER ranked away. Every WCAG / focus /
+   contrast / keyboard / reduced-motion finding lands here (e.g. missing `setAccessibleName`
+   coverage, the light-theme stub with no dark/light parity, any reduced-motion gap). These ship on
+   their own merit, not against RICE.
+2. **`signature-direction`** — `[DIRECTION-DEFINING]` candidates that realize the adopted thesis.
+3. **`foundations`** — shared tokens / helpers others depend on (spacing scale, `theme.PALETTE`
+   wire-ups).
+4. **`workflow`** — new affordances that unlock a task (command-palette entries, panel actions).
+5. **`polish`** — everything else. A top-5 that is all `polish` MUST say so explicitly.
+
 ## RICE-light formula
 
 Same as capability-scout's:

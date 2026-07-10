@@ -23,9 +23,9 @@ assignments:
     draft-proposal-sequencer: heavy
     frontend-uplift-challenger: deep
     frontend-uplift-current-state-critic: standard
-    frontend-uplift-inspiration: standard
-    frontend-uplift-library: standard
-    frontend-uplift-visual: standard
+    frontend-uplift-inspiration-scout: standard
+    frontend-uplift-library-scout: standard
+    frontend-uplift-visual-scout: standard
     README: standard
     ui-upgrade-scout: deep
     milestone-adversary-critic: deep
@@ -38,6 +38,10 @@ assignments:
     roadmap-materializer: standard
     roadmap-refiner: standard
     roadmap-sequencer: heavy
+    frontend-uplift-art-direction-scout: deep
+    frontend-uplift-experiential-scout: heavy
+    pipeline-prioritizer: standard
+    pipeline-synthesizer: heavy
 
   # command:phase -> tier (drives the generated MODEL-POLICY table in each
   # command file; only injected where the BEGIN/END markers are present)

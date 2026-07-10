@@ -18,6 +18,12 @@ Hard rules summary:
 
 - Read the actual files; do NOT infer from filenames.
 - Cite file:line on every finding.
+- Flag any §5 BAN-1..15 tell PRESENT in the current GUI (cite
+  `.claude/references/frontend-design-language.md` + the house overlay
+  `.claude/references/frontend-uplift/design-system.md` §9.2) so the
+  art-direction-scout can ground its current-state §10 score — you read
+  the real code, so your current-state tells are the most trustworthy
+  input to the frame.
 - The reject list MUST be explicit — name proposals the other scouts
   might suggest that would duplicate shipped work.
 - No code. Write a brief.

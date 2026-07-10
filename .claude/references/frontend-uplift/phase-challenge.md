@@ -3,7 +3,7 @@
 ## Purpose
 
 A single adversarial sub-agent argues AGAINST every candidate in the
-synthesis using a fixed 10-axis checklist tailored to this project's
+synthesis using a fixed 11-axis checklist tailored to this project's
 visual locks. Severity calibrated: 30-60% NONE, 5-15% BLOCKER.
 
 Distinct from Phase 1's current-state-critic: the critic surveyed
@@ -33,7 +33,7 @@ PROPOSED candidates against architectural and accessibility locks.
 Calibration: in a healthy run, ~30-60% NONE. If > 70% MAJOR/BLOCKER,
 you're inflating. If < 10%, you're soft-pedaling.
 
-## The 10-axis checklist
+## The 11-axis checklist
 
 ### Axis 1 — Native-only
 
@@ -124,10 +124,39 @@ no keyboard shortcut / tab focus, it fails.
 
 → **MAJOR** if no keyboard path. **NONE** if `QShortcut` / focusable.
 
+### Axis 11 — Distinctiveness / anti-template (the anti-cookie-cutter lock)
+
+Read `.claude/references/frontend-design-language.md` directly (no reference-fetch MCP tool on
+this fleet — Read the file) and score the candidate — and the synthesis as a whole — against the
+§5 BAN-1..15 list and the §10 cookie-cutter rubric, translated to this native Qt tool. The live
+tells on this surface:
+
+- **BAN-1** — a generic dark-navy "SaaS dashboard in a window" shell instead of the app's ink
+  instrument material (Tokyo Night Storm, one accent, semantic-for-state).
+- **BAN-4** — falling back to the undirected Qt-default toolkit look: raw system-native widgets,
+  no pinned Fusion style, no `theme.PALETTE` / `dark.qss` discipline.
+- **BAN-5** — equal panel weight, no lede (the house thesis is "the math is the hero").
+- **BAN-6 / BAN-11** — decorative rainbow analysis plots; semantic colors used for decoration.
+- **BAN-7** — status-chip soup. **BAN-14** — uniform density. **BAN-15** — cloning another
+  panel's shell as this one's identity without a product reason.
+
+Also check the run-level gate: does the synthesis OPEN with the adopted design frame (thesis +
+direction + BAN list)? A **frameless catalog is a run-level BLOCKER.** Does the proposed end state
+score ≤ 2 on the §10 rubric?
+
+→ **BLOCKER** if the synthesis is frameless OR the proposed state scores 6+ on §10. **MAJOR** if
+3-5, or if the candidate introduces a BAN tell with no thesis-argued reason. **NONE** if it is
+frame-consistent and ≤ 2.
+
+**INERT axes (web-only — never manufacture a finding from these):** bundle-size KB budget (no
+bundler — Python app), React 19 / RSC compatibility (no React), mobile / touch parity (desktop-only
+native window), and experiential scroll/parallax/WebGL motion (BLOCKED on S-2; there is no S-1
+surface). Name an axis inert if a candidate somehow invokes it; do not score it.
+
 ## Per-candidate output shape
 
 Identical to capability-scout's `phase-3-challenge.md`. For each
-`FU-<ID>-NNN`, walk the 10 axes, assign severity, set Overall, set
+`FU-<ID>-NNN`, walk the 11 axes, assign severity, set Overall, set
 Recommended action.
 
 ## Cross-candidate concerns
