@@ -124,3 +124,6 @@ CRITIQUE.md
 # be committed).
 .claude/settings.local.json
 .claude/worktrees/
+
+# Codex agent mirrors are registry-generated (sync-repos.py --codex); regenerate, never hand-edit
+.codex/
