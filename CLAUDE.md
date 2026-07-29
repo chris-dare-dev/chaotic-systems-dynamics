@@ -30,11 +30,19 @@ Examples:
 - `refactor: extract Integrator base class from RK4`
 - `chore: initial repository scaffolding`
 
-Every commit made by Claude should carry a `Co-Authored-By` trailer:
+Every commit made by Claude should carry a `Co-Authored-By` trailer naming
+the **actual authoring model** — pin the form, never the value:
 
 ```
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Co-Authored-By: <authoring Claude model> <noreply@anthropic.com>
 ```
+
+e.g. `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+
+This block used to hardcode one model name. The trailer exists for
+provenance, so a pinned value silently becomes false as soon as a different
+model does the work, and every later commit misattributes its own
+authorship while looking perfectly compliant.
 
 ## Project layout
 
