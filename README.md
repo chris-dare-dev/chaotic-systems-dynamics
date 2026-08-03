@@ -61,10 +61,27 @@ Functional. The full pipeline — backend (systems, integrators, Lyapunov, Poinc
 
 ## Installation
 
-Python 3.12 (pinned in `.python-version`). PySide6 and PyVista ship binary wheels on macOS / Linux / Windows, so no system-level Qt or VTK install is needed.
+Requires Python **≥ 3.12** (pinned in `.python-version`). PySide6 and PyVista ship binary wheels on macOS / Linux / Windows, so no system-level Qt or VTK install is needed.
+
+> **Pick a 3.12+ interpreter explicitly.** If your machine also has an
+> older Python (e.g. 3.11) on `PATH`, a bare `python -m venv` will build
+> the venv against it and `pip install` will fail with
+> `requires a different Python`. Use the version-qualified launcher below.
+
+**Windows (PowerShell):** run `py --list` first to see which interpreters
+you have, then pass a 3.12+ version to `py -`:
+
+```powershell
+py --list                       # find an installed 3.12+ (e.g. -V:3.14)
+py -3.14 -m venv .venv          # use the version you actually have
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+```
+
+**macOS / Linux:**
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv        # or any 3.12+ you have
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```

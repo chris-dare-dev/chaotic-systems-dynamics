@@ -32,6 +32,17 @@ The first GUI surface of the Conradi attractor feature
 7. Press "Export loop" to save the precomputed frames as a seamless GIF (loops
    forever) or MP4 (CSC-006, via
    :func:`chaotic_systems.visualization.renderer.write_frames`).
+8. Shape the loop before animating (LOOP-EDIT). The **Frames** spinbox sets how
+   many frames are rendered around the loop and **Speed** sets the playback +
+   export fps (both live). Press **"Edit loop"** to drag the ``(a, b)`` path
+   directly on the parameter plane (over the screening heatmap when one is
+   available): drag the white centre dot to reposition the loop, and the cyan
+   rim handles to resize / rotate it. The geometry feeds :func:`param_path.param_loop`
+   via a closure, so the inset and the precompute always reflect the edited path;
+   with the per-map defaults the loop is byte-identical to the original. During
+   playback the ``(a, b)`` inset doubles as a **rotation knob**: drag it to spin
+   the loop live, and on release the frames re-precompute at the new rotation
+   (the swept ``(a, b)`` change, so the frames must re-render).
 
 The default ``(a, b) = (5.46, 4.55)`` is Conradi's canonical art regime: a
 single orbit there is periodic, but the rendered image is the *transient flow*
@@ -112,13 +123,26 @@ _DEFAULT_CMAP: str = "magma"
 _TONE_MODES: tuple[str, ...] = ("eq_hist", "log", "cbrt", "linear")
 
 # Animation: frames per loop and playback rate. Lighter when numba is absent.
+# These are now the *defaults* of the user-facing Frames / Speed spinboxes
+# (LOOP-EDIT) rather than fixed constants.
 _ANIM_N_FRAMES: int = param_path.DEFAULT_N_FRAMES if NUMBA_AVAILABLE else 24
 _ANIM_FPS: int = 12
 _ANIM_TIMER_MS: int = max(1, round(1000 / _ANIM_FPS))
+# User-adjustable bounds for the Frames / Speed (fps) spinboxes (LOOP-EDIT).
+_MIN_FRAMES: int = 8
+_MAX_FRAMES: int = 360
+_MIN_FPS: int = 1
+_MAX_FPS: int = 60
 # Lighter lattice for animation frames than a one-off still (many frames).
 _ANIM_N_POINTS: int = 220 if NUMBA_AVAILABLE else 120
 _ANIM_N_ITER: int = 160 if NUMBA_AVAILABLE else 100
 _ANIM_BINS: int = 480 if NUMBA_AVAILABLE else 320
+
+# Loop editor (LOOP-EDIT): grab radius for a drag handle, as a fraction of the
+# (a, b) plane (per-axis-normalized so it is DPI- and aspect-independent), and
+# the fundamental-ellipse semi-axis clamps (kept inside the parameter plane).
+_HANDLE_TOL_FRAC: float = 0.06
+_MIN_LOOP_RADIUS: float = 0.05
 
 # Screening-heatmap grid resolution (per axis). Coarser than a still render so
 # the (a, b) sweep stays interactive on the worker thread.
@@ -165,12 +189,8 @@ def _build_worker_class() -> type:
             # CMP-001: forward the active map + its render window. Defaults keep
             # the Conradi behaviour byte-stable (render()/accumulate() default to
             # conradi_map / DEFAULT_EXTENT).
-            self._map_fn = (
-                attractor_density.conradi_map if map_fn is None else map_fn
-            )
-            self._extent = (
-                attractor_density.DEFAULT_EXTENT if extent is None else extent
-            )
+            self._map_fn = attractor_density.conradi_map if map_fn is None else map_fn
+            self._extent = attractor_density.DEFAULT_EXTENT if extent is None else extent
 
         def run(self) -> None:
             try:
@@ -279,12 +299,8 @@ def _build_anim_worker_class() -> type:
             self._cmap_name = cmap_name
             self._bloom = bool(bloom)
             # CMP-001: forward the active map + render window (Conradi defaults).
-            self._map_fn = (
-                attractor_density.conradi_map if map_fn is None else map_fn
-            )
-            self._extent = (
-                attractor_density.DEFAULT_EXTENT if extent is None else extent
-            )
+            self._map_fn = attractor_density.conradi_map if map_fn is None else map_fn
+            self._extent = attractor_density.DEFAULT_EXTENT if extent is None else extent
             # CAL-001: per-map (a, b) loop geometry; None -> the default Conradi
             # param_loop (precompute_loop_frames falls back to it).
             self._path_fn = path_fn
@@ -442,9 +458,7 @@ def _build_figure(
 
 def _placeholder_figure() -> Any:
     """A pure-black placeholder before the first render."""
-    return _build_figure(
-        np.zeros((2, 2, 4), dtype=np.uint8), _DEFAULT_A, _DEFAULT_B
-    )
+    return _build_figure(np.zeros((2, 2, 4), dtype=np.uint8), _DEFAULT_A, _DEFAULT_B)
 
 
 def _build_panel_class() -> type:
@@ -497,21 +511,46 @@ def _build_panel_class() -> type:
             self._timer: QTimer | None = None
             self._anim_im: Any = None
             self._anim_marker: Any = None
+            # LOOP-EDIT: drag-to-rotate on the playback (a, b) inset. The inset
+            # acts as a rotation knob; a release re-precomputes the loop at the
+            # new rotation (the swept (a, b) change, so frames must re-render).
+            self._anim_inset_ax: Any = None
+            self._anim_inset_line: Any = None
+            self._inset_cids: list[int] = []
+            self._inset_rotating: bool = False
+            self._rot_at_grab: float = 0.0
+            self._angle_at_grab: float = 0.0
             # CMP-001: the active map's render callable + window. The panel is
             # Conradi-only today (the map-preset picker is CMP-002); these fields
             # are the single seam the picker will flip per selection. Workers and
             # the figure builders read them so every render/animation path is
             # already map-agnostic.
             self._map_fn: Any = attractor_density.conradi_map
-            self._extent: tuple[float, float, float, float] = (
-                attractor_density.DEFAULT_EXTENT
-            )
-            # CAL-001: per-map (a, b) animation-loop geometry. None -> the
-            # default Conradi param_loop (2*pi-wrapped). Clifford uses a
-            # non-wrapping loop centred in [-3, 3]; _loop_wrapped drives the
+            self._extent: tuple[float, float, float, float] = attractor_density.DEFAULT_EXTENT
+            # CAL-001 / LOOP-EDIT: per-map (a, b) animation-loop geometry. The
+            # loop is a closed Fourier curve (param_path.param_loop); its
+            # centre / semi-axes / rotation are now editable by dragging handles
+            # in the loop editor (_build_loop_editor). _loop_path_fn is always a
+            # closure over this state (rebuilt by _rebuild_loop_fn), so the inset
+            # and precompute read the live geometry. _loop_wrapped drives the
             # inset's NaN-split (only the wrapped Conradi loop is split).
-            self._loop_path_fn: Any = None
+            self._loop_center: list[float] = list(param_path.DEFAULT_CENTER)
+            self._loop_radius: list[float] = list(param_path.DEFAULT_RADIUS)
+            self._loop_rotation: float = float(param_path.DEFAULT_ROTATION)
+            self._loop_harmonics: tuple[tuple[float, float], ...] = param_path.DEFAULT_HARMONICS
             self._loop_wrapped: bool = True
+            #: Set once the user drags a handle; stops the editor re-seeding the
+            #: centre from the current (a, b) pick on each open.
+            self._loop_customized: bool = False
+            self._loop_path_fn: Any = None
+            # Loop-editor view state (the draggable (a, b) canvas).
+            self._loop_edit_mode: bool = False
+            self._drag_handle: str | None = None
+            self._editor_ax: Any = None
+            self._editor_cids: list[int] = []
+            self._loop_line: Any = None
+            self._handle_pts: dict[str, Any] = {}
+            self._axis_lines: dict[str, Any] = {}
 
             from chaotic_systems.gui._panel_helpers import apply_panel_margins
 
@@ -586,9 +625,7 @@ def _build_panel_class() -> type:
             self.clifford_preset_box.setObjectName("conradi_clifford_preset")
             for entry in CLIFFORD_PRESETS:
                 self.clifford_preset_box.addItem(entry[0])
-            self.clifford_preset_box.setToolTip(
-                "Paul Bourke's reference Clifford parameter sets."
-            )
+            self.clifford_preset_box.setToolTip("Paul Bourke's reference Clifford parameter sets.")
             self.clifford_preset_box.activated.connect(self._on_clifford_preset)
             clifford_form.addRow(QLabel("Preset"), self.clifford_preset_box)
 
@@ -637,9 +674,7 @@ def _build_panel_class() -> type:
             self.bins_spin.setObjectName("conradi_bins")
             self.bins_spin.setRange(128, _MAX_BINS)
             self.bins_spin.setValue(_PANEL_BINS)
-            self.bins_spin.setToolTip(
-                "Histogram resolution (output is bins × bins pixels)."
-            )
+            self.bins_spin.setToolTip("Histogram resolution (output is bins × bins pixels).")
             controls.addRow(QLabel("Resolution (px)"), self.bins_spin)
 
             self.cmap_box = QComboBox(self)
@@ -664,9 +699,7 @@ def _build_panel_class() -> type:
             self.bloom_check = QCheckBox("Gaussian bloom", self)
             self.bloom_check.setObjectName("conradi_bloom")
             self.bloom_check.setChecked(False)
-            self.bloom_check.setToolTip(
-                "Add a multi-scale Gaussian halo around the hot cores."
-            )
+            self.bloom_check.setToolTip("Add a multi-scale Gaussian halo around the hot cores.")
             controls.addRow(QLabel("Glow"), self.bloom_check)
 
             outer.addLayout(controls)
@@ -698,6 +731,37 @@ def _build_panel_class() -> type:
             action_row.addWidget(self.progress_bar, 1)
             outer.addLayout(action_row)
 
+            # --- Loop frame-count + speed (LOOP-EDIT) ---------------------
+            # Frames per loop and playback/export speed were fixed constants;
+            # they are now user-adjustable. Speed drives BOTH the live preview
+            # QTimer and the exported GIF/MP4 fps so what you see is what you save.
+            loop_opts_row = QHBoxLayout()
+            loop_opts_row.addWidget(QLabel("Frames"))
+            self.frames_spin = QSpinBox(self)
+            self.frames_spin.setObjectName("conradi_frames")
+            self.frames_spin.setRange(_MIN_FRAMES, _MAX_FRAMES)
+            self.frames_spin.setValue(_ANIM_N_FRAMES)
+            self.frames_spin.setToolTip(
+                "Number of frames rendered around the loop. More frames = "
+                "smoother motion and a longer precompute."
+            )
+            loop_opts_row.addWidget(self.frames_spin)
+            loop_opts_row.addSpacing(16)
+            loop_opts_row.addWidget(QLabel("Speed"))
+            self.fps_spin = QSpinBox(self)
+            self.fps_spin.setObjectName("conradi_fps")
+            self.fps_spin.setRange(_MIN_FPS, _MAX_FPS)
+            self.fps_spin.setValue(_ANIM_FPS)
+            self.fps_spin.setToolTip(
+                "Playback + export frame rate (fps). Applies live to the "
+                "preview and to the exported GIF/MP4."
+            )
+            self.fps_spin.valueChanged.connect(self._on_fps_changed)
+            loop_opts_row.addWidget(self.fps_spin)
+            loop_opts_row.addWidget(QLabel("fps"))
+            loop_opts_row.addStretch(1)
+            outer.addLayout(loop_opts_row)
+
             # --- Animation transport (CSC-005) ----------------------------
             anim_row = QHBoxLayout()
             self.animate_button = QPushButton("Animate loop", self)
@@ -709,6 +773,16 @@ def _build_panel_class() -> type:
             )
             self.animate_button.clicked.connect(self._on_animate)
             anim_row.addWidget(self.animate_button)
+
+            self.edit_loop_button = QPushButton("Edit loop", self)
+            self.edit_loop_button.setObjectName("conradi_edit_loop")
+            self.edit_loop_button.setToolTip(
+                "Open the (a, b) loop editor: drag the centre dot to move the "
+                "loop over the parameter plane, and the rim handles to resize "
+                "and rotate it. Then press Animate loop to render the new path."
+            )
+            self.edit_loop_button.clicked.connect(self._on_edit_loop)
+            anim_row.addWidget(self.edit_loop_button)
 
             self.play_button = QPushButton("Play", self)
             self.play_button.setObjectName("conradi_play")
@@ -739,8 +813,7 @@ def _build_panel_class() -> type:
             base_msg = "Press Render to draw the Conradi attractor."
             if not NUMBA_AVAILABLE:
                 base_msg += (
-                    "  (NumPy fallback — install the [performance] extra "
-                    "for faster renders.)"
+                    "  (NumPy fallback — install the [performance] extra for faster renders.)"
                 )
             self.status_label = QLabel(base_msg, self)
             self.status_label.setObjectName("conradi_status")
@@ -753,13 +826,69 @@ def _build_panel_class() -> type:
             self._bind_click(self.canvas)
             outer.addWidget(self.canvas, 1)
 
+            # Seed the per-map loop geometry + build the initial path closure.
+            self._init_loop_geometry()
+
+        # ----- loop geometry (LOOP-EDIT) ------------------------------
+
+        def _init_loop_geometry(self) -> None:
+            """Reset the loop geometry to the active map's default shape.
+
+            Conradi uses the canonical Fourier teardrop (centre near the
+            notebook's (5.46, 4.55), wrapped to ``[0, 2*pi)``); Clifford uses a
+            plain non-wrapping ellipse centred in ``[-3, 3]``. Called at
+            construction and whenever the map changes; clears the "customized"
+            flag so the editor may re-seed the centre from the current pick.
+            """
+            if self._is_conradi_selected():
+                self._loop_center = list(param_path.DEFAULT_CENTER)
+                self._loop_radius = list(param_path.DEFAULT_RADIUS)
+                self._loop_rotation = float(param_path.DEFAULT_ROTATION)
+                self._loop_harmonics = param_path.DEFAULT_HARMONICS
+                self._loop_wrapped = True
+            else:
+                self._loop_center = list(param_path.CLIFFORD_LOOP_CENTER)
+                self._loop_radius = list(param_path.CLIFFORD_LOOP_RADIUS)
+                self._loop_rotation = 0.0
+                self._loop_harmonics = ()
+                self._loop_wrapped = False
+            self._loop_customized = False
+            self._rebuild_loop_fn()
+
+        def _rebuild_loop_fn(self) -> None:
+            """Rebuild ``_loop_path_fn`` as a closure over the current geometry.
+
+            Every animation path (the precompute worker + the inset polyline)
+            reads ``_loop_path_fn``, so editing the geometry and calling this is
+            all that is needed to re-shape the loop. With the per-map defaults
+            this closure is point-for-point identical to the previous fixed
+            ``param_loop`` / ``clifford_param_loop`` behaviour.
+            """
+            center = (float(self._loop_center[0]), float(self._loop_center[1]))
+            radius = (float(self._loop_radius[0]), float(self._loop_radius[1]))
+            rotation = float(self._loop_rotation)
+            harmonics = self._loop_harmonics
+            wrap = self._loop_wrapped
+
+            def _fn(
+                t: Any,
+                _c: Any = center,
+                _r: Any = radius,
+                _h: Any = harmonics,
+                _rot: float = rotation,
+                _w: bool = wrap,
+            ) -> Any:
+                return param_path.param_loop(
+                    t, center=_c, radius=_r, harmonics=_h, rotation=_rot, wrap=_w
+                )
+
+            self._loop_path_fn = _fn
+
         # ----- click-to-pick (screening mode) -------------------------
 
         def _bind_click(self, canvas: Any) -> None:
             """Connect the matplotlib button-press handler to ``canvas``."""
-            self._click_cid = canvas.mpl_connect(
-                "button_press_event", self._on_canvas_click
-            )
+            self._click_cid = canvas.mpl_connect("button_press_event", self._on_canvas_click)
 
         def _on_canvas_click(self, event: Any) -> None:
             """In screening mode, a click sets (a, b) to the clicked cell.
@@ -778,9 +907,7 @@ def _build_panel_class() -> type:
             a_spin, b_spin = self._active_ab_spins()
             a_spin.setValue(a)
             b_spin.setValue(b)
-            self.status_label.setText(
-                f"Picked a = {a:.3f}, b = {b:.3f}. Press Render to draw it."
-            )
+            self.status_label.setText(f"Picked a = {a:.3f}, b = {b:.3f}. Press Render to draw it.")
             if self._last_lle is not None:
                 self._show_screen(self._last_lle)  # redraw marker at new (a, b)
 
@@ -842,22 +969,19 @@ def _build_panel_class() -> type:
             """Switch the parameter page + sync the active map / control gating."""
             is_conradi = self._is_conradi_selected()
             self.param_stack.setCurrentIndex(0 if is_conradi else 1)
-            # Leaving the current map cancels any in-flight playback / anim view.
+            # Leaving the current map cancels any in-flight playback / anim view
+            # and closes the loop editor.
             self._stop_play()
+            self._teardown_editor()
             self._teardown_anim_view()
             _a, _b, map_fn, extent = self._active_render_spec()
             self._map_fn = map_fn
             self._extent = extent
-            # CAL-001: per-map animation-loop geometry. Conradi uses the default
-            # 2*pi-wrapped param_loop; Clifford uses a non-wrapping loop in
-            # [-3, 3]. Screening (CMP-004) + animation (CAL-001) now both work
-            # for every map.
-            if is_conradi:
-                self._loop_path_fn = None
-                self._loop_wrapped = True
-            else:
-                self._loop_path_fn = param_path.clifford_param_loop
-                self._loop_wrapped = False
+            # CAL-001 / LOOP-EDIT: reset to the new map's default loop geometry.
+            # Conradi uses the 2*pi-wrapped Fourier teardrop; Clifford a plain
+            # non-wrapping ellipse in [-3, 3]. Screening (CMP-004) + animation
+            # (CAL-001) + the loop editor (LOOP-EDIT) all work for every map.
+            self._init_loop_geometry()
             self.screen_button.setEnabled(True)
             self.animate_button.setEnabled(True)
             name = self.map_box.currentText()
@@ -933,8 +1057,7 @@ def _build_panel_class() -> type:
             lit = int(np.any(rgba[..., :3] > 0, axis=2).sum())
             total = int(rgba.shape[0] * rgba.shape[1])
             self.status_label.setText(
-                f"Rendered {rgba.shape[1]}×{rgba.shape[0]}: "
-                f"{lit}/{total} lit pixels."
+                f"Rendered {rgba.shape[1]}×{rgba.shape[0]}: {lit}/{total} lit pixels."
             )
             self._refresh_plot(rgba)
 
@@ -952,6 +1075,7 @@ def _build_panel_class() -> type:
             self.render_button.setEnabled(not busy)
             self.screen_button.setEnabled(not busy)
             self.animate_button.setEnabled(not busy)
+            self.edit_loop_button.setEnabled(not busy)
 
         # ----- screening (CSC-004 / CMP-004) --------------------------
 
@@ -971,9 +1095,7 @@ def _build_panel_class() -> type:
                 f"Screening the {self.map_box.currentText()} (a, b) plane on a "
                 f"{_SCREEN_GRID}×{_SCREEN_GRID} grid (largest Lyapunov exponent)..."
             )
-            worker = screen_worker_cls(
-                _SCREEN_GRID, a_range, b_range, step_fn, jacobian_push_fn
-            )
+            worker = screen_worker_cls(_SCREEN_GRID, a_range, b_range, step_fn, jacobian_push_fn)
             thread = QThread(self)
             worker.moveToThread(thread)
             thread.started.connect(worker.run)
@@ -1006,6 +1128,7 @@ def _build_panel_class() -> type:
 
             from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
 
+            self._teardown_editor()  # the heatmap replaces any open loop editor
             a_spin, b_spin = self._active_ab_spins()
             fig = _build_screen_figure(
                 lle,
@@ -1030,15 +1153,15 @@ def _build_panel_class() -> type:
             self._stop_play()
             self._set_busy(True)
             self.export_button.setEnabled(False)
-            self.progress_bar.setRange(0, _ANIM_N_FRAMES)
+            n_frames = int(self.frames_spin.value())
+            self.progress_bar.setRange(0, n_frames)
             self.progress_bar.setValue(0)
             self.progress_bar.setVisible(True)
             self.status_label.setText(
-                f"Precomputing {_ANIM_N_FRAMES} loop frames "
-                "(fixed brightness scale)..."
+                f"Precomputing {n_frames} loop frames (fixed brightness scale)..."
             )
             worker = anim_worker_cls(
-                _ANIM_N_FRAMES,
+                n_frames,
                 _ANIM_N_POINTS,
                 _ANIM_N_ITER,
                 _ANIM_BINS,
@@ -1096,6 +1219,8 @@ def _build_panel_class() -> type:
 
             from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
 
+            self._teardown_editor()  # the playback view replaces the editor
+            self._disconnect_inset()  # drop any prior inset-rotation handlers
             assert self._frames is not None and self._frame_ab is not None
             a, b = self._frame_ab[self._anim_index]
             fig = Figure(figsize=(6.0, 6.0), facecolor="black")
@@ -1119,28 +1244,33 @@ def _build_panel_class() -> type:
             # renders correctly rather than being squashed into [0, 2*pi].
             inset = fig.add_axes((0.70, 0.70, 0.27, 0.27))
             inset.set_facecolor("black")
-            loop_a, loop_b = _loop_polyline(
-                self._loop_path_fn, wrapped=self._loop_wrapped
-            )
-            inset.plot(loop_a, loop_b, color="#ffe100", linewidth=1.0)
-            (self._anim_marker,) = inset.plot(
-                [a], [b], marker="o", color="white", markersize=5
-            )
+            loop_a, loop_b = _loop_polyline(self._loop_path_fn, wrapped=self._loop_wrapped)
+            # LOOP-EDIT: keep a handle on the inset loop line so drag-to-rotate
+            # can spin it live before the frames re-render.
+            (self._anim_inset_line,) = inset.plot(loop_a, loop_b, color="#ffe100", linewidth=1.0)
+            (self._anim_marker,) = inset.plot([a], [b], marker="o", color="white", markersize=5)
             xlo, xhi = _loop_axis_limits(loop_a, a)
             ylo, yhi = _loop_axis_limits(loop_b, b)
             inset.set_xlim(xlo, xhi)
             inset.set_ylim(ylo, yhi)
             inset.set_xticks([])
             inset.set_yticks([])
-            inset.set_title("(a, b)", color="white", fontsize=8)
+            inset.set_title("(a, b) — drag to rotate", color="white", fontsize=8)
             for spine in inset.spines.values():
                 spine.set_color("#555555")
+            self._anim_inset_ax = inset
 
             new_canvas = FigureCanvasQTAgg(fig)
             new_canvas.setObjectName("conradi_canvas")
             swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
             self.canvas = new_canvas
             self._bind_click(new_canvas)
+            # LOOP-EDIT: drag-to-rotate handlers on the playback (a, b) inset.
+            self._inset_cids = [
+                new_canvas.mpl_connect("button_press_event", self._on_inset_press),
+                new_canvas.mpl_connect("motion_notify_event", self._on_inset_motion),
+                new_canvas.mpl_connect("button_release_event", self._on_inset_release),
+            ]
             self._screen_mode = False
 
         def _show_frame(self, index: int) -> None:
@@ -1164,16 +1294,27 @@ def _build_panel_class() -> type:
             else:
                 self._start_play()
 
+        def _timer_interval_ms(self) -> int:
+            """Playback timer interval (ms) from the Speed (fps) spinbox."""
+            fps = max(_MIN_FPS, int(self.fps_spin.value()))
+            return max(1, round(1000 / fps))
+
         def _start_play(self) -> None:
             if self._frames is None:
                 return
             if self._timer is None:
                 self._timer = QTimer(self)
-                self._timer.setInterval(_ANIM_TIMER_MS)
                 self._timer.timeout.connect(self._on_timer_tick)
+            # Pick up the current Speed each time playback starts.
+            self._timer.setInterval(self._timer_interval_ms())
             self._is_playing = True
             self.play_button.setText("Pause")
             self._timer.start()
+
+        def _on_fps_changed(self, _value: int) -> None:
+            """Apply a Speed change live to an already-running playback timer."""
+            if self._timer is not None and self._is_playing:
+                self._timer.setInterval(self._timer_interval_ms())
 
         def _stop_play(self) -> None:
             if self._timer is not None:
@@ -1194,6 +1335,369 @@ def _build_panel_class() -> type:
         def _on_scrub(self, value: int) -> None:
             self._stop_play()
             self._show_frame(int(value))
+
+        # ----- drag-to-rotate the playback (a, b) inset (LOOP-EDIT) ---
+
+        def _inset_angle(self, event: Any) -> float | None:
+            """Cursor angle (rad) about the loop centre, in inset (a, b) coords."""
+            if self._anim_inset_ax is None or event.inaxes is not self._anim_inset_ax:
+                return None
+            if event.xdata is None or event.ydata is None:
+                return None
+            cx, cy = self._loop_center
+            return math.atan2(float(event.ydata) - cy, float(event.xdata) - cx)
+
+        def _on_inset_press(self, event: Any) -> None:
+            if self._anim_inset_ax is None or getattr(event, "button", None) != 1:
+                return
+            if self._thread is not None and self._thread.isRunning():
+                return  # a precompute is in flight; don't start a rotation
+            angle = self._inset_angle(event)
+            if angle is None:
+                return
+            # Grab: remember the rotation + cursor angle so motion is relative.
+            self._stop_play()
+            self._inset_rotating = True
+            self._rot_at_grab = float(self._loop_rotation)
+            self._angle_at_grab = angle
+
+        def _on_inset_motion(self, event: Any) -> None:
+            if not self._inset_rotating:
+                return
+            if not self._left_button_held(event):
+                # Missed button-release (released off the inset/canvas): commit
+                # the rotation done so far instead of leaving it stuck to hover.
+                self._on_inset_release(event)
+                return
+            angle = self._inset_angle(event)
+            if angle is None:
+                return
+            self._loop_rotation = self._rot_at_grab + (angle - self._angle_at_grab)
+            self._loop_customized = True
+            self._rebuild_loop_fn()
+            self._spin_inset_loop()
+            self.status_label.setText(
+                f"Loop rotation {math.degrees(self._loop_rotation) % 360:.0f}° "
+                "— release to re-render the loop."
+            )
+
+        def _on_inset_release(self, _event: Any) -> None:
+            if not self._inset_rotating:
+                return
+            self._inset_rotating = False
+            # Nothing to do if the rotation didn't actually change (a bare click).
+            if abs(self._loop_rotation - self._rot_at_grab) < 1e-9:
+                return
+            # The swept (a, b) changed, so re-precompute the frames at the new
+            # rotation. Reuses the Animate path (progress bar + view rebuild).
+            self._on_animate()
+
+        def _spin_inset_loop(self) -> None:
+            """Live-update the inset loop polyline as the user rotates it."""
+            if self._anim_inset_line is None or self._anim_inset_ax is None:
+                return
+            loop_a, loop_b = _loop_polyline(self._loop_path_fn, wrapped=self._loop_wrapped)
+            self._anim_inset_line.set_data(loop_a, loop_b)
+            xlo, xhi = _loop_axis_limits(loop_a, self._loop_center[0])
+            ylo, yhi = _loop_axis_limits(loop_b, self._loop_center[1])
+            self._anim_inset_ax.set_xlim(xlo, xhi)
+            self._anim_inset_ax.set_ylim(ylo, yhi)
+            self.canvas.draw_idle()
+
+        def _disconnect_inset(self) -> None:
+            """Disconnect inset-rotation handlers + drop the inset artists."""
+            self._inset_rotating = False
+            for cid in self._inset_cids:
+                try:
+                    self.canvas.mpl_disconnect(cid)
+                except Exception:  # pragma: no cover - canvas already gone
+                    pass
+            self._inset_cids = []
+            self._anim_inset_ax = None
+            self._anim_inset_line = None
+
+        # ----- interactive loop editor (LOOP-EDIT) --------------------
+
+        def _on_edit_loop(self) -> None:
+            """Open the draggable (a, b) loop editor on the main canvas.
+
+            If the loop is still at its per-map default (the user has not yet
+            dragged a handle), the centre is seeded from the current ``(a, b)``
+            pick — so picking a point in the screening heatmap and then editing
+            starts the loop already centred there.
+            """
+            if self._thread is not None and self._thread.isRunning():
+                return
+            self._stop_play()
+            if not self._loop_customized:
+                a_spin, b_spin = self._active_ab_spins()
+                (a_lo, a_hi), (b_lo, b_hi) = self._active_param_range()
+                self._loop_center = [
+                    min(max(float(a_spin.value()), a_lo), a_hi),
+                    min(max(float(b_spin.value()), b_lo), b_hi),
+                ]
+                self._rebuild_loop_fn()
+            self._build_loop_editor()
+            self.status_label.setText(
+                "Loop editor: drag the white centre dot to move the loop, the "
+                "cyan rim handles to resize / rotate. Then press Animate loop."
+            )
+
+        def _handle_positions(
+            self,
+        ) -> tuple[dict[str, tuple[float, float]], tuple[float, float], tuple[float, float]]:
+            """Editor handle anchor points + the loop's local axis unit vectors.
+
+            Handles track the *fundamental ellipse* frame (the harmonics that
+            bend the drawn curve are ignored for the gizmo): ``center`` at the
+            centroid, ``ra`` at ``center + radius_a * u_x`` (primary axis,
+            controls length + rotation), ``rb`` at ``center + radius_b * u_y``
+            (secondary axis, controls width).
+            """
+            cx, cy = float(self._loop_center[0]), float(self._loop_center[1])
+            ra, rb = float(self._loop_radius[0]), float(self._loop_radius[1])
+            rot = float(self._loop_rotation)
+            ux = (math.cos(rot), math.sin(rot))
+            uy = (-math.sin(rot), math.cos(rot))
+            pos = {
+                "center": (cx, cy),
+                "ra": (cx + ra * ux[0], cy + ra * ux[1]),
+                "rb": (cx + rb * uy[0], cy + rb * uy[1]),
+            }
+            return pos, ux, uy
+
+        def _build_loop_editor(self) -> None:
+            """Swap the canvas to the draggable (a, b) loop editor."""
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+
+            from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
+            self._teardown_editor()  # disconnect any prior editor first
+            (a_lo, a_hi), (b_lo, b_hi) = self._active_param_range()
+            span_a, span_b = a_hi - a_lo, b_hi - b_lo
+
+            fig = Figure(figsize=(6.0, 6.0), facecolor="black")
+            ax = fig.add_subplot(111)
+            ax.set_facecolor("black")
+            # Use the most recent screening heatmap as a backdrop when it covers
+            # this map's (a, b) plane, so the user places the loop over visible
+            # structure. (The ranges must match the active map's sweep domain.)
+            if (
+                self._last_lle is not None
+                and abs(self._screen_a_range[0] - a_lo) < 1e-6
+                and abs(self._screen_a_range[1] - a_hi) < 1e-6
+                and abs(self._screen_b_range[0] - b_lo) < 1e-6
+                and abs(self._screen_b_range[1] - b_hi) < 1e-6
+            ):
+                ax.imshow(
+                    self._last_lle,
+                    origin="lower",
+                    extent=(a_lo, a_hi, b_lo, b_hi),
+                    cmap=colormaps.get(_SCREEN_CMAP),
+                    aspect="auto",
+                    interpolation="nearest",
+                    alpha=0.85,
+                )
+            ax.set_xlim(a_lo - 0.08 * span_a, a_hi + 0.08 * span_a)
+            ax.set_ylim(b_lo - 0.08 * span_b, b_hi + 0.08 * span_b)
+            ax.set_xlabel("a", color="white")
+            ax.set_ylabel("b", color="white")
+            ax.tick_params(colors="#888888")
+            ax.set_title(
+                "Loop editor — drag to position / resize / rotate",
+                color="white",
+                fontsize=10,
+            )
+            for spine in ax.spines.values():
+                spine.set_color("#555555")
+            self._editor_ax = ax
+            self._draw_loop_artists(ax)
+
+            new_canvas = FigureCanvasQTAgg(fig)
+            new_canvas.setObjectName("conradi_canvas")
+            swap_mpl_canvas(self.layout(), self.canvas, new_canvas)
+            self.canvas = new_canvas
+            self._bind_click(new_canvas)  # generic click stays bound but inert
+            self._editor_cids = [
+                new_canvas.mpl_connect("button_press_event", self._on_editor_press),
+                new_canvas.mpl_connect("motion_notify_event", self._on_editor_motion),
+                new_canvas.mpl_connect("button_release_event", self._on_editor_release),
+            ]
+            self._loop_edit_mode = True
+            self._screen_mode = False
+            self._drag_handle = None
+            # Leaving the playback view: drop the (now-dead) anim artists +
+            # inset-rotation handlers.
+            self._stop_play()
+            self._disconnect_inset()
+            self._anim_im = None
+            self._anim_marker = None
+            self.play_button.setEnabled(False)
+            self.scrubber.setEnabled(False)
+
+        def _draw_loop_artists(self, ax: Any) -> None:
+            """Draw the loop polyline + the three drag handles + axis guides."""
+            loop_a, loop_b = _loop_polyline(self._loop_path_fn, wrapped=self._loop_wrapped)
+            (self._loop_line,) = ax.plot(loop_a, loop_b, color="#ffe100", linewidth=1.6, zorder=5)
+            pos, _ux, _uy = self._handle_positions()
+            cx, cy = pos["center"]
+            self._axis_lines = {}
+            for name in ("ra", "rb"):
+                (self._axis_lines[name],) = ax.plot(
+                    [cx, pos[name][0]],
+                    [cy, pos[name][1]],
+                    color="#777777",
+                    linewidth=0.8,
+                    zorder=4,
+                )
+            colors = {"center": "#ffffff", "ra": "#00e5ff", "rb": "#00e5ff"}
+            self._handle_pts = {}
+            for name in ("center", "ra", "rb"):
+                (self._handle_pts[name],) = ax.plot(
+                    [pos[name][0]],
+                    [pos[name][1]],
+                    marker="o",
+                    color=colors[name],
+                    markersize=9,
+                    markeredgecolor="black",
+                    markeredgewidth=1.0,
+                    linestyle="None",
+                    zorder=6,
+                )
+
+        def _update_loop_artists(self) -> None:
+            """Refresh the loop + handle artists in place after a drag."""
+            if self._loop_line is None:
+                return
+            loop_a, loop_b = _loop_polyline(self._loop_path_fn, wrapped=self._loop_wrapped)
+            self._loop_line.set_data(loop_a, loop_b)
+            pos, _ux, _uy = self._handle_positions()
+            cx, cy = pos["center"]
+            for name in ("ra", "rb"):
+                line = self._axis_lines.get(name)
+                if line is not None:
+                    line.set_data([cx, pos[name][0]], [cy, pos[name][1]])
+            for name in ("center", "ra", "rb"):
+                pt = self._handle_pts.get(name)
+                if pt is not None:
+                    pt.set_data([pos[name][0]], [pos[name][1]])
+            self.canvas.draw_idle()
+
+        def _hit_test_handle(self, event: Any) -> str | None:
+            """Return the handle name under the cursor, or None.
+
+            Hit-tests in *data* coordinates (``event.xdata`` / ``event.ydata``)
+            with a per-axis-normalized tolerance, NOT in display pixels. Pixel
+            hit-testing via ``event.x`` / ``event.y`` vs ``transData`` is
+            unreliable on hi-DPI displays (the Qt backend's device-pixel-ratio
+            makes the two coordinate systems disagree), which made the handles
+            un-grabbable on scaled Windows displays. Data coords are
+            DPI-independent; normalizing each axis by its span makes the grab
+            radius aspect-independent (the editor uses ``aspect="auto"``).
+            """
+            if self._editor_ax is None or event.inaxes is not self._editor_ax:
+                return None
+            if event.xdata is None or event.ydata is None:
+                return None
+            (a_lo, a_hi), (b_lo, b_hi) = self._active_param_range()
+            span_a = max(a_hi - a_lo, 1e-9)
+            span_b = max(b_hi - b_lo, 1e-9)
+            px, py = float(event.xdata), float(event.ydata)
+            pos, _ux, _uy = self._handle_positions()
+            best: str | None = None
+            best_d = _HANDLE_TOL_FRAC
+            for name in ("center", "ra", "rb"):
+                hx, hy = pos[name]
+                d = math.hypot((hx - px) / span_a, (hy - py) / span_b)
+                if d <= best_d:
+                    best_d = d
+                    best = name
+            return best
+
+        @staticmethod
+        def _left_button_held(event: Any) -> bool:
+            """True if the left mouse button is held during a motion event.
+
+            matplotlib 3.x reports held buttons on ``motion_notify_event`` via
+            the ``buttons`` frozenset (``button`` is ``None`` for motion). We use
+            it to **self-heal a missed** ``button_release_event``: if the user
+            releases the mouse off the axes / off the canvas, the release never
+            reaches us, so a stale ``_drag_handle`` would make the handle stick
+            to the *hovering* cursor — the "can't readjust a second time" bug.
+            A motion with no left button held is treated as a drop. Falls back to
+            ``event.button`` for synthesized test events that lack ``buttons``.
+            """
+            buttons = getattr(event, "buttons", None)
+            if buttons is not None:
+                return 1 in buttons
+            return getattr(event, "button", None) == 1
+
+        def _on_editor_press(self, event: Any) -> None:
+            if not self._loop_edit_mode or getattr(event, "button", None) != 1:
+                return
+            self._drag_handle = self._hit_test_handle(event)
+
+        def _on_editor_motion(self, event: Any) -> None:
+            if not self._loop_edit_mode or self._drag_handle is None:
+                return
+            if not self._left_button_held(event):
+                self._drag_handle = None  # self-heal a missed button-release
+                return
+            if event.inaxes is not self._editor_ax:
+                return
+            if event.xdata is None or event.ydata is None:
+                return
+            px, py = float(event.xdata), float(event.ydata)
+            self._loop_customized = True
+            (a_lo, a_hi), (b_lo, b_hi) = self._active_param_range()
+            r_max = 0.49 * min(a_hi - a_lo, b_hi - b_lo)
+
+            def _clamp_r(value: float) -> float:
+                return min(max(value, _MIN_LOOP_RADIUS), r_max)
+
+            if self._drag_handle == "center":
+                self._loop_center = [
+                    min(max(px, a_lo), a_hi),
+                    min(max(py, b_lo), b_hi),
+                ]
+            elif self._drag_handle == "ra":
+                cx, cy = self._loop_center
+                vx, vy = px - cx, py - cy
+                self._loop_rotation = math.atan2(vy, vx)
+                self._loop_radius[0] = _clamp_r(math.hypot(vx, vy))
+            elif self._drag_handle == "rb":
+                cx, cy = self._loop_center
+                rot = self._loop_rotation
+                uy = (-math.sin(rot), math.cos(rot))
+                proj = (px - cx) * uy[0] + (py - cy) * uy[1]
+                self._loop_radius[1] = _clamp_r(abs(proj))
+            self._rebuild_loop_fn()
+            self._update_loop_artists()
+            self.status_label.setText(
+                f"Loop centre ({self._loop_center[0]:.2f}, "
+                f"{self._loop_center[1]:.2f}), size ({self._loop_radius[0]:.2f}, "
+                f"{self._loop_radius[1]:.2f}), rot "
+                f"{math.degrees(self._loop_rotation):.0f}°. Press Animate loop."
+            )
+
+        def _on_editor_release(self, _event: Any) -> None:
+            self._drag_handle = None
+
+        def _teardown_editor(self) -> None:
+            """Disconnect the editor drag handlers and drop its artists."""
+            self._loop_edit_mode = False
+            self._drag_handle = None
+            for cid in self._editor_cids:
+                try:
+                    self.canvas.mpl_disconnect(cid)
+                except Exception:  # pragma: no cover - canvas already gone
+                    pass
+            self._editor_cids = []
+            self._editor_ax = None
+            self._loop_line = None
+            self._handle_pts = {}
+            self._axis_lines = {}
 
         # ----- export (CSC-006) ---------------------------------------
 
@@ -1218,15 +1722,14 @@ def _build_panel_class() -> type:
             if not self._frames:
                 self.status_label.setText("Nothing to export — animate first.")
                 return False
+            fps = max(_MIN_FPS, int(self.fps_spin.value()))
             try:
-                out = write_frames(path, self._frames, fps=_ANIM_FPS)
+                out = write_frames(path, self._frames, fps=fps)
             except (ValueError, OSError, RuntimeError, ImportError) as exc:
-                self.status_label.setText(
-                    f"Export failed: {type(exc).__name__}: {exc}"
-                )
+                self.status_label.setText(f"Export failed: {type(exc).__name__}: {exc}")
                 return False
             self.status_label.setText(
-                f"Saved {len(self._frames)} frames to {out.name}."
+                f"Saved {len(self._frames)} frames at {fps} fps to {out.name}."
             )
             return True
 
@@ -1237,6 +1740,7 @@ def _build_panel_class() -> type:
             the (now-dead) AxesImage / marker are never updated by a stray tick.
             """
             self._stop_play()
+            self._disconnect_inset()
             self._anim_im = None
             self._anim_marker = None
             self.play_button.setEnabled(False)
@@ -1256,6 +1760,8 @@ def _build_panel_class() -> type:
             from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
             from chaotic_systems.gui._panel_helpers import swap_mpl_canvas
+
+            self._teardown_editor()  # a still replaces any open loop editor
 
             fig = _build_figure(
                 rgba,

@@ -111,6 +111,63 @@ follow-ups:
    future direction for tutorial videos that explain each system before
    the live simulation runs.
 
+## Recently shipped (2026-06-03, interactive loop editor + frame/speed controls — LOOP-EDIT)
+
+- **LOOP-EDIT — user-adjustable Conradi/Clifford animation loop** (uncommitted
+  as of writing; `gui/conradi_panel.py`). Closes the gap a user flagged: you
+  could pick `(a,b)` via "Screen" and render a still there, but the animation
+  loop was a *fixed* Fourier teardrop hard-coded at centre `(5.4,4.4)` —
+  independent of the pick — with frame count (48/24) and fps (12) frozen as
+  module constants. Three additions, all native Qt + matplotlib (no new deps):
+  1. **Frames** + **Speed (fps)** spinboxes (`conradi_frames` / `conradi_fps`).
+     Frames drives `_on_animate`'s `precompute_loop_frames` count; Speed drives
+     **both** the playback `QTimer` interval (live via `_on_fps_changed`) and the
+     exported GIF/MP4 `write_frames(fps=…)`, so preview == export.
+  2. **"Edit loop"** button (`conradi_edit_loop`) opens an interactive `(a,b)`
+     loop editor on the main canvas — drawn over the screening heatmap when one
+     covers the active map's plane. Drag the white **centre** dot to reposition
+     the loop, the cyan **rim handles** to resize (`ra` = primary axis length +
+     rotation, `rb` = secondary axis width). A classic 3-handle ellipse gizmo
+     (`button_press`/`motion_notify`/`button_release` on the editor canvas, pixel
+     hit-test via `transData`). If the loop is still at its per-map default, the
+     editor **seeds its centre from the current `(a,b)` pick** — so Screen→pick→
+     Edit loop now centres the loop where you clicked (the core complaint).
+     During playback the `(a,b)` inset doubles as a **rotation knob**: drag it to
+     spin the loop live (`_on_inset_press`/`_motion`/`_release`), and on release
+     the frames re-precompute at the new rotation (reuses `_on_animate`).
+  3. The loop is no longer a fixed `path_fn`: `_loop_path_fn` is always a closure
+     (`_rebuild_loop_fn`) over editable geometry state (`_loop_center` /
+     `_loop_radius` / `_loop_rotation` / `_loop_harmonics`). With the per-map
+     defaults it is **point-for-point identical** to the previous
+     `param_loop` (Conradi) / `clifford_param_loop` (Clifford) paths, so the
+     default animation is byte-stable. The editor is torn down whenever a render,
+     screen, animation, or map-change replaces the canvas (`_teardown_editor`).
+  Additive: every prior animation/export contract is preserved; only the
+  `_loop_path_fn`-identity test (CAL-001) was updated to assert closure behaviour
+  instead. **Hi-DPI fix:** the editor handle hit-test was rewritten to use *data*
+  coordinates (`event.xdata`/`ydata`, per-axis-normalized) instead of display
+  pixels (`event.x`/`y` vs `transData`) — on a scaled Windows display the two
+  pixel systems disagree (device-pixel-ratio), which made the handles
+  un-grabbable even though click-to-pick (data-coord based) worked. **Sticky-drag
+  fix:** the drag-motion handlers now self-heal a *missed* `button_release_event`
+  (released off the axes/canvas, so the release never reached the canvas) by
+  checking the held-button set matplotlib reports on motion (`event.buttons`, a
+  frozenset — `button` is None for motion) and ending the drag when no button is
+  held. Without it, a stale `_drag_handle` made the handle follow the *hovering*
+  cursor, so you couldn't readjust the loop a second time (intermittent — it
+  depended on where you released). Observables
+  (1 updated + 18 new panel tests; 61 passing offscreen, 1
+  deselected): frames spinbox sets the precompute count; fps sets the timer
+  interval (100ms@10, 40ms@25) and the export fps; "Edit loop" enters edit mode
+  with 3 handles and seeds the centre from the pick; centre/ra/rb drags move the
+  loop / set radius+rotation / set the secondary radius; the playback inset
+  rotates the loop (+90° drag → rotation +π/2) and re-animates on release, while
+  a bare click or out-of-inset press is inert; a render tears the editor +
+  inset handlers down; a map change resets geometry to the map's default. NOTE: the GUI
+  suite is display-gated and the VTK main-window test still segfaults headless on
+  this Windows box (pre-existing), so verification ran the panel tests offscreen
+  with `CHAOTIC_GUI_TESTS_USE_DISPLAY=1`, deselecting the main-window test.
+
 ## Recently shipped (2026-06-02, Clifford animation loop — CAL-001)
 
 - **CAL-001 — non-wrapping `param_loop` + per-map animation loop geometry**

@@ -192,9 +192,7 @@ def test_render_after_screen_leaves_screen_mode(qtbot) -> None:  # type: ignore[
 def _small_loop():  # type: ignore[no-untyped-def]
     from chaotic_systems.visualization import param_path
 
-    return param_path.precompute_loop_frames(
-        4, n_points=40, n_iter=40, bins=48, prescan_frames=2
-    )
+    return param_path.precompute_loop_frames(4, n_points=40, n_iter=40, bins=48, prescan_frames=2)
 
 
 def test_animation_controls_exist(qtbot) -> None:  # type: ignore[no-untyped-def]
@@ -398,16 +396,28 @@ def test_worker_default_map_is_conradi(qtbot) -> None:  # type: ignore[no-untype
     from chaotic_systems.visualization import attractor_density
 
     worker = _build_worker_class()(
-        a=5.46, b=4.55, n_points=40, n_iter=40, bins=48,
-        tone="log", cmap_name="magma", bloom=False,
+        a=5.46,
+        b=4.55,
+        n_points=40,
+        n_iter=40,
+        bins=48,
+        tone="log",
+        cmap_name="magma",
+        bloom=False,
     )
     captured: list[np.ndarray] = []
     worker.finished.connect(captured.append)
     worker.run()
     assert len(captured) == 1
     expected = attractor_density.render(
-        5.46, 4.55, n_points=40, n_iter=40, bins=48,
-        tone="log", cmap_name="magma", bloom=False,
+        5.46,
+        4.55,
+        n_points=40,
+        n_iter=40,
+        bins=48,
+        tone="log",
+        cmap_name="magma",
+        bloom=False,
     )
     assert np.array_equal(captured[0], expected)
 
@@ -527,8 +537,14 @@ def test_clifford_selection_renders_nontrivial_figure(qtbot) -> None:  # type: i
     panel._on_clifford_preset(0)  # noqa: SLF001
     a, b, map_fn, extent = panel._active_render_spec()  # noqa: SLF001
     rgba = attractor_density.render(
-        a, b, map_fn=map_fn, extent=extent,
-        n_points=60, n_iter=60, bins=80, tone="log",
+        a,
+        b,
+        map_fn=map_fn,
+        extent=extent,
+        n_points=60,
+        n_iter=60,
+        bins=80,
+        tone="log",
     )
     lit = np.any(rgba[..., :3] > 0, axis=2)
     assert lit.any() and not lit.all()
@@ -593,20 +609,393 @@ def test_clifford_screen_click_clamps_to_range(qtbot) -> None:  # type: ignore[n
 
 
 def test_loop_path_fn_selected_per_map(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """The loop closure reproduces each map's default path (LOOP-EDIT).
+
+    ``_loop_path_fn`` is now always a closure over the editable geometry, not a
+    module-level identity. With the per-map defaults it must be point-for-point
+    identical to the original ``param_loop`` / ``clifford_param_loop``.
+    """
     from chaotic_systems.visualization import param_path
 
     panel = _make_panel(qtbot)
-    # Conradi (default): the default param_loop (None) + wrapped.
-    assert panel._loop_path_fn is None  # noqa: SLF001
+    # Conradi (default): the default Fourier teardrop + wrapped.
+    assert callable(panel._loop_path_fn)  # noqa: SLF001
     assert panel._loop_wrapped is True  # noqa: SLF001
+    for t in (0.0, 0.3, 0.77):
+        got = panel._loop_path_fn(t)  # noqa: SLF001
+        exp = param_path.param_loop(t)
+        assert got == pytest.approx(exp)
 
     panel.map_box.setCurrentText("Clifford")
-    assert panel._loop_path_fn is param_path.clifford_param_loop  # noqa: SLF001
+    assert callable(panel._loop_path_fn)  # noqa: SLF001
     assert panel._loop_wrapped is False  # noqa: SLF001
+    for t in (0.0, 0.3, 0.77):
+        got = panel._loop_path_fn(t)  # noqa: SLF001
+        exp = param_path.clifford_param_loop(t)
+        assert got == pytest.approx(exp)
 
     panel.map_box.setCurrentText("Conradi")
-    assert panel._loop_path_fn is None  # noqa: SLF001
     assert panel._loop_wrapped is True  # noqa: SLF001
+    assert panel._loop_path_fn(0.3) == pytest.approx(  # noqa: SLF001
+        param_path.param_loop(0.3)
+    )
+
+
+# --- LOOP-EDIT: frames/speed controls + interactive loop editor ------------
+
+
+def test_frames_and_speed_controls_exist(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.gui.conradi_panel import _ANIM_FPS, _ANIM_N_FRAMES
+
+    panel = _make_panel(qtbot)
+    assert panel.frames_spin.objectName() == "conradi_frames"
+    assert panel.fps_spin.objectName() == "conradi_fps"
+    assert panel.frames_spin.value() == _ANIM_N_FRAMES
+    assert panel.fps_spin.value() == _ANIM_FPS
+    assert panel.edit_loop_button.objectName() == "conradi_edit_loop"
+
+
+def test_frames_spin_drives_precompute_count(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """The Frames spinbox sets how many frames _on_animate precomputes.
+
+    We stub ``QThread.start`` so no real precompute runs; the progress-bar
+    range is set synchronously from the Frames value, so it is a faithful proxy
+    for the count handed to the worker.
+    """
+    from unittest.mock import patch
+
+    from PySide6.QtCore import QThread
+
+    panel = _make_panel(qtbot)
+    panel.frames_spin.setValue(11)
+    with patch.object(QThread, "start", lambda self: None):
+        panel._on_animate()  # noqa: SLF001
+    assert panel.progress_bar.maximum() == 11
+    panel._cleanup_thread()  # noqa: SLF001 - drop the never-started thread
+
+
+def test_fps_spin_drives_timer_interval(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel.fps_spin.setValue(10)
+    assert panel._timer_interval_ms() == 100  # noqa: SLF001
+    panel.fps_spin.setValue(25)
+    assert panel._timer_interval_ms() == 40  # noqa: SLF001
+
+
+def test_export_uses_fps_spin(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The Speed spinbox sets the exported file's fps (LOOP-EDIT)."""
+    from unittest.mock import patch
+
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    panel.fps_spin.setValue(30)
+    captured: dict[str, int] = {}
+
+    def _fake_write(path, frames, *, fps, **kwargs):  # type: ignore[no-untyped-def]
+        captured["fps"] = fps
+        from pathlib import Path
+
+        return Path(path)
+
+    with patch("chaotic_systems.visualization.renderer.write_frames", _fake_write):
+        ok = panel._export_frames_to(str(tmp_path / "loop.gif"))  # noqa: SLF001
+    panel._stop_play()  # noqa: SLF001
+    assert ok is True
+    assert captured["fps"] == 30
+
+
+def test_edit_loop_opens_editor_and_seeds_centre(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Edit loop enters edit mode and seeds the centre from the current pick."""
+    panel = _make_panel(qtbot)
+    panel.a_spin.setValue(3.0)
+    panel.b_spin.setValue(2.0)
+    panel._on_edit_loop()  # noqa: SLF001
+    assert panel._loop_edit_mode is True  # noqa: SLF001
+    assert set(panel._handle_pts) == {"center", "ra", "rb"}  # noqa: SLF001
+    # Centre seeded from the (a, b) spinboxes (loop not yet customized).
+    assert panel._loop_center == pytest.approx([3.0, 2.0])  # noqa: SLF001
+
+
+def _editor_event(panel, handle: str, *, to=None):  # type: ignore[no-untyped-def]
+    """Build a synthetic mpl event over ``handle`` (or dragged ``to`` data)."""
+    from types import SimpleNamespace
+
+    pos, _ux, _uy = panel._handle_positions()  # noqa: SLF001
+    hx, hy = pos[handle]
+    ax = panel._editor_ax  # noqa: SLF001
+    disp = ax.transData.transform((hx, hy))
+    xdata, ydata = (hx, hy) if to is None else to
+    return SimpleNamespace(button=1, x=disp[0], y=disp[1], inaxes=ax, xdata=xdata, ydata=ydata)
+
+
+def test_handle_hit_test_uses_data_coords_not_pixels(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Regression: handles grab from data coords, independent of pixel coords.
+
+    On hi-DPI displays ``event.x`` / ``event.y`` disagree with ``transData``
+    pixels, which made the handles un-grabbable. The hit-test must rely on
+    ``event.xdata`` / ``event.ydata`` only — so a press with bogus pixel coords
+    but correct data coords still grabs the centre handle.
+    """
+    from types import SimpleNamespace
+
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    cx, cy = panel._loop_center  # noqa: SLF001
+    event = SimpleNamespace(
+        button=1,
+        inaxes=panel._editor_ax,  # noqa: SLF001
+        xdata=cx,
+        ydata=cy,
+        x=-9999,  # deliberately wrong pixel coords
+        y=-9999,
+    )
+    assert panel._hit_test_handle(event) == "center"  # noqa: SLF001
+    panel._on_editor_press(event)  # noqa: SLF001
+    assert panel._drag_handle == "center"  # noqa: SLF001
+
+
+def test_drag_centre_moves_loop(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    panel._on_editor_press(_editor_event(panel, "center"))  # noqa: SLF001
+    assert panel._drag_handle == "center"  # noqa: SLF001
+    panel._on_editor_motion(  # noqa: SLF001
+        _editor_event(panel, "center", to=(4.0, 3.0))
+    )
+    assert panel._loop_center == pytest.approx([4.0, 3.0])  # noqa: SLF001
+    assert panel._loop_customized is True  # noqa: SLF001
+    panel._on_editor_release(_editor_event(panel, "center"))  # noqa: SLF001
+    assert panel._drag_handle is None  # noqa: SLF001
+
+
+def test_drag_ra_sets_radius_and_rotation(qtbot) -> None:  # type: ignore[no-untyped-def]
+    import math
+
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    cx, cy = panel._loop_center  # noqa: SLF001
+    panel._on_editor_press(_editor_event(panel, "ra"))  # noqa: SLF001
+    # Drag the primary axis handle straight up from the centre by 1.0.
+    panel._on_editor_motion(  # noqa: SLF001
+        _editor_event(panel, "ra", to=(cx, cy + 1.0))
+    )
+    assert panel._loop_radius[0] == pytest.approx(1.0, abs=1e-6)  # noqa: SLF001
+    assert panel._loop_rotation == pytest.approx(math.pi / 2, abs=1e-6)  # noqa: SLF001
+
+
+def test_drag_rb_sets_secondary_radius(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    cx, cy = panel._loop_center  # noqa: SLF001
+    rot0 = panel._loop_rotation  # noqa: SLF001
+    panel._on_editor_press(_editor_event(panel, "rb"))  # noqa: SLF001
+    # With the default rotation, the secondary (local-y) axis points along +b
+    # rotated by rot0; project a purely-vertical drag onto it.
+    panel._on_editor_motion(  # noqa: SLF001
+        _editor_event(panel, "rb", to=(cx, cy + 1.5))
+    )
+    assert panel._loop_radius[1] > 0.0  # noqa: SLF001
+    # rb drag must not change the rotation.
+    assert panel._loop_rotation == pytest.approx(rot0)  # noqa: SLF001
+
+
+def test_editor_motion_self_heals_missed_release(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """A hover (no button held) after a drag drops the grab — no sticky handle.
+
+    Regression for "can't readjust the loop a second time": when a release
+    happens off the canvas, ``button_release_event`` never fires, so a stale
+    ``_drag_handle`` made the handle follow the hovering cursor. A motion with
+    no left button held must end the drag.
+    """
+    from types import SimpleNamespace
+
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    panel._on_editor_press(_editor_event(panel, "center"))  # noqa: SLF001
+    panel._on_editor_motion(  # noqa: SLF001
+        _editor_event(panel, "center", to=(4.0, 3.0))
+    )
+    assert panel._loop_center == pytest.approx([4.0, 3.0])  # noqa: SLF001
+    # Missed release: a hover (button=None) clears the drag.
+    hover = SimpleNamespace(
+        button=None,
+        inaxes=panel._editor_ax,
+        xdata=1.0,
+        ydata=1.0,  # noqa: SLF001
+    )
+    panel._on_editor_motion(hover)  # noqa: SLF001
+    assert panel._drag_handle is None  # noqa: SLF001
+    # A further hover must NOT move the loop (no sticky follow).
+    before = list(panel._loop_center)  # noqa: SLF001
+    panel._on_editor_motion(  # noqa: SLF001
+        SimpleNamespace(
+            button=None,
+            inaxes=panel._editor_ax,
+            xdata=2.5,
+            ydata=2.5,  # noqa: SLF001
+        )
+    )
+    assert panel._loop_center == pytest.approx(before)  # noqa: SLF001
+
+
+def test_editor_drag_works_a_second_time(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Two consecutive grab/drag/drop cycles both take effect."""
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    # First adjustment.
+    panel._on_editor_press(_editor_event(panel, "center"))  # noqa: SLF001
+    panel._on_editor_motion(  # noqa: SLF001
+        _editor_event(panel, "center", to=(3.0, 3.0))
+    )
+    panel._on_editor_release(_editor_event(panel, "center"))  # noqa: SLF001
+    assert panel._loop_center == pytest.approx([3.0, 3.0])  # noqa: SLF001
+    # Second adjustment — grab the centre at its NEW position and move again.
+    panel._on_editor_press(_editor_event(panel, "center"))  # noqa: SLF001
+    assert panel._drag_handle == "center"  # noqa: SLF001
+    panel._on_editor_motion(  # noqa: SLF001
+        _editor_event(panel, "center", to=(4.5, 2.0))
+    )
+    panel._on_editor_release(_editor_event(panel, "center"))  # noqa: SLF001
+    assert panel._loop_center == pytest.approx([4.5, 2.0])  # noqa: SLF001
+
+
+def test_editor_torn_down_by_render(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import attractor_density
+
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    assert panel._loop_edit_mode is True  # noqa: SLF001
+    rgba = attractor_density.render(5.46, 4.55, n_points=40, n_iter=40, bins=48)
+    panel._on_finished(rgba)  # noqa: SLF001
+    assert panel._loop_edit_mode is False  # noqa: SLF001
+    assert panel._editor_ax is None  # noqa: SLF001
+    assert panel._editor_cids == []  # noqa: SLF001
+
+
+def test_map_change_resets_loop_geometry(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import param_path
+
+    panel = _make_panel(qtbot)
+    panel._on_edit_loop()  # noqa: SLF001
+    panel._on_editor_press(_editor_event(panel, "center"))  # noqa: SLF001
+    panel._on_editor_motion(  # noqa: SLF001
+        _editor_event(panel, "center", to=(1.0, 1.0))
+    )
+    assert panel._loop_customized is True  # noqa: SLF001
+    # Switching maps closes the editor and resets to that map's default loop.
+    panel.map_box.setCurrentText("Clifford")
+    assert panel._loop_edit_mode is False  # noqa: SLF001
+    assert panel._loop_customized is False  # noqa: SLF001
+    assert panel._loop_center == pytest.approx(  # noqa: SLF001
+        list(param_path.CLIFFORD_LOOP_CENTER)
+    )
+
+
+# --- LOOP-EDIT: drag-to-rotate the playback (a, b) inset -------------------
+
+
+def _inset_event(panel, *, at):  # type: ignore[no-untyped-def]
+    """Synthetic mpl event over the playback inset at data point ``at``."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(button=1, inaxes=panel._anim_inset_ax, xdata=at[0], ydata=at[1])
+
+
+def test_anim_inset_rotation_handlers_wired(qtbot) -> None:  # type: ignore[no-untyped-def]
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    try:
+        assert panel._anim_inset_ax is not None  # noqa: SLF001
+        assert len(panel._inset_cids) == 3  # noqa: SLF001
+    finally:
+        panel._stop_play()  # noqa: SLF001
+
+
+def test_inset_drag_rotates_loop_and_reanimates(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Dragging the inset spins the loop and re-precomputes on release."""
+    import math
+
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    cx, cy = panel._loop_center  # noqa: SLF001
+    rot0 = panel._loop_rotation  # noqa: SLF001
+    # Grab east of centre (angle 0), drag to north of centre (angle +90°).
+    panel._on_inset_press(_inset_event(panel, at=(cx + 1.0, cy)))  # noqa: SLF001
+    assert panel._inset_rotating is True  # noqa: SLF001
+    panel._on_inset_motion(_inset_event(panel, at=(cx, cy + 1.0)))  # noqa: SLF001
+    assert panel._loop_rotation == pytest.approx(rot0 + math.pi / 2)  # noqa: SLF001
+    assert panel._loop_customized is True  # noqa: SLF001
+    # Release re-precomputes; stub _on_animate so no worker thread spawns.
+    calls: list[int] = []
+    panel._on_animate = lambda: calls.append(1)  # type: ignore[method-assign]  # noqa: SLF001
+    panel._on_inset_release(_inset_event(panel, at=(cx, cy + 1.0)))  # noqa: SLF001
+    assert calls == [1]
+    assert panel._inset_rotating is False  # noqa: SLF001
+    panel._stop_play()  # noqa: SLF001
+
+
+def test_inset_press_outside_inset_ignored(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from types import SimpleNamespace
+
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    # A press whose inaxes is NOT the inset (e.g. the main image) is inert.
+    panel._on_inset_press(  # noqa: SLF001
+        SimpleNamespace(button=1, inaxes=object(), xdata=0.0, ydata=0.0)
+    )
+    assert panel._inset_rotating is False  # noqa: SLF001
+    panel._stop_play()  # noqa: SLF001
+
+
+def test_bare_inset_click_does_not_reanimate(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """Press + release with no motion must not trigger a re-precompute."""
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    cx, cy = panel._loop_center  # noqa: SLF001
+    calls: list[int] = []
+    panel._on_animate = lambda: calls.append(1)  # type: ignore[method-assign]  # noqa: SLF001
+    panel._on_inset_press(_inset_event(panel, at=(cx + 1.0, cy)))  # noqa: SLF001
+    panel._on_inset_release(_inset_event(panel, at=(cx + 1.0, cy)))  # noqa: SLF001
+    assert calls == []
+    panel._stop_play()  # noqa: SLF001
+
+
+def test_inset_motion_self_heals_missed_release(qtbot) -> None:  # type: ignore[no-untyped-def]
+    """A hover (no button) mid-rotation commits + stops (no sticky spin)."""
+    from types import SimpleNamespace
+
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    cx, cy = panel._loop_center  # noqa: SLF001
+    panel._on_inset_press(_inset_event(panel, at=(cx + 1.0, cy)))  # noqa: SLF001
+    panel._on_inset_motion(_inset_event(panel, at=(cx, cy + 1.0)))  # noqa: SLF001
+    assert panel._inset_rotating is True  # noqa: SLF001
+    calls: list[int] = []
+    panel._on_animate = lambda: calls.append(1)  # type: ignore[method-assign]  # noqa: SLF001
+    # Missed release detected on a buttonless hover -> commit (re-animate).
+    panel._on_inset_motion(  # noqa: SLF001
+        SimpleNamespace(
+            button=None,
+            inaxes=panel._anim_inset_ax,
+            xdata=cx,
+            ydata=cy + 1.0,  # noqa: SLF001
+        )
+    )
+    assert panel._inset_rotating is False  # noqa: SLF001
+    assert calls == [1]
+    panel._stop_play()  # noqa: SLF001
+
+
+def test_inset_disconnected_after_render(qtbot) -> None:  # type: ignore[no-untyped-def]
+    from chaotic_systems.visualization import attractor_density
+
+    panel = _make_panel(qtbot)
+    panel._on_anim_finished(_small_loop())  # noqa: SLF001
+    assert panel._anim_inset_ax is not None  # noqa: SLF001
+    rgba = attractor_density.render(5.46, 4.55, n_points=40, n_iter=40, bins=48)
+    panel._on_finished(rgba)  # noqa: SLF001
+    assert panel._anim_inset_ax is None  # noqa: SLF001
+    assert panel._inset_cids == []  # noqa: SLF001
 
 
 def test_clifford_animation_precomputes_and_builds_inset(qtbot) -> None:  # type: ignore[no-untyped-def]
